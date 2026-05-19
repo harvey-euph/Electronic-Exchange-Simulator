@@ -29,7 +29,6 @@ struct Order
 
 struct PriceLevel
 {
-    size_t   price_idx = 0;
     uint64_t total_qty = 0;
     uint64_t order_count = 0;
 
@@ -112,6 +111,6 @@ private:
 
     void send_reject(uint32_t client_id, std::string reason /* TODO: change to enum */);
     void send_acked(const Order* incoming);
-    void send_fill(const Order* incoming, const Order* existing, size_t price_idx, uint64_t qty_fill);
+    void send_fill(const Order* incoming, const Order* existing, uint64_t qty_fill);
 };
 }

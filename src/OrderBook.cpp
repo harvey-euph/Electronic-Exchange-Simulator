@@ -50,9 +50,10 @@ void OrderBook::send_acked(const Order* incoming)
 
 void OrderBook::send_fill(const Order* incoming,
                           const Order* existing,
-                          size_t price_idx,
                           uint64_t qty_fill)
 {
+    size_t price_idx = existing->price_level - price_array_.data();
+
     printf("[FILL] taker_order=%lu maker_order=%lu "
            "price_idx=%zu qty=%lu "
            "taker_remaining=%lu maker_remaining=%lu\n",
@@ -124,11 +125,11 @@ void OrderBook::handleNewOrder(const OrderRequest* req)
 
         if (req->side() == Side_Buy)
         {
-            crossed = price_idx >= (*oppo)->price_idx;
+            crossed = price_idx >= (size_t)((*oppo) - price_array_.data());
         }
         else
         {
-            crossed = price_idx <= (*oppo)->price_idx;
+            crossed = price_idx <= (size_t)((*oppo) - price_array_.data());
         }
 
         if (!crossed)
@@ -147,7 +148,7 @@ void OrderBook::handleNewOrder(const OrderRequest* req)
             incoming->qty_remaining -= qty_fill;
             (*oppo)->total_qty      -= qty_fill;
 
-            send_fill(incoming, existing, (*oppo)->price_idx, qty_fill);
+            send_fill(incoming, existing, qty_fill);
 
             if (existing->qty_remaining == 0)
             {
@@ -161,8 +162,9 @@ void OrderBook::handleNewOrder(const OrderRequest* req)
         }
         if (!(*oppo)->order_count)
         {
-            removePriceLevelIfEmpty((*oppo)->better);
-            *oppo = (*oppo)->worse;
+            active_levels_[1 - side_int].erase(*oppo - price_array_.data());
+            (*oppo) = (*oppo)->worse;
+            if (*oppo) (*oppo)->better = nullptr;
         }
     }
 
@@ -223,7 +225,12 @@ void OrderBook::showL2(size_t depth)
 
     for (size_t i = price_array_.size()-1; i < price_array_.size(); --i)
     {
-        if (price_array_[i].order_count || price_array_[i].total_qty || price_array_[i].better || price_array_[i].worse)
+        if (
+            price_array_[i].order_count || price_array_[i].total_qty || 
+            price_array_[i].dummy_head.next != &price_array_[i].dummy_tail ||
+            price_array_[i].dummy_tail.prev != &price_array_[i].dummy_head
+        )
+            //  || price_array_[i].better || price_array_[i].worse)
         {
             if (&price_array_[i] == best_levels_[1]) {
                 printf("[A1] ");
@@ -294,11 +301,23 @@ void OrderBook::removeOrderFromLevel(Order* order)
 
 void OrderBook::removePriceLevelIfEmpty(PriceLevel* level)
 {
-    if (level->order_count) return; 
+    if (!level || level->order_count) return; 
 
     if (level->worse) level->worse->better = level->worse;
     if (level->better) level->better->worse = level->better;
 }
+
+// void OrderBook::checkPriceLevelConsistent(size_t price_index)
+// {
+//     PriceLevel *pl = &price_array_[price_index];
+//     if (pl->dummy_tail.next || pl->dummy_head.prev) {
+//         std::cerr << "Error, dummy_tail.next or dummy_head.prev exists.\n";
+//     }
+//     if (pl->order_count || pl->total_qty ||
+//         pl->dummy_head.next != &pl->dummy_tail ||
+//         pl->dummy_tail.prev != &pl->dummy_head ||
+//     ) {}
+// }
 
 PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
 {
@@ -306,7 +325,6 @@ PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
 
     if (level->order_count > 0) return level;
 
-    level->price_idx   = price_idx;
     // level->total_qty   = 0;
     // level->order_count = 0;
 
