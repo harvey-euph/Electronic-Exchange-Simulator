@@ -1,5 +1,5 @@
 # ================================================
-# 交易所 OrderBook Makefile - 自動掃描 src/
+# 交易所 OrderBook Makefile
 # ================================================
 
 PROJECT_NAME := exchange_orderbook
@@ -7,65 +7,65 @@ CXX          := g++
 CXXFLAGS     := -std=c++20 -Wall -Wextra -O3 -march=native -flto -g
 CXXFLAGS     += -DNDEBUG
 
-# 目錄設定
 FBS_DIR      := fbs
 FBS_OUT      := include/generated
 SRC_DIR      := src
 INCLUDE_DIR  := include
 TEST_DIR     := tests
 
-# 主程式
 MAIN_SRC     := main.cpp
 SRCS         := $(MAIN_SRC) $(wildcard $(SRC_DIR)/*.cpp)
-
-# 測試相關
-TEST_TARGET  := orderbook_test
 TEST_SRC     := $(TEST_DIR)/OrderBookTest.cpp
-TEST_OBJS    := $(TEST_SRC:.cpp=.o) $(filter-out main.o, $(SRCS:.cpp=.o))
 
-# Includes
 INCLUDES     := -I$(INCLUDE_DIR) -I$(FBS_OUT) -I/usr/include -I/usr/local/include
 
-# Google Test
-GTEST_LIBS   := -lgtest -lgtest_main -pthread
-
 OBJS         := $(SRCS:.cpp=.o)
-DEPS         := $(OBJS:.o=.d)
+TEST_OBJS    := $(TEST_SRC:.cpp=.o) $(filter-out main.o, $(OBJS))
+
 TARGET       := $(PROJECT_NAME)
+TEST_TARGET  := orderbook_test
 
-all: fbs $(TARGET)
+# ==================== FlatBuffers ====================
+FBS_SOURCES := $(wildcard $(FBS_DIR)/*.fbs)
+FBS_HEADER  := $(FBS_OUT)/order_generated.h
 
-# FlatBuffers 編譯
-.PHONY: fbs
-fbs:
+# FlatBuffers 生成規則
+$(FBS_HEADER): $(FBS_SOURCES)
 	@mkdir -p $(FBS_OUT)
-	@flatc --cpp --gen-mutable --gen-object-api -o $(FBS_OUT) $(FBS_DIR)/*.fbs
-	@echo "FlatBuffers generated successfully."
+	flatc --cpp --gen-mutable --gen-object-api -o $(FBS_OUT) $(FBS_SOURCES)
+	@echo "FlatBuffers regenerated."
 
-# 主程式
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+# ===========================================================
 
-$(TARGET): $(OBJS)
+all: $(TARGET)
+
+# 主執行檔
+$(TARGET): $(FBS_HEADER) $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) -o $@
 	@echo "Build completed: $@"
 
-# ==================== 測試 ====================
-.PHONY: test
-test: fbs $(TEST_TARGET)
-	@echo "Running OrderBook tests..."
+# 測試
+test: $(TEST_TARGET)
+	@echo "Running tests..."
 	@./$(TEST_TARGET)
 
-$(TEST_TARGET): $(TEST_OBJS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@ $(GTEST_LIBS)
-	@echo "Test binary built: $@"
+$(TEST_TARGET): $(FBS_HEADER) $(TEST_OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@ -lgtest -lgtest_main -pthread
+
+# 一般編譯規則
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 
 # 清理
 clean:
-	rm -rf $(OBJS) $(DEPS) $(TARGET) $(FBS_OUT) \
-	       $(TEST_OBJS) $(TEST_DIR)/*.d $(TEST_TARGET)
+	rm -rf $(OBJS) *.d $(TARGET) $(TEST_TARGET)
+	rm -rf $(FBS_OUT)/*.h
 
 run: all
 	./$(TARGET)
 
-.PHONY: all clean run fbs test
+fbs:
+	@rm -f $(FBS_HEADER)
+	@$(MAKE) $(FBS_HEADER)
+
+.PHONY: all test clean run fbs

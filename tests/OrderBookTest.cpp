@@ -16,7 +16,7 @@ protected:
         flatbuffers::FlatBufferBuilder fbb(1024);
         auto req_offset = CreateOrderRequest(fbb,
             OrderAction_New,
-            0, oid, 1, fbb.CreateString("TEST"),
+            0, oid, 1, 1,
             side, OrderType_Limit, price, qty, 0, 0
         );
         fbb.Finish(req_offset);
@@ -28,7 +28,7 @@ protected:
         flatbuffers::FlatBufferBuilder fbb(1024);
         auto req_offset = CreateOrderRequest(fbb,
             OrderAction_New,
-            0, oid, 1, fbb.CreateString("TEST"),
+            0, oid, 1, 1,
             side, OrderType_Market, 0, qty, 0, 0
         );
         fbb.Finish(req_offset);
@@ -38,7 +38,7 @@ protected:
     void Cancel(uint64_t oid) {
         flatbuffers::FlatBufferBuilder fbb(1024);
         auto req_offset = CreateOrderRequest(fbb,
-            OrderAction_Cancel, 0, oid, 1, fbb.CreateString("TEST"),
+            OrderAction_Cancel, 0, oid, 1, 1,
             Side_Buy, OrderType_Limit, 0, 0, 0, 0
         );
         fbb.Finish(req_offset);
@@ -48,7 +48,7 @@ protected:
     void Modify(uint64_t oid, int64_t new_price, uint64_t new_qty) {
         flatbuffers::FlatBufferBuilder fbb(1024);
         auto req_offset = CreateOrderRequest(fbb,
-            OrderAction_Modify, 0, oid, 1, fbb.CreateString("TEST"),
+            OrderAction_Modify, 0, oid, 1, 1,
             Side_Buy, OrderType_Limit, new_price, new_qty, 0, 0
         );
         fbb.Finish(req_offset);

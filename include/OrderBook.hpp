@@ -55,27 +55,15 @@ class OrderBook
     FRIEND_TEST(OrderBookTest, MultiLevelSweep);
     FRIEND_TEST(OrderBookTest, ModifyCancelFIFOPreservation);
     
-    std::vector<Order*> getOrdersInLevel(PriceLevel* pl);
+    enum class Mode { Normal, Modify };
 public:
-    explicit OrderBook(
-        int64_t min_step, 
-        int64_t price_offset, 
-        size_t max_price_levels = 65536
-    );
+    explicit OrderBook(int64_t min_step, int64_t price_offset, size_t max_price_levels = 65536);
 
     ~OrderBook();
 
     void processRequest(const OrderRequest* req);
     void printOrderRequest(const OrderRequest* req);
-    
     void showL2(size_t depth = UINT32_MAX);
-
-    using MatchCallback = void(*)(
-        uint64_t taker_order_id, uint64_t maker_order_id,
-        int64_t price, uint64_t qty, Side maker_side
-    );
-
-    void setMatchCallback(MatchCallback cb) { match_cb_ = cb; }
 
 private:
     const int64_t min_step_;           // 最小價格單位 (定點數)
@@ -97,21 +85,20 @@ private:
     Order* createOrder(const OrderRequest* req);
 
     std::vector<PriceLevel> price_array_;
-    // PriceLevel unmatched_market_orders[2]; // [B][A]
-    PriceLevel* best_levels_[2] = {nullptr, nullptr};  // [B1][A1] , can be market order
-
     std::unordered_map<uint64_t, Order*> active_orders_;
+
+    PriceLevel* best_levels_[2] = {nullptr, nullptr};  // [B1][A1] , can be market order
     std::map<size_t, PriceLevel*> active_levels_[2];// [B][A]
-
-    MatchCallback match_cb_ = nullptr;
-
-    // 內部 helper
+    
     PriceLevel* GetOrCreatePriceLevel(size_t price_index, Side side);
-    void removePriceLevelIfEmpty(PriceLevel* pl);
+    void removePriceLevel(PriceLevel* pl);
     void match(Order* incoming);
     void addToBook(Order* order);
 
+    template <Mode m>
     void handleNewOrder(const OrderRequest* req);
+    
+    template <Mode m>
     void handleCancelOrder(const OrderRequest* req);
     void handleModifyOrder(const OrderRequest* req);
 
@@ -119,8 +106,11 @@ private:
     void insertOrderToLevel(PriceLevel* level, Order* order);
     void removeOrderFromLevel(Order* order);
 
-    void send_reject(uint32_t client_id, std::string reason /* TODO: change to enum */);
-    void send_acked(const Order* incoming);
+    void send_acked(const OrderRequest* req);
+    void send_cancelled(const OrderRequest* req);
+    void send_modified(const OrderRequest* req);
+    void send_reject(const OrderRequest* req, std::string reason /* TODO: change to enum */);
+
     void send_fill(const Order* incoming, const Order* existing, uint64_t qty_fill);
 };
 }

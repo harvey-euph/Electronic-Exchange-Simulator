@@ -1,23 +1,22 @@
 namespace Exchange;
 
 enum Side : byte { Buy = 0, Sell = 1 }
-
 enum OrderType : byte { Limit = 0, Market = 1, IOC = 2, FOK = 3 /* 可再擴充 */ }
-
 enum OrderAction : byte { New = 0, Cancel = 1, Modify = 2 }
 
-table OrderRequest {
+table OrderRequest 
+{
     action: OrderAction;
-    exec_id: ulong;
-    order_id: ulong;           // 客戶端或系統唯一 ID
+    exec_id: ulong;            // Unique on client_id
+    order_id: ulong;           // Reuse for modify/cancel
     client_id: uint;
-    symbol: string;
+    symbol_id: uint;
     side: Side;
     type: OrderType;
     price: long;               // 定點數 (signed integer)，代表 price * min_price_step 的倍數
     quantity: ulong;
-    visible_qty: ulong = 0;    // Iceberg 用
-    timestamp: ulong;          // 請求時間 (ns 或 ms)
+    visible_qty: ulong = 0;    // For Iceberg
+    timestamp: ulong;          // (microseconds)
     // 可擴充：user_data, tags 等
 }
 
