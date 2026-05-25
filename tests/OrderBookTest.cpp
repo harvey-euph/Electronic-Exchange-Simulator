@@ -13,7 +13,7 @@ protected:
     std::unique_ptr<OrderBook> orderbook;
 
     const OrderRequest* CreateRequest(
-        OrderAction action,
+        OrderAction oa,
         uint64_t exec_id,
         uint64_t order_id,
         uint32_t client_id,
@@ -26,19 +26,9 @@ protected:
         static flatbuffers::FlatBufferBuilder fbb(1024);
         fbb.Clear();
 
-        auto req = CreateOrderRequest(
-            fbb,
-            action,
-            exec_id,
-            order_id,
-            client_id,
-            1,                    // symbol_id
-            side,
-            type,
-            price,
-            quantity,
-            visible_qty,
-            1000000000ULL
+        auto req = CreateOrderRequest(fbb,
+            oa, exec_id, order_id, client_id, 1, side,
+            type, price, quantity, visible_qty, 1000000000ULL
         );
 
         fbb.Finish(req);

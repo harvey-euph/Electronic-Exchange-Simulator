@@ -1,71 +1,108 @@
-# ================================================
-# 交易所 OrderBook Makefile
-# ================================================
+CXX := g++
+CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP
+INCLUDES := -Iinclude
 
-PROJECT_NAME := exchange_orderbook
-CXX          := g++
-CXXFLAGS     := -std=c++20 -Wall -Wextra -O3 -march=native -flto=auto -g
-CXXFLAGS     += -DNDEBUG
+BUILD_DIR := build
+SRC_DIR := src
+APP_DIR := app
+TEST_DIR := tests
+FBS_DIR := fbs
+FBS_OUT := include/fbs
+LDFLAGS :=
+LDLIBS := -lgtest -lgtest_main -pthread
 
-FBS_DIR      := fbs
-FBS_OUT      := include/generated
-SRC_DIR      := src
-INCLUDE_DIR  := include
-TEST_DIR     := tests
+# -----------------------------------------------------------------------------
+# FlatBuffers
+# -----------------------------------------------------------------------------
 
-MAIN_SRC     := main.cpp
-SRCS         := $(MAIN_SRC) $(wildcard $(SRC_DIR)/*.cpp)
-TEST_SRC     := $(TEST_DIR)/OrderBookTest.cpp
-
-INCLUDES     := -I$(INCLUDE_DIR) -I$(FBS_OUT) -I/usr/include -I/usr/local/include
-
-OBJS         := $(SRCS:.cpp=.o)
-TEST_OBJS    := $(TEST_SRC:.cpp=.o) $(filter-out main.o, $(OBJS))
-
-TARGET       := $(PROJECT_NAME)
-TEST_TARGET  := orderbook_test
-
-# ==================== FlatBuffers ====================
 FBS_SOURCES := $(wildcard $(FBS_DIR)/*.fbs)
-FBS_HEADER  := $(FBS_OUT)/order_generated.h
+FBS_GENERATED := $(patsubst $(FBS_DIR)/%.fbs,$(FBS_OUT)/%_generated.h,$(FBS_SOURCES))
 
-# FlatBuffers 生成規則
-$(FBS_HEADER): $(FBS_SOURCES)
+# -----------------------------------------------------------------------------
+# Source Objects
+# -----------------------------------------------------------------------------
+
+SRC_SOURCES := $(wildcard $(SRC_DIR)/*.cpp)
+SRC_OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRC_SOURCES))
+SRC_DEPS := $(SRC_OBJECTS:.o=.d)
+
+# -----------------------------------------------------------------------------
+# App Executables
+# app/foo.cpp -> build/app/foo
+# -----------------------------------------------------------------------------
+
+APP_SOURCES := $(wildcard $(APP_DIR)/*.cpp)
+APP_TARGETS := $(patsubst $(APP_DIR)/%.cpp,$(BUILD_DIR)/app/%,$(APP_SOURCES))
+
+# -----------------------------------------------------------------------------
+# Test Executables
+# tests/foo.cpp -> build/tests/foo
+# -----------------------------------------------------------------------------
+
+TEST_SOURCES := $(wildcard $(TEST_DIR)/*.cpp)
+TEST_TARGETS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%,$(TEST_SOURCES))
+
+# -----------------------------------------------------------------------------
+# Default Target
+# -----------------------------------------------------------------------------
+
+.PHONY: all
+all: $(FBS_GENERATED) $(APP_TARGETS)
+
+# -----------------------------------------------------------------------------
+# Build Apps
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/app/%: $(APP_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/app
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) -o $@
+
+# -----------------------------------------------------------------------------
+# Build Tests
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/tests/%: $(TEST_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/tests
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+
+# -----------------------------------------------------------------------------
+# Run Tests
+# -----------------------------------------------------------------------------
+
+.PHONY: test
+test: $(TEST_TARGETS)
+	@for test_bin in $(TEST_TARGETS); do \
+		echo "Running $$test_bin"; \
+		$$test_bin || exit $$?; \
+	done
+
+# -----------------------------------------------------------------------------
+# Compile Source Objects
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+# -----------------------------------------------------------------------------
+# Generate FlatBuffers Headers
+# -----------------------------------------------------------------------------
+
+$(FBS_OUT)/%_generated.h: $(FBS_DIR)/%.fbs
 	@mkdir -p $(FBS_OUT)
-	flatc --cpp --gen-mutable --gen-object-api -o $(FBS_OUT) $(FBS_SOURCES)
-	@echo "FlatBuffers regenerated."
+	flatc --cpp --gen-mutable --gen-object-api -o $(FBS_OUT) $<
 
-# ===========================================================
+# -----------------------------------------------------------------------------
+# Clean
+# -----------------------------------------------------------------------------
 
-all: $(TARGET)
-
-# 主執行檔
-$(TARGET): $(FBS_HEADER) $(OBJS)
-	$(CXX) $(CXXFLAGS) $(OBJS) -o $@
-	@echo "Build completed: $@"
-
-# 測試
-test: $(TEST_TARGET)
-	@echo "Running tests..."
-	@./$(TEST_TARGET)
-
-$(TEST_TARGET): $(FBS_HEADER) $(TEST_OBJS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $^ -o $@ -lgtest -lgtest_main -pthread
-
-# 一般編譯規則
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
-
-# 清理
+.PHONY: clean
 clean:
-	rm -rf $(OBJS) *.d $(TARGET) $(TEST_TARGET)
-	rm -rf $(FBS_OUT)/*.h
+	rm -rf $(BUILD_DIR)
+	rm -rf $(FBS_OUT)
 
-run: all
-	./$(TARGET)
+# -----------------------------------------------------------------------------
+# Include Dependency Files
+# -----------------------------------------------------------------------------
 
-fbs:
-	@rm -f $(FBS_HEADER)
-	@$(MAKE) $(FBS_HEADER)
-
-.PHONY: all test clean run fbs
+-include $(SRC_DEPS)

@@ -1,6 +1,7 @@
 *.d
 *.o
 *.log
-include/generated
+include/fbs
 exchange_orderbook
 cachegrind.out*
+build

@@ -2,7 +2,7 @@
 #include <vector>
 #include <string>
 #include <memory>
-#include "generated/order_generated.h"
+#include "fbs/order_generated.h"
 
 namespace Exchange {
 

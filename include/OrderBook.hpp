@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <unordered_map>
 // #include <rte_ring.h>
-#include "generated/order_generated.h"
+#include "fbs/order_generated.h"
 
 #include "gtest/gtest_prod.h"
 namespace Exchange {
