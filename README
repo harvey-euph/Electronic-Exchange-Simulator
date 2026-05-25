@@ -1,2 +1,10 @@
+This is a complete project simulating exchange matching order requests
+
+will include more and more parts including profiling and other checks.
+
+Requires:
+
+```sh
 sudo apt install -y flatbuffers-compiler libflatbuffers-dev
 sudo apt install -y libgtest-dev libgmock-dev
+```
