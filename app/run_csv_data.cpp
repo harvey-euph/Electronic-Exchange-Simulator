@@ -1,9 +1,32 @@
+#include <cstdint>
 #include <iostream>
+
+#if defined(__x86_64__) || defined(__i386__)
+#include <x86intrin.h>
+#else
+#error "run_csv_data.cpp profiling requires x86 rdtsc support"
+#endif
 
 #include "OrderBook.hpp"
 #include "csv_util.hpp"
 
 using namespace Exchange;
+
+namespace {
+inline uint64_t read_tsc_begin()
+{
+    _mm_lfence();
+    return __rdtsc();
+}
+
+inline uint64_t read_tsc_end()
+{
+    unsigned aux = 0;
+    const uint64_t tsc = __rdtscp(&aux);
+    _mm_lfence();
+    return tsc;
+}
+} // namespace
 
 int main(int argc, char** argv)
 {
@@ -17,9 +40,22 @@ int main(int argc, char** argv)
         return 1;
     }
 
+    uint64_t total_cycles = 0;
+    size_t request_count = 0;
+
     for (const OrderRequest* req : reader.getRequests()) {
+        const uint64_t start = read_tsc_begin();
         ob.processRequest(req);
-        ob.showL2();
+        const uint64_t end = read_tsc_end();
+        total_cycles += (end - start);
+        ++request_count;
+        // ob.showL2();
+    }
+
+    if (request_count) {
+        std::cout << "[profile] processRequest total_cycles=" << total_cycles
+                  << " avg_cycles=" << (total_cycles / request_count)
+                  << " requests=" << request_count << '\n';
     }
 
     return 0;

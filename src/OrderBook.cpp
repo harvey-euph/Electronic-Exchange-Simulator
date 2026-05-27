@@ -3,13 +3,23 @@
 
 using namespace Exchange;
 
+namespace {
+ExecutionReporter& defaultReporter()
+{
+    static StdoutExecutionReporter reporter;
+    return reporter;
+}
+}
+
 OrderBook::OrderBook(
     int64_t min_step, 
     int64_t price_index_offset, 
-    size_t max_price_levels
+    size_t max_price_levels,
+    ExecutionReporter* reporter
 )   : min_step_(min_step)
     , price_index_offset_(price_index_offset)
     , max_price_levels_(max_price_levels)
+    , reporter_(reporter ? reporter : &defaultReporter())
     , price_array_(max_price_levels)
 {
     if (min_step <= 0) {
@@ -30,42 +40,6 @@ OrderBook::OrderBook(
 }
 
 OrderBook::~OrderBook() {}
-
-void OrderBook::send_reject(const OrderRequest* req, RejectCode code)
-{
-    printf("[REJECT] client_id=%u code=%s(%d)\n",
-           req->client_id(),
-           EnumNameRejectCode(code),
-           static_cast<int>(code));
-}
-
-void OrderBook::send_acked(const OrderRequest* req)
-{
-    printf("[ACK] order_id=%lu client_id=%u type=%d price_idx=%lu qty=%lu ts=%lu\n",
-           req->order_id(),
-           req->client_id(),
-           static_cast<int>(req->type()),
-           price_to_index(req->price()),
-           req->quantity(),
-           req->timestamp());
-}
-
-void OrderBook::send_fill(const Order* incoming,
-                          const Order* existing,
-                          uint64_t qty_fill)
-{
-    size_t price_idx = existing->price_level - price_array_.data();
-
-    printf("[FILL] taker_order=%lu maker_order=%lu "
-           "price_idx=%zu qty=%lu "
-           "taker_remaining=%lu maker_remaining=%lu\n",
-           incoming->order_id,
-           existing->order_id,
-           price_idx,
-           qty_fill,
-           incoming->qty_remaining,
-           existing->qty_remaining);
-}
 
 Order* OrderBook::createOrder(const OrderRequest* req)
 {
@@ -89,7 +63,7 @@ void OrderBook::processRequest(const OrderRequest* req)
         return;
     }
 
-    printOrderRequest(req);
+    reporter_->onRequest(req);
 
     switch (req->action()) {
     case OrderAction_Cancel:
@@ -98,7 +72,7 @@ void OrderBook::processRequest(const OrderRequest* req)
 
     case OrderAction_Modify:
         if (req->price() && price_invalid(req->price())) {
-            send_reject(req, RejectCode_PriceInvalid);
+            reporter_->onReject(req, RejectCode_PriceInvalid);
             return;
         }
         handleModifyOrder(req);
@@ -106,21 +80,23 @@ void OrderBook::processRequest(const OrderRequest* req)
 
     case OrderAction_New:
         if (price_invalid(req->price())) {
-            send_reject(req, RejectCode_PriceInvalid);
+            reporter_->onReject(req, RejectCode_PriceInvalid);
             return;
         }
         handleNewOrder(req);
         return;
 
     default:
-        send_reject(req, RejectCode_InvalidAction);
+        reporter_->onReject(req, RejectCode_InvalidAction);
         return;
     }
 }
 
-void OrderBook::handleNewOrder(const OrderRequest* req)
+void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
 {
-    send_acked(req);
+    if (report_ack) {
+        reporter_->onAck(req, price_to_index(req->price()));
+    }
 
     Order* incoming = createOrder(req);
 
@@ -158,7 +134,11 @@ void OrderBook::handleNewOrder(const OrderRequest* req)
             incoming->qty_remaining -= qty_fill;
             (*oppo)->total_qty      -= qty_fill;
 
-            send_fill(incoming, existing, qty_fill);
+            reporter_->onFill(
+                incoming,
+                existing,
+                index_to_price(existing->price_level - price_array_.data()),
+                qty_fill);
 
             if (!existing->qty_remaining)
             {
@@ -196,14 +176,13 @@ void OrderBook::handleNewOrder(const OrderRequest* req)
     active_orders_[incoming->order_id] = incoming;
 }
 
-void OrderBook::handleCancelOrder(const OrderRequest* req)
+void OrderBook::handleCancelOrder(const OrderRequest* req, bool report_cancelled)
 {
     auto it = active_orders_.find(req->order_id());
     if (it == active_orders_.end()) {
-        send_reject(req, RejectCode_OrderNotFound);
+        reporter_->onReject(req, RejectCode_OrderNotFound);
         return;
     }
-    // send_cancelled(req);
 
     Order *o = it->second;
 
@@ -217,13 +196,16 @@ void OrderBook::handleCancelOrder(const OrderRequest* req)
         removePriceLevel(pl);
     
     delete o;
+    if (report_cancelled) {
+        reporter_->onCancelled(req);
+    }
 }
 
 void OrderBook::handleModifyOrder(const OrderRequest* req)
 {
     auto it = active_orders_.find(req->order_id());
     if (it == active_orders_.end()) {
-        send_reject(req, RejectCode_OrderNotFound);
+        reporter_->onReject(req, RejectCode_OrderNotFound);
         return;
     }
 
@@ -243,17 +225,19 @@ void OrderBook::handleModifyOrder(const OrderRequest* req)
         const uint64_t executed_qty = o->qty_original - o->qty_remaining;
         const uint64_t new_qty = req->quantity();
         if (new_qty < executed_qty) {
-            send_reject(req, RejectCode_InvalidModify);
+            reporter_->onReject(req, RejectCode_InvalidModify);
             return;
         }
 
         pl->total_qty += qty_diff;
         o->qty_remaining = new_qty - executed_qty;
         o->qty_original = new_qty;
+        reporter_->onModified(req);
         return;
     }
-    handleCancelOrder(req);
-    handleNewOrder(req);
+    handleCancelOrder(req, false);
+    handleNewOrder(req, false);
+    reporter_->onModified(req);
 }
 
 void OrderBook::showL2(size_t depth)
@@ -303,21 +287,6 @@ void OrderBook::showL2(size_t depth)
 
     printf("====================================================\n\n");
 }
-
-void OrderBook::printOrderRequest(const OrderRequest* req)
-{
-    if (!req) return;
-
-    std::cout << "[Order " << req->order_id() << "] "
-              << EnumNameSide(req->side()) << " "
-              << EnumNameOrderAction(req->action()) << " "
-              << "Price:" << req->price() 
-              << " Qty:" << req->quantity()
-              << " Vis:" << req->visible_qty()
-              << " Client:" << req->client_id()
-              << "\n";
-}
-
 
 void OrderBook::insertOrderToLevel(PriceLevel* level, Order* order)
 {

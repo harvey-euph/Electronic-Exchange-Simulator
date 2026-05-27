@@ -6,6 +6,7 @@
 #include <unordered_map>
 // #include <rte_ring.h>
 #include "fbs/order_generated.h"
+#include "ExecutionReporter.hpp"
 
 #include "gtest/gtest_prod.h"
 namespace Exchange {
@@ -60,18 +61,21 @@ class OrderBook
     FRIEND_TEST(OrderBookTest, MatchingMultiLayer);
     
 public:
-    explicit OrderBook(int64_t min_step, int64_t price_offset, size_t max_price_levels = 65536);
+    explicit OrderBook(int64_t min_step,
+                       int64_t price_offset,
+                       size_t max_price_levels = 65536,
+                       ExecutionReporter* reporter = nullptr);
 
     ~OrderBook();
 
     void processRequest(const OrderRequest* req);
-    void printOrderRequest(const OrderRequest* req);
     void showL2(size_t depth = UINT32_MAX);
 
 private:
     const int64_t min_step_;           // 最小價格單位 (定點數)
     const int64_t price_index_offset_; // 
     const size_t  max_price_levels_;   // price_array_ 大小
+    ExecutionReporter* reporter_;
 
     size_t price_to_index(const int64_t price) const {
         return price / min_step_ - price_index_offset_;
@@ -98,19 +102,12 @@ private:
     void match(Order* incoming);
     void addToBook(Order* order);
 
-    void handleNewOrder(const OrderRequest* req);
-    void handleCancelOrder(const OrderRequest* req);
+    void handleNewOrder(const OrderRequest* req, bool report_ack = true);
+    void handleCancelOrder(const OrderRequest* req, bool report_cancelled = true);
     void handleModifyOrder(const OrderRequest* req);
 
     // Linked list 操作
     void insertOrderToLevel(PriceLevel* level, Order* order);
     void removeOrderFromLevel(Order* order);
-
-    void send_acked(const OrderRequest* req);
-    void send_cancelled(const OrderRequest* req);
-    void send_modified(const OrderRequest* req);
-    void send_reject(const OrderRequest* req, RejectCode code);
-
-    void send_fill(const Order* incoming, const Order* existing, uint64_t qty_fill);
 };
 }
