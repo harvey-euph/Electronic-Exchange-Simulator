@@ -32,7 +32,7 @@ protected:
         );
 
         fbb.Finish(req);
-        return GetOrderRequest(fbb.GetBufferPointer());
+        return flatbuffers::GetRoot<OrderRequest>(fbb.GetBufferPointer());
     }
 
     void SetupInitialBook() 
