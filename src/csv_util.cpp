@@ -134,7 +134,7 @@ bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
 
             builder->Finish(req_offset);
 
-            const OrderRequest* req = GetOrderRequest(builder->GetBufferPointer());
+            const OrderRequest* req = flatbuffers::GetRoot<OrderRequest>(builder->GetBufferPointer());
 
             builders_.push_back(std::move(builder));
             requests_.push_back(req);
@@ -422,7 +422,7 @@ void CSVDataGen::processRequest(
         timestamp_ - 1);
 
     fbb_.Finish(req);
-    book_.processRequest(GetOrderRequest(fbb_.GetBufferPointer()));
+    book_.processRequest(flatbuffers::GetRoot<OrderRequest>(fbb_.GetBufferPointer()));
 }
 
 void CSVDataGen::writeRow(

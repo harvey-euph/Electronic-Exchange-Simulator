@@ -32,8 +32,8 @@ void StdoutExecutionReporter::onRequest(const OrderRequest* req)
                 req->order_id(),
                 side_name(req),
                 action_name(req),
-                req->price(),
-                req->quantity(),
+                req->p(),
+                req->q(),
                 req->visible_qty(),
                 req->client_id());
 }
@@ -47,7 +47,7 @@ void StdoutExecutionReporter::onAck(const OrderRequest* req, size_t price_index)
                 req->client_id(),
                 static_cast<int>(req->type()),
                 price_index,
-                req->quantity(),
+                req->q(),
                 req->timestamp());
 }
 
@@ -67,8 +67,8 @@ void StdoutExecutionReporter::onModified(const OrderRequest* req)
     std::printf("[MODIFIED] order_id=%lu client_id=%u price=%ld qty=%lu\n",
                 req->order_id(),
                 req->client_id(),
-                req->price(),
-                req->quantity());
+                req->p(),
+                req->q());
 }
 
 void StdoutExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
@@ -121,7 +121,7 @@ void ClientExecutionReporter::onModified(const OrderRequest* req)
 {
     if (!req) return;
     std::printf("[client] event=modified client_id=%u order_id=%lu price=%ld qty=%lu\n",
-                req->client_id(), req->order_id(), req->price(), req->quantity());
+                req->client_id(), req->order_id(), req->p(), req->q());
 }
 
 void ClientExecutionReporter::onReject(const OrderRequest* req, RejectCode code)

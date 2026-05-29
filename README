@@ -7,4 +7,7 @@ Requires:
 ```sh
 sudo apt install -y flatbuffers-compiler libflatbuffers-dev
 sudo apt install -y libgtest-dev libgmock-dev
+sudo apt install -y build-essential git libssl-dev zlib1g-dev
+
+git submodule update --init --recursive
 ```

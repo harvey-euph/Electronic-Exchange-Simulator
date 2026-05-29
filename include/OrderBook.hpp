@@ -4,7 +4,7 @@
 #include <atomic>
 #include <cstdint>
 #include <unordered_map>
-// #include <rte_ring.h>
+#include "L2Updater.hpp"
 #include "fbs/order_generated.h"
 #include "ExecutionReporter.hpp"
 
@@ -76,6 +76,7 @@ private:
     const int64_t price_index_offset_; // 
     const size_t  max_price_levels_;   // price_array_ 大小
     ExecutionReporter* reporter_;
+    L2Updater l2;
 
     size_t price_to_index(const int64_t price) const {
         return price / min_step_ - price_index_offset_;

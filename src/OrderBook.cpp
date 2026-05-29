@@ -20,6 +20,7 @@ OrderBook::OrderBook(
     , price_index_offset_(price_index_offset)
     , max_price_levels_(max_price_levels)
     , reporter_(reporter ? reporter : &defaultReporter())
+    , l2("L2_Update_Ring")
     , price_array_(max_price_levels)
 {
     if (min_step <= 0) {
@@ -46,8 +47,8 @@ Order* OrderBook::createOrder(const OrderRequest* req)
     return new Order {
         req->order_id(),
         req->client_id(),
-        req->quantity(),
-        req->quantity(),
+        req->q(),
+        req->q(),
         req->type(),
         nullptr,
         nullptr,
@@ -55,7 +56,6 @@ Order* OrderBook::createOrder(const OrderRequest* req)
         req->timestamp()
     };
 }
-
 
 void OrderBook::processRequest(const OrderRequest* req)
 {
@@ -71,7 +71,7 @@ void OrderBook::processRequest(const OrderRequest* req)
         return;
 
     case OrderAction_Modify:
-        if (req->price() && price_invalid(req->price())) {
+        if (req->p() && price_invalid(req->p())) {
             reporter_->onReject(req, RejectCode_PriceInvalid);
             return;
         }
@@ -79,7 +79,7 @@ void OrderBook::processRequest(const OrderRequest* req)
         return;
 
     case OrderAction_New:
-        if (price_invalid(req->price())) {
+        if (price_invalid(req->p())) {
             reporter_->onReject(req, RejectCode_PriceInvalid);
             return;
         }
@@ -95,13 +95,13 @@ void OrderBook::processRequest(const OrderRequest* req)
 void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
 {
     if (report_ack) {
-        reporter_->onAck(req, price_to_index(req->price()));
+        reporter_->onAck(req, price_to_index(req->p()));
     }
 
     Order* incoming = createOrder(req);
 
     const int side_int = static_cast<int>(req->side());
-    const size_t price_idx = price_to_index(req->price());
+    const size_t price_idx = price_to_index(req->p());
 
     PriceLevel **oppo = &best_levels_[1 - side_int];
 
@@ -133,6 +133,12 @@ void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
             existing->qty_remaining -= qty_fill;
             incoming->qty_remaining -= qty_fill;
             (*oppo)->total_qty      -= qty_fill;
+            l2.update(
+                1, //symbol_id
+                (Exchange::Side)(1 - side_int),
+                index_to_price((*oppo) - price_array_.data()), 
+                (*oppo)->total_qty
+            );
 
             reporter_->onFill(
                 incoming,
@@ -191,6 +197,12 @@ void OrderBook::handleCancelOrder(const OrderRequest* req, bool report_cancelled
 
     PriceLevel *pl = o->price_level;
     pl->total_qty -= o->qty_remaining;
+    l2.update(
+        1, //symbol_id
+        req->side(),
+        index_to_price(pl - price_array_.data()), 
+        pl->total_qty
+    );
    
     if (!pl->order_count) 
         removePriceLevel(pl);
@@ -211,9 +223,9 @@ void OrderBook::handleModifyOrder(const OrderRequest* req)
 
     Order *o = it->second;
     PriceLevel *pl = o->price_level;
-    PriceLevel *target = req->price() ? &price_array_[price_to_index(req->price())] : pl;
-    int64_t qty_diff = req->quantity()
-        ? static_cast<int64_t>(req->quantity()) - static_cast<int64_t>(o->qty_original)
+    PriceLevel *target = req->p() ? &price_array_[price_to_index(req->p())] : pl;
+    int64_t qty_diff = req->q()
+        ? static_cast<int64_t>(req->q()) - static_cast<int64_t>(o->qty_original)
         : 0;
 
     if (pl == target) {
@@ -223,13 +235,20 @@ void OrderBook::handleModifyOrder(const OrderRequest* req)
         }
 
         const uint64_t executed_qty = o->qty_original - o->qty_remaining;
-        const uint64_t new_qty = req->quantity();
+        const uint64_t new_qty = req->q();
         if (new_qty < executed_qty) {
             reporter_->onReject(req, RejectCode_InvalidModify);
             return;
         }
 
         pl->total_qty += qty_diff;
+        
+        l2.update(
+            1, //symbol_id
+            req->side(),
+            index_to_price(pl - price_array_.data()), 
+            pl->total_qty
+        );
         o->qty_remaining = new_qty - executed_qty;
         o->qty_original = new_qty;
         reporter_->onModified(req);
@@ -288,20 +307,31 @@ void OrderBook::showL2(size_t depth)
     printf("====================================================\n\n");
 }
 
-void OrderBook::insertOrderToLevel(PriceLevel* level, Order* order)
+void OrderBook::insertOrderToLevel(PriceLevel* pl, Order* order)
 {
-    order->price_level = level;
+    order->price_level = pl;
 
-    Order* old_tail = level->dummy_tail.prev;
+    Order* old_tail = pl->dummy_tail.prev;
 
     old_tail->next = order;
     order->prev = old_tail;
 
-    order->next = &level->dummy_tail;
-    level->dummy_tail.prev = order;
+    order->next = &pl->dummy_tail;
+    pl->dummy_tail.prev = order;
 
-    ++level->order_count;
-    level->total_qty += order->qty_remaining;
+    ++pl->order_count;
+    pl->total_qty += order->qty_remaining;
+    
+    int s = 1;
+    if (best_levels_[0] && pl <= best_levels_[0]) {
+        s = 0;
+    }
+    l2.update(
+        1, //symbol_id
+        (Exchange::Side)s,
+        index_to_price(pl - price_array_.data()), 
+        pl->total_qty
+    );
 }
 
 void OrderBook::removeOrderFromLevel(Order *o)
@@ -343,29 +373,11 @@ void OrderBook::removePriceLevel(PriceLevel *pl)
     active_levels_[side].erase(price_idx);
 }
 
-// void OrderBook::checkPriceLevelConsistent(size_t price_index)
-// {
-//     PriceLevel *pl = &price_array_[price_index];
-//     if (pl->dummy_tail.next || pl->dummy_head.prev) {
-//         std::cerr << "Error, dummy_tail.next or dummy_head.prev exists.\n";
-//     }
-//     if (pl->order_count || pl->total_qty ||
-//         pl->dummy_head.next != &pl->dummy_tail ||
-//         pl->dummy_tail.prev != &pl->dummy_head ||
-//     ) {}
-// }
-
 PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
 {
     PriceLevel* level = &price_array_[price_idx];
 
     if (level->order_count > 0) return level;
-
-    // level->total_qty   = 0;
-    // level->order_count = 0;
-
-    // level->dummy_head.next = &level->dummy_tail;
-    // level->dummy_tail.prev = &level->dummy_head;
 
     level->better = nullptr;
     level->worse  = nullptr;
