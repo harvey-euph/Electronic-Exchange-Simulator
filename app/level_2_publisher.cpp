@@ -10,6 +10,7 @@
 #include <thread>
 #include <map>
 #include <mutex>
+#include "define.hpp"
 
 std::atomic<bool> g_running{true};
 
@@ -25,14 +26,13 @@ int main()
     signal(SIGTERM, signal_handler);
     signal(SIGPIPE, SIG_IGN);
 
-    std::string ring_name = "L2_Update_Ring"; 
     size_t ring_size = 16384;
 
-    std::cout << "[L2Publisher] Connecting to SHMRingBuffer: " << ring_name << "..." << std::endl;
+    std::cout << "[L2Publisher] Connecting to SHMRingBuffer: " << L2_UPDATE_RING << "..." << std::endl;
 
     Exchange::SHMRingBuffer* ring_buffer = nullptr;
     try {
-        ring_buffer = new Exchange::SHMRingBuffer(ring_name, ring_size);
+        ring_buffer = new Exchange::SHMRingBuffer(L2_UPDATE_RING, ring_size);
     } catch (const std::exception& e) {
         std::cerr << "[L2Publisher] Failed to connect to SHMRingBuffer: " << e.what() << std::endl;
         return -1;

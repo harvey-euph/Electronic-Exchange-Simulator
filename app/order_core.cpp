@@ -6,6 +6,7 @@
 #include <thread>
 #include <signal.h>
 #include <atomic>
+#include "define.hpp"
 
 std::atomic<bool> g_running{true};
 
@@ -25,7 +26,7 @@ int main() {
     
     Exchange::OrderBook book(1, 2000, 8192, &reporter);
 
-    Exchange::SHMRingBuffer request_ring("OrderRequest", 16384);
+    Exchange::SHMRingBuffer request_ring(ORDER_REQUEST, 16384);
 
     void* data_ptr = nullptr;
     size_t data_size = 0;

@@ -12,6 +12,7 @@
 #include <vector>
 #include "ring/SHMRingBuffer.hpp"
 #include "fbs/order_generated.h"
+#include "define.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
@@ -93,7 +94,7 @@ net::awaitable<void> do_listen(tcp::endpoint endpoint, Exchange::SHMRingBuffer& 
 int main() {
     try {
         net::io_context ioc{1};
-        Exchange::SHMRingBuffer request_ring("OrderRequest", 16384);
+        Exchange::SHMRingBuffer request_ring(ORDER_REQUEST, 16384);
         
         net::co_spawn(ioc, do_listen({net::ip::make_address("0.0.0.0"), 8080}, request_ring), net::detached);
 

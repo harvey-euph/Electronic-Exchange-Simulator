@@ -1,0 +1,6 @@
+# Refactor all module to make the Exchange complete
+
+## Define all modules
+
+- Core OrderBook System run a single thread match job
+    - input: OrderRequest from SHMRingBuffer 
