@@ -22,9 +22,9 @@ int main() {
 
     std::cout << "[OrderCore] Starting matching engine..." << std::endl;
 
-    Exchange::StdoutExecutionReporter reporter;
-    
-    Exchange::OrderBook book(1, 2000, 8192, &reporter);
+    Exchange::ClientExecutionReporter reporter(ORDER_RESPONSE);
+
+    Exchange::OrderBook book(1, 1, 2000, 8192, &reporter);
 
     Exchange::SHMRingBuffer request_ring(ORDER_REQUEST, 16384);
 

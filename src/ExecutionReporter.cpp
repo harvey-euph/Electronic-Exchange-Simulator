@@ -22,7 +22,37 @@ void print_client_channel(const char* event, uint32_t client_id, uint64_t order_
     std::printf("[client] event=%s client_id=%u order_id=%lu\n",
                 event, client_id, order_id);
 }
+
+void send_response(SHMRingBuffer* ring, flatbuffers::FlatBufferBuilder& fbb,
+                  ExecType exec_type, uint64_t order_id, uint32_t client_id,
+                  uint64_t exec_id, uint32_t symbol_id, int64_t p, uint64_t q,
+                  RejectCode reject_code)
+{
+    if (!ring) return;
+    fbb.Clear();
+    auto resp = CreateOrderResponse(fbb, exec_type, order_id, client_id, exec_id, symbol_id, p, q, reject_code);
+    fbb.Finish(resp);
+    ring->enqueue(fbb.GetBufferPointer(), fbb.GetSize());
+}
 } // namespace
+
+ClientExecutionReporter::ClientExecutionReporter(const std::string& ring_name, unsigned int ring_size)
+    : fbb(256)
+{
+    try {
+        m_ring = new SHMRingBuffer(ring_name, ring_size);
+    } catch (const std::exception& e) {
+        std::cerr << "[ClientExecutionReporter] Failed to create SHMRingBuffer: " << e.what() << std::endl;
+        m_ring = nullptr;
+    }
+}
+
+ClientExecutionReporter::~ClientExecutionReporter()
+{
+    if (m_ring) {
+        delete m_ring;
+    }
+}
 
 void StdoutExecutionReporter::onRequest(const OrderRequest* req)
 {
@@ -109,12 +139,14 @@ void ClientExecutionReporter::onAck(const OrderRequest* req, size_t price_index)
     if (!req) return;
     std::printf("[client] event=ack client_id=%u order_id=%lu price_idx=%zu\n",
                 req->client_id(), req->order_id(), price_index);
+    send_response(m_ring, fbb, ExecType_New, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onCancelled(const OrderRequest* req)
 {
     if (!req) return;
     print_client_channel("cancelled", req->client_id(), req->order_id());
+    send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onModified(const OrderRequest* req)
@@ -122,6 +154,7 @@ void ClientExecutionReporter::onModified(const OrderRequest* req)
     if (!req) return;
     std::printf("[client] event=modified client_id=%u order_id=%lu price=%ld qty=%lu\n",
                 req->client_id(), req->order_id(), req->p(), req->q());
+    send_response(m_ring, fbb, ExecType_Replaced, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
@@ -132,6 +165,7 @@ void ClientExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
                 req->order_id(),
                 EnumNameRejectCode(code),
                 static_cast<int>(code));
+    send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), code);
 }
 
 void ClientExecutionReporter::onFill(const Order* incoming,
@@ -142,6 +176,16 @@ void ClientExecutionReporter::onFill(const Order* incoming,
     if (!incoming || !existing) return;
     std::printf("[client] event=fill taker=%lu maker=%lu price=%ld qty=%lu\n",
                 incoming->order_id, existing->order_id, price, qty_fill);
+    
+    // Send response for taker
+    send_response(m_ring, fbb, 
+                  incoming->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
+                  incoming->order_id, incoming->client_id, incoming->exec_id, 1, price, qty_fill, RejectCode_None);
+    
+    // Send response for maker
+    send_response(m_ring, fbb,
+                  existing->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
+                  existing->order_id, existing->client_id, existing->exec_id, 1, price, qty_fill, RejectCode_None);
 }
 
 } // namespace Exchange

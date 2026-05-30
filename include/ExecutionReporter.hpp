@@ -2,7 +2,9 @@
 
 #include <cstddef>
 #include <cstdint>
-
+#include <string>
+#include <flatbuffers/flatbuffers.h>
+#include "ring/SHMRingBuffer.hpp"
 #include "fbs/order_generated.h"
 
 namespace Exchange {
@@ -42,6 +44,9 @@ public:
 class ClientExecutionReporter final : public ExecutionReporter
 {
 public:
+    ClientExecutionReporter(const std::string& ring_name = "ORDER_RESPONSE", unsigned int ring_size = 16384);
+    ~ClientExecutionReporter();
+
     void onRequest(const OrderRequest* req) override;
     void onAck(const OrderRequest* req, size_t price_index) override;
     void onCancelled(const OrderRequest* req) override;
@@ -51,6 +56,10 @@ public:
                 const Order* existing,
                 int64_t price,
                 uint64_t qty_fill) override;
+
+private:
+    SHMRingBuffer* m_ring = nullptr;
+    flatbuffers::FlatBufferBuilder fbb;
 };
 
 } // namespace Exchange

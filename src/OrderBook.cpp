@@ -1,4 +1,5 @@
 #include "OrderBook.hpp"
+#include "define.hpp"
 #include <iostream>
 
 using namespace Exchange;
@@ -12,16 +13,19 @@ ExecutionReporter& defaultReporter()
 }
 
 OrderBook::OrderBook(
+    uint64_t symbol_id,
     int64_t min_step, 
     int64_t price_index_offset, 
     size_t max_price_levels,
     ExecutionReporter* reporter
-)   : min_step_(min_step)
+)   : symbol_id_(symbol_id)
+    , min_step_(min_step)
     , price_index_offset_(price_index_offset)
     , max_price_levels_(max_price_levels)
     , reporter_(reporter ? reporter : &defaultReporter())
-    , l2("L2_Update_Ring")
-    , price_array_(max_price_levels)
+    , l2(L2_UPDATE_RING)
+    , l3(L3_UPDATE_RING)
+    , price_array_(max_price_levels_)
 {
     if (min_step <= 0) {
         throw std::invalid_argument("min_step must be positive");
@@ -167,18 +171,37 @@ void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
             existing->qty_remaining -= qty_fill;
             incoming->qty_remaining -= qty_fill;
             (*oppo)->total_qty      -= qty_fill;
+            
+            reporter_->onFill(
+                incoming,
+                existing,
+                index_to_price((*oppo) - price_array_.data()),
+                qty_fill);
+
+            l3.update(
+                1, //symbol_id
+                existing->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
+                existing->order_id,
+                (Exchange::Side)(1 - side_int),
+                index_to_price((*oppo) - price_array_.data()),
+                qty_fill
+            );
+
+            l3.update(
+                1, //symbol_id
+                incoming->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
+                incoming->order_id,
+                (Exchange::Side)side_int,
+                index_to_price((*oppo) - price_array_.data()),
+                qty_fill
+            );
+            
             l2.update(
                 1, //symbol_id
                 (Exchange::Side)(1 - side_int),
                 index_to_price((*oppo) - price_array_.data()), 
                 (*oppo)->total_qty
             );
-
-            reporter_->onFill(
-                incoming,
-                existing,
-                index_to_price(existing->price_level - price_array_.data()),
-                qty_fill);
 
             if (!existing->qty_remaining)
             {
@@ -213,6 +236,15 @@ void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
 
     insertOrderToLevel(level, incoming);
 
+    l3.update(
+        1, //symbol_id
+        ExecType_New,
+        incoming->order_id,
+        req->side(),
+        index_to_price(price_idx),
+        incoming->qty_remaining
+    );
+
     active_orders_[incoming->order_id] = incoming;
 }
 
@@ -232,6 +264,16 @@ void OrderBook::handleCancelOrder(const OrderRequest* req, bool report_cancelled
 
     PriceLevel *pl = o->price_level;
     pl->total_qty -= o->qty_remaining;
+
+    l3.update(
+        1, //symbol_id
+        ExecType_Cancelled,
+        o->order_id,
+        req->side(),
+        index_to_price(pl - price_array_.data()),
+        o->qty_remaining
+    );
+
     l2.update(
         1, //symbol_id
         req->side(),
@@ -279,6 +321,15 @@ void OrderBook::handleModifyOrder(const OrderRequest* req)
 
         pl->total_qty += qty_diff;
         
+        l3.update(
+            1, //symbol_id
+            ExecType_Replaced,
+            o->order_id,
+            req->side(),
+            index_to_price(pl - price_array_.data()),
+            new_qty - executed_qty
+        );
+
         l2.update(
             1, //symbol_id
             req->side(),
@@ -477,3 +528,25 @@ PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
 
     return level;
 }
+
+std::vector<OrderBook::SnapshotOrder> OrderBook::getL3Snapshot() const
+{
+    std::vector<SnapshotOrder> snapshot;
+    // Iterate through all active levels on both sides
+    for (int side = 0; side < 2; ++side) {
+        for (auto const& [price_idx, level] : active_levels_[side]) {
+            Order* o = level->dummy_head.next;
+            while (o != &level->dummy_tail) {
+                snapshot.push_back({
+                    o->order_id,
+                    static_cast<Side>(side),
+                    static_cast<int64_t>(index_to_price(price_idx)),
+                    o->qty_remaining
+                });
+                o = o->next;
+            }
+        }
+    }
+    return snapshot;
+}
+

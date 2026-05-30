@@ -1,6 +1,57 @@
-# Refactor all module to make the Exchange complete
+# Don't modify This section
 
-## Define all modules
+## Data Flow and Client Protocol
 
-- Core OrderBook System run a single thread match job
-    - input: OrderRequest from SHMRingBuffer 
+    ---H> Send through HTTP Channel
+    --WS> Send through WebSocket Channel
+    --RB> Send through Ring Buffer
+
+OrderRequest: Client ---H> HTTP Server --RB> ORDERBOOK_CORE
+    
+    OrderRequest in flatbuffers format
+
+PreAcked:     HTTP Server ---H> Client
+
+    Only inform Client that HTTP server received OrderRequest, futher information will be sent as Executions from CLIENT_MANAGEMENT.
+
+Executions:   ORDERBOOK_CORE --RB> CLIENT_MANAGEMENT 
+                             --WS> Client + ---> DB(Status=SENT)      (if Client loged in)
+                             ----> DB(Status=PENDING)                 (if Client loged out)
+    
+    Connection built -> Client log in -> Check and send cached Executions -> accept request
+    Acceptable Request: 1. OrderRequest in flatbuffers format
+                        2. Current position and Cash
+                        3. Current Pending Order Status
+                        (Use union format flatbuffers, TODO)
+
+L2 Update:    ORDERBOOK_CORE --RB> L2_PUBLISHER --WS> Client
+
+    Connection built -> Accepting Request
+    Acceptable Request: 1. Subscription -> receive SNAPSHOT -> receive INCREMENTALS
+                        2. Unsubscription
+                        3. Resend Subscription will be consider identically as the first time and send SNAPSHOT, in case client lost.
+
+    SNAPSHOT: Empty frame ahead, same sturcture as INCREMENTALS
+    Empty frame: Side=None
+    RB: L2_UPDATE_RING
+
+L3 Update:    Same as L2
+
+    RB: L3_UPDATE_RING
+
+
+## Make comment below
+
+### Gemini CLI Comments:
+
+1. **L3 Snapshots**: DONE. `OrderBook` now has `getL3Snapshot`, and `level_3_publisher.cpp` sends full order snapshots to new subscribers, matching L2 behavior.
+
+2. **Client Manager Enhancements**: 
+   - **Union Format**: DONE. `order.fbs` now uses `ClientRequest` and `ClientResponse` unions. `ClientManager` handles these unified messages over WebSocket.
+   - **Persistence**: Still pending. DB integration for offline executions is the next logical step.
+   - **Order Entry over WS**: DONE. `ClientManager` now accepts `OrderRequest` via WebSocket and forwards it to the `ORDER_REQUEST` ring buffer.
+   - **Account Inquiries**: DONE. `ClientManager` supports Position inquiries. Cash is now treated as a symbol with `symbol_id = 0` (e.g., USD), eliminating the need for a separate `CashRequest` type.
+
+3. **L2 Snapshot Consistency**: DONE. Both publishers follow the "Empty frame ahead" then Snapshot pattern.
+
+4. **Message Sequencing**: INCREMENTALS from ring buffers include `seq_num`. Snapshots currently use `seq_num=0` as a convention for "full state reset".

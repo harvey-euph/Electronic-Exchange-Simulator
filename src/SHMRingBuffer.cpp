@@ -189,6 +189,11 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
     // 讀取標頭中的長度
     uint32_t length = *reinterpret_cast<uint32_t*>(read_ptr);
 
+    if (length == 0 || length > m_capacity) {
+        // Corrupt memory or invalid length
+        return false;
+    }
+
     // 處理繞回標記
     if (length == WRAP_MARKER) {
         // 遇到了末端邊界，說明真正的資料在最開頭 (Offset 0)

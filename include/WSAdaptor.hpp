@@ -1,35 +1,53 @@
 #pragma once
 #include "L2OutputAdaptor.hpp"
+#include "L3OutputAdaptor.hpp"
 #include <memory>
 #include <string>
 #include <thread>
 #include <functional>
-#include <boost/asio/io_context.hpp>
 
 namespace Exchange {
 
-class WSSession;
-using WSSessionPtr = std::shared_ptr<WSSession>;
+/**
+ * @brief 抽象的 WebSocket 用戶端控制句柄 (Opaque Handle)
+ * 應用層不需要知道具體的 Session 實作
+ */
+class WSClient {
+public:
+    virtual ~WSClient() = default;
+    virtual void send(const void* data, size_t size) = 0;
+};
+
+using WSClientPtr = std::shared_ptr<WSClient>;
 
 /**
- * @brief WebSocket 適配器實作，基於 Boost.Beast
+ * @brief WebSocket 適配器實作
  */
-class WSAdaptor : public L2OutputAdaptor {
+class WSAdaptor : public L2OutputAdaptor, public L3OutputAdaptor {
 public:
-    WSAdaptor(int port = 9002);
+    WSAdaptor(int port);
     virtual ~WSAdaptor();
 
+    // Market Data Broadcasting
     void publish(const Exchange::L2Update* l2_update, const void* raw_data, size_t raw_size) override;
+    void publish(const Exchange::L3Update* l3_update, const void* raw_data, size_t raw_size) override;
 
-    using SubscribeHandler = std::function<void(WSSessionPtr, uint32_t symbol_id, bool is_subscribe)>;
+    // Subscription & Binary Message Handlers
+    using SubscribeHandler = std::function<void(WSClientPtr client, uint32_t id, bool is_subscribe)>;
     void set_subscribe_handler(SubscribeHandler handler);
 
-    void send_to_session(WSSessionPtr session, const void* data, size_t size);
+    using MessageHandler = std::function<void(WSClientPtr client, const void* data, size_t size)>;
+    void set_message_handler(MessageHandler handler);
+
+    // Direct Sending (if app logic needs it)
+    void send(WSClientPtr client, const void* data, size_t size);
+    
+    // Broadcast to all (ignoring symbol_id filters)
+    void broadcast(const void* data, size_t size);
 
 private:
-    boost::asio::io_context ioc_;
-    std::shared_ptr<class WSListener> listener_;
-    std::thread ioc_thread_;
+    struct Impl;
+    std::unique_ptr<Impl> pimpl_;
 };
 
 } // namespace Exchange

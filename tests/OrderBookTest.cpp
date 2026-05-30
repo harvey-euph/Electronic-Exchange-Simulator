@@ -7,7 +7,7 @@ class OrderBookTest : public ::testing::Test
 {
 protected:
     void SetUp() override {
-        orderbook = std::make_unique<OrderBook>(1, 10000, 1024);
+        orderbook = std::make_unique<OrderBook>(1, 1, 10000, 1024);
     }
 
     std::unique_ptr<OrderBook> orderbook;

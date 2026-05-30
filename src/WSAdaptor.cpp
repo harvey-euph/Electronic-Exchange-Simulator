@@ -22,7 +22,7 @@ using tcp = boost::asio::ip::tcp;
 
 namespace Exchange {
 
-class WSSession : public std::enable_shared_from_this<WSSession> {
+class WSSession : public WSClient, public std::enable_shared_from_this<WSSession> {
     websocket::stream<beast::tcp_stream> ws_;
     beast::flat_buffer buffer_;
     std::set<uint32_t> subscriptions_;
@@ -31,14 +31,16 @@ class WSSession : public std::enable_shared_from_this<WSSession> {
     
     std::queue<std::string> write_queue_;
     std::mutex write_mutex_;
+    bool writing_ = false;
     std::atomic<bool> closed_{false};
     std::string remote_info_;
 
     WSAdaptor::SubscribeHandler sub_handler_;
+    WSAdaptor::MessageHandler msg_handler_;
     
 public:
-    explicit WSSession(tcp::socket&& socket, WSAdaptor::SubscribeHandler sub_handler) 
-        : ws_(std::move(socket)), sub_handler_(sub_handler) 
+    explicit WSSession(tcp::socket&& socket, WSAdaptor::SubscribeHandler sub_handler, WSAdaptor::MessageHandler msg_handler) 
+        : ws_(std::move(socket)), sub_handler_(sub_handler), msg_handler_(msg_handler) 
     {
         try {
             auto ep = ws_.next_layer().socket().remote_endpoint();
@@ -86,6 +88,8 @@ public:
                             subscriptions_.erase(sym);
                             if (sub_handler_) sub_handler_(shared_from_this(), sym, false);
                         } catch (...) {}
+                    } else {
+                        if (msg_handler_) msg_handler_(shared_from_this(), msg.data(), msg.size());
                     }
                 }
             }
@@ -94,7 +98,17 @@ public:
         }
     }
 
-    void send(std::string data, uint32_t symbol_id, bool bypass_sub_check = false) {
+    // WSClient implementation
+    void send(const void* data, size_t size) override {
+        send_internal(std::string(static_cast<const char*>(data), size), 0, true);
+    }
+
+    void send_market_data(const std::string& data, uint32_t symbol_id) {
+        send_internal(data, symbol_id, false);
+    }
+
+private:
+    void send_internal(std::string data, uint32_t symbol_id, bool bypass_sub_check) {
         if (!bypass_sub_check) {
             std::lock_guard<std::mutex> lock(sub_mutex_);
             if (!subscribe_all_ && subscriptions_.find(symbol_id) == subscriptions_.end()) {
@@ -103,15 +117,13 @@ public:
         }
 
         net::post(ws_.get_executor(), [this, self = shared_from_this(), data = std::move(data)]() mutable {
-            bool write_in_progress = false;
             {
                 std::lock_guard<std::mutex> lock(write_mutex_);
-                write_in_progress = !write_queue_.empty();
                 write_queue_.push(std::move(data));
+                if (writing_) return;
+                writing_ = true;
             }
-            if (!write_in_progress) {
-                net::co_spawn(ws_.get_executor(), write_loop(), net::detached);
-            }
+            net::co_spawn(ws_.get_executor(), write_loop(), net::detached);
         });
     }
 
@@ -121,7 +133,10 @@ public:
                 std::string msg;
                 {
                     std::lock_guard<std::mutex> lock(write_mutex_);
-                    if (write_queue_.empty()) co_return;
+                    if (write_queue_.empty()) {
+                        writing_ = false;
+                        co_return;
+                    }
                     msg = std::move(write_queue_.front());
                     write_queue_.pop();
                 }
@@ -129,6 +144,10 @@ public:
                 co_await ws_.async_write(net::buffer(msg), net::use_awaitable);
             }
         } catch (std::exception const& e) {
+            {
+                std::lock_guard<std::mutex> lock(write_mutex_);
+                writing_ = false;
+            }
             closed_ = true;
         }
     }
@@ -140,6 +159,7 @@ class WSListener : public std::enable_shared_from_this<WSListener> {
     std::set<std::shared_ptr<WSSession>> sessions_;
     std::mutex session_mutex_;
     WSAdaptor::SubscribeHandler sub_handler_;
+    WSAdaptor::MessageHandler msg_handler_;
 
 public:
     WSListener(net::io_context& ioc, tcp::endpoint endpoint)
@@ -156,12 +176,16 @@ public:
         sub_handler_ = handler;
     }
 
+    void set_message_handler(WSAdaptor::MessageHandler handler) {
+        msg_handler_ = handler;
+    }
+
     net::awaitable<void> run() {
         try {
             for (;;) {
                 tcp::socket socket = co_await acceptor_.async_accept(net::use_awaitable);
                 
-                auto session = std::make_shared<WSSession>(std::move(socket), sub_handler_);
+                auto session = std::make_shared<WSSession>(std::move(socket), sub_handler_, msg_handler_);
                 {
                     std::lock_guard<std::mutex> lock(session_mutex_);
                     sessions_.insert(session);
@@ -173,45 +197,78 @@ public:
         }
     }
 
-    void broadcast(const std::string& data, uint32_t symbol_id) {
+    void broadcast_market_data(const std::string& data, uint32_t symbol_id) {
         std::lock_guard<std::mutex> lock(session_mutex_);
         for (auto it = sessions_.begin(); it != sessions_.end();) {
             if ((*it)->is_closed()) {
                 it = sessions_.erase(it);
             } else {
-                (*it)->send(data, symbol_id);
+                (*it)->send_market_data(data, symbol_id);
+                ++it;
+            }
+        }
+    }
+
+    void broadcast_all(const void* data, size_t size) {
+        std::string msg(static_cast<const char*>(data), size);
+        std::lock_guard<std::mutex> lock(session_mutex_);
+        for (auto it = sessions_.begin(); it != sessions_.end();) {
+            if ((*it)->is_closed()) {
+                it = sessions_.erase(it);
+            } else {
+                (*it)->send(data, size);
                 ++it;
             }
         }
     }
 };
 
-WSAdaptor::WSAdaptor(int port) {
-    auto const address = net::ip::make_address("0.0.0.0");
-    listener_ = std::make_shared<WSListener>(ioc_, tcp::endpoint{address, static_cast<unsigned short>(port)});
-    
-    net::co_spawn(ioc_, listener_->run(), net::detached);
-    
-    ioc_thread_ = std::thread([this]() { ioc_.run(); });
-}
+struct WSAdaptor::Impl {
+    net::io_context ioc;
+    std::shared_ptr<WSListener> listener;
+    std::thread ioc_thread;
 
-WSAdaptor::~WSAdaptor() {
-    ioc_.stop();
-    if (ioc_thread_.joinable()) ioc_thread_.join();
-}
+    Impl(int port) {
+        auto const address = net::ip::make_address("0.0.0.0");
+        listener = std::make_shared<WSListener>(ioc, tcp::endpoint{address, static_cast<unsigned short>(port)});
+        net::co_spawn(ioc, listener->run(), net::detached);
+        ioc_thread = std::thread([this]() { ioc.run(); });
+    }
+
+    ~Impl() {
+        ioc.stop();
+        if (ioc_thread.joinable()) ioc_thread.join();
+    }
+};
+
+WSAdaptor::WSAdaptor(int port) : pimpl_(std::make_unique<Impl>(port)) {}
+
+WSAdaptor::~WSAdaptor() = default;
 
 void WSAdaptor::publish(const Exchange::L2Update* l2_update, const void* raw_data, size_t raw_size) {
     std::string data(static_cast<const char*>(raw_data), raw_size);
-    listener_->broadcast(data, l2_update->symbol_id());
+    pimpl_->listener->broadcast_market_data(data, l2_update->symbol_id());
+}
+
+void WSAdaptor::publish(const Exchange::L3Update* l3_update, const void* raw_data, size_t raw_size) {
+    std::string data(static_cast<const char*>(raw_data), raw_size);
+    pimpl_->listener->broadcast_market_data(data, l3_update->symbol_id());
 }
 
 void WSAdaptor::set_subscribe_handler(SubscribeHandler handler) {
-    listener_->set_subscribe_handler(handler);
+    pimpl_->listener->set_subscribe_handler(handler);
 }
 
-void WSAdaptor::send_to_session(WSSessionPtr session, const void* data, size_t size) {
-    std::string msg(static_cast<const char*>(data), size);
-    session->send(std::move(msg), 0, true);
+void WSAdaptor::set_message_handler(MessageHandler handler) {
+    pimpl_->listener->set_message_handler(handler);
+}
+
+void WSAdaptor::send(WSClientPtr client, const void* data, size_t size) {
+    if (client) client->send(data, size);
+}
+
+void WSAdaptor::broadcast(const void* data, size_t size) {
+    pimpl_->listener->broadcast_all(data, size);
 }
 
 } // namespace Exchange

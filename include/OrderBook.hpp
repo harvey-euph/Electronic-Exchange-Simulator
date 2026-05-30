@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <unordered_map>
 #include "L2Updater.hpp"
+#include "L3Updater.hpp"
 #include "fbs/order_generated.h"
 #include "ExecutionReporter.hpp"
 
@@ -62,7 +63,8 @@ class OrderBook
     FRIEND_TEST(OrderBookTest, MatchingMultiLayer);
     
 public:
-    explicit OrderBook(int64_t min_step,
+    explicit OrderBook(uint64_t symbol_id,
+                       int64_t min_step,
                        int64_t price_offset,
                        size_t max_price_levels = 65536,
                        ExecutionReporter* reporter = nullptr);
@@ -72,12 +74,23 @@ public:
     void processRequest(const OrderRequest* req);
     void showL2(size_t depth = UINT32_MAX);
 
+    // Snapshot support
+    struct SnapshotOrder {
+        uint64_t order_id;
+        Side side;
+        int64_t price;
+        uint64_t qty;
+    };
+    std::vector<SnapshotOrder> getL3Snapshot() const;
+
 private:
+    const uint64_t symbol_id_;
     const int64_t min_step_;           // 最小價格單位 (定點數)
     const int64_t price_index_offset_; // 
     const size_t  max_price_levels_;   // price_array_ 大小
     ExecutionReporter* reporter_;
     L2Updater l2;
+    L3Updater l3;
 
     size_t price_to_index(const int64_t price) const {
         return price / min_step_ - price_index_offset_;

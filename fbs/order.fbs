@@ -33,6 +33,41 @@ table OrderResponse
     reject_code: RejectCode;
 }
 
+table PositionRequest {
+    client_id: uint;
+    symbol_id: uint;
+}
+
+table OrderStatusRequest {
+    client_id: uint;
+    order_id: ulong; // If 0, all orders for this client
+}
+
+union ClientRequestData {
+    OrderRequest,
+    PositionRequest,
+    OrderStatusRequest
+}
+
+table ClientRequest {
+    data: ClientRequestData;
+}
+
+table PositionResponse {
+    client_id: uint;
+    symbol_id: uint;
+    position: long;
+}
+
+union ClientResponseData {
+    OrderResponse,
+    PositionResponse
+}
+
+table ClientResponse {
+    data: ClientResponseData;
+}
+
 table L2Update
 {
     symbol_id: uint;
@@ -68,6 +103,8 @@ table L3Batch {
 
 root_type OrderRequest;
 root_type OrderResponse;
+root_type ClientRequest;
+root_type ClientResponse;
 
 root_type L2Update;
 root_type L2Batch;

@@ -58,7 +58,7 @@ int main()
         return it->second;
     };
 
-    ws_adaptor->set_subscribe_handler([&](Exchange::WSSessionPtr session, uint32_t symbol_id, bool is_subscribe) {
+    ws_adaptor->set_subscribe_handler([&](Exchange::WSClientPtr client, uint32_t symbol_id, bool is_subscribe) {
         if (!is_subscribe) return;
 
         auto book = get_or_create_book(symbol_id);
@@ -69,7 +69,7 @@ int main()
         {
             auto l2_update = Exchange::CreateL2Update(fbb, symbol_id, 0, Exchange::Side_None, 0, 0, 0);
             fbb.Finish(l2_update);
-            ws_adaptor->send_to_session(session, fbb.GetBufferPointer(), fbb.GetSize());
+            client->send(fbb.GetBufferPointer(), fbb.GetSize());
         }
 
         // 2. Send snapshots
@@ -79,13 +79,13 @@ int main()
                 fbb.Clear();
                 auto l2_update = Exchange::CreateL2Update(fbb, symbol_id, 0, Exchange::Side_Buy, price, qty, 0);
                 fbb.Finish(l2_update);
-                ws_adaptor->send_to_session(session, fbb.GetBufferPointer(), fbb.GetSize());
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
             }
             for (auto const& [price, qty] : book->asks) {
                 fbb.Clear();
                 auto l2_update = Exchange::CreateL2Update(fbb, symbol_id, 0, Exchange::Side_Sell, price, qty, 0);
                 fbb.Finish(l2_update);
-                ws_adaptor->send_to_session(session, fbb.GetBufferPointer(), fbb.GetSize());
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
             }
         }
         std::cout << "[L2Publisher] Sent snapshot for symbol " << symbol_id << " to new subscriber." << std::endl;
