@@ -40,6 +40,7 @@ int main() {
                 auto req = flatbuffers::GetRoot<Exchange::OrderRequest>(data_ptr);
                 std::cout << "[OrderCore] Dequeued Request: exec_id=" << req->exec_id() << std::endl;
                 book.processRequest(req);
+                book.showL2();
             }
         }
         else 

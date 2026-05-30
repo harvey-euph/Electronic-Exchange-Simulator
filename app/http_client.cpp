@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
             std::cout << "[HTTP Client] Sent exec_id=" << exec_id << " Response: " << res.body() << std::endl;
 
             // 1 second stop for each order
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
 
         beast::error_code ec;
