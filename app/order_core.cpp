@@ -1,5 +1,5 @@
 #include "OrderBook.hpp"
-#include "HTTPReporter.hpp"
+#include "ExecutionReporter.hpp"
 #include "ring/SHMRingBuffer.hpp"
 #include <iostream>
 #include <chrono>
@@ -21,10 +21,9 @@ int main() {
 
     std::cout << "[OrderCore] Starting matching engine..." << std::endl;
 
-    Exchange::HTTPReporter reporter("OrderResponse", 16384);
+    Exchange::StdoutExecutionReporter reporter;
     
-    // min_step=10000, price_offset=2000
-    Exchange::OrderBook book(10000, 2000, 65536, &reporter);
+    Exchange::OrderBook book(1, 2000, 8192, &reporter);
 
     Exchange::SHMRingBuffer request_ring("OrderRequest", 16384);
 
@@ -33,14 +32,18 @@ int main() {
 
     std::cout << "[OrderCore] Listening for requests on OrderRequest ring..." << std::endl;
 
-    while (g_running) {
-        if (request_ring.dequeue(&data_ptr, &data_size)) {
+    while (g_running)
+    {
+        if (request_ring.dequeue(&data_ptr, &data_size))
+        {
             if (data_ptr && data_size > 0) {
                 auto req = flatbuffers::GetRoot<Exchange::OrderRequest>(data_ptr);
                 std::cout << "[OrderCore] Dequeued Request: exec_id=" << req->exec_id() << std::endl;
                 book.processRequest(req);
             }
-        } else {
+        }
+        else 
+        {
             std::this_thread::sleep_for(std::chrono::microseconds(10));
         }
     }

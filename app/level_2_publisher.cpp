@@ -43,6 +43,7 @@ int main()
         std::cerr << "[L2Publisher] Failed to start WSAdaptor: " << e.what() << std::endl;
     }
 
+    std::cout << "[L2Publisher] Initialized " << adaptors.size() << " output adaptors." << std::endl;
     std::cout << "[L2Publisher] Connected successfully. Start consuming..." << std::endl;
 
     void* data_ptr = nullptr;

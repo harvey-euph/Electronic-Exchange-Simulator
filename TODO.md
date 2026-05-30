@@ -1,0 +1,3 @@
+- [x] http_order_accepter only do async response. i.e. Response always 200 if recv on server, keep order exec status other way to express.
+- [x] since change the way to notice execution report, we use a stdout execution reporter on order_core.
+- [x] make a cpp ws client to test L2Publisher

@@ -31,14 +31,22 @@ class WSSession : public std::enable_shared_from_this<WSSession> {
     std::queue<std::string> write_queue_;
     std::mutex write_mutex_;
     std::atomic<bool> closed_{false};
-
+    std::string remote_info_;
+    
 public:
-    explicit WSSession(tcp::socket&& socket) : ws_(std::move(socket)) {}
+    explicit WSSession(tcp::socket&& socket) : ws_(std::move(socket)) {
+        try {
+            auto ep = ws_.next_layer().socket().remote_endpoint();
+            remote_info_ = ep.address().to_string() + ":" + std::to_string(ep.port());
+        } catch (...) {
+            remote_info_ = "unknown";
+        }
+    }
 
     bool is_closed() const { return closed_; }
 
     void run() {
-        fprintf(stderr, "[WS] Session starting run\n");
+        fprintf(stderr, "[WS][%s] Session starting run\n", remote_info_.c_str());
         net::dispatch(ws_.get_executor(),
             beast::bind_front_handler(&WSSession::on_run, shared_from_this()));
     }
@@ -54,7 +62,7 @@ public:
             closed_ = true;
             return fail(ec, "accept");
         }
-        fprintf(stderr, "[WS] Client connected and handshaked\n");
+        fprintf(stderr, "[WS][%s] Client connected and handshaked\n", remote_info_.c_str());
         do_read();
     }
 
@@ -66,7 +74,7 @@ public:
         boost::ignore_unused(bytes_transferred);
         if (ec == websocket::error::closed) {
             closed_ = true;
-            fprintf(stderr, "[WS] Client closed connection gracefully\n");
+            fprintf(stderr, "[WS][%s] Client closed connection gracefully\n", remote_info_.c_str());
             return;
         }
         if (ec) {
@@ -77,7 +85,7 @@ public:
         std::string msg = beast::buffers_to_string(buffer_.data());
         buffer_.consume(buffer_.size());
         
-        fprintf(stderr, "[WS] Received message: %s\n", msg.c_str());
+        fprintf(stderr, "[WS][%s] Received message: %s\n", remote_info_.c_str(), msg.c_str());
 
         {
             std::lock_guard<std::mutex> lock(sub_mutex_);
@@ -88,10 +96,10 @@ public:
                         uint32_t sym = std::stoul(msg.substr(first_digit));
                         subscriptions_.insert(sym);
                         subscribe_all_ = false;
-                        fprintf(stderr, "[WS] Session subscribed to symbol %u\n", sym);
+                        fprintf(stderr, "[WS][%s] Session subscribed to symbol %u\n", remote_info_.c_str(), sym);
                     }
                 } catch (...) {
-                    fprintf(stderr, "[WS] Failed to parse sub message\n");
+                    fprintf(stderr, "[WS][%s] Failed to parse sub message\n", remote_info_.c_str());
                 }
             } else if (msg.find("unsub ") == 0) {
                 try {
@@ -100,10 +108,10 @@ public:
                         uint32_t sym = std::stoul(msg.substr(first_digit));
                         subscriptions_.erase(sym);
                         if (subscriptions_.empty()) subscribe_all_ = true;
-                        fprintf(stderr, "[WS] Session unsubscribed from symbol %u\n", sym);
+                        fprintf(stderr, "[WS][%s] Session unsubscribed from symbol %u\n", remote_info_.c_str(), sym);
                     }
                 } catch (...) {
-                    fprintf(stderr, "[WS] Failed to parse unsub message\n");
+                    fprintf(stderr, "[WS][%s] Failed to parse unsub message\n", remote_info_.c_str());
                 }
             }
         }
@@ -155,7 +163,7 @@ public:
 
 private:
     void fail(beast::error_code ec, char const* what) {
-        fprintf(stderr, "[WS] %s: %s\n", what, ec.message().c_str());
+        fprintf(stderr, "[WS][%s] %s: %s\n", remote_info_.c_str(), what, ec.message().c_str());
     }
 };
 
@@ -198,10 +206,13 @@ public:
             fail(ec, "accept");
         } else {
             auto session = std::make_shared<WSSession>(std::move(socket));
+            size_t count = 0;
             {
                 std::lock_guard<std::mutex> lock(session_mutex_);
                 sessions_.insert(session);
+                count = sessions_.size();
             }
+            fprintf(stderr, "[WS] New session created. Active sessions: %zu\n", count);
             session->run();
         }
         do_accept();
@@ -212,6 +223,7 @@ public:
         for (auto it = sessions_.begin(); it != sessions_.end();) {
             if ((*it)->is_closed()) {
                 it = sessions_.erase(it);
+                fprintf(stderr, "[WS] Session removed. Active sessions: %zu\n", sessions_.size());
             } else {
                 (*it)->send(data, symbol_id);
                 ++it;

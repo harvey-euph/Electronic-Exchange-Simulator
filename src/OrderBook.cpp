@@ -58,23 +58,46 @@ Order* OrderBook::createOrder(const OrderRequest* req)
     };
 }
 
+void printOrder(const Order *o)
+{
+    if (!o) return;
+    std::cout << "[Order] "
+              << "id=" << o->order_id
+              << ", client=" << o->client_id
+              << ", exec_id=" << o->exec_id
+              << ", type=" << EnumNameOrderType(o->type)
+              << ", qty_orig=" << o->qty_original
+              << ", qty_rem=" << o->qty_remaining
+              << ", ts=" << o->timestamp
+              << (o->price_level ? " [InBook]" : " [Floating]")
+              << std::endl;
+}
+
+void printOrderRequest(const OrderRequest *req)
+{
+    if (!req) return;
+    std::cout << "[OrderRequest] "
+              << "action=" << EnumNameOrderAction(req->action())
+              << ", exec_id=" << req->exec_id()
+              << ", order_id=" << req->order_id()
+              << ", client=" << req->client_id()
+              << ", sym=" << req->symbol_id()
+              << ", side=" << EnumNameSide(req->side())
+              << ", type=" << EnumNameOrderType(req->type())
+              << ", price=" << req->p()
+              << ", qty=" << req->q()
+              << ", visible=" << req->visible_qty()
+              << ", ts=" << req->timestamp()
+              << std::endl;
+}
+
 void OrderBook::processRequest(const OrderRequest* req)
 {
     if (!req) {
         return;
     }
 
-    std::cout << "[OrderBook] Processing Request: action=" << EnumNameOrderAction(req->action())
-              << ", order_id=" << req->order_id()
-              << ", client_id=" << req->client_id()
-              << ", symbol_id=" << req->symbol_id()
-              << ", side=" << (req->side() == Side_Buy ? "Buy" : "Sell")
-              << ", price=" << req->p()
-              << ", qty=" << req->q()
-              << ", exec_id=" << req->exec_id()
-              << std::endl;
-
-    reporter_->onRequest(req);
+    printOrderRequest(req);
 
     switch (req->action()) {
     case OrderAction_Cancel:
@@ -105,7 +128,6 @@ void OrderBook::processRequest(const OrderRequest* req)
 
 void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
 {
-    std::cout << "[OrderBook] New Order: order_id=" << req->order_id() << " price=" << req->p() << " qty=" << req->q() << std::endl;
     if (report_ack) {
         reporter_->onAck(req, price_to_index(req->p()));
     }
