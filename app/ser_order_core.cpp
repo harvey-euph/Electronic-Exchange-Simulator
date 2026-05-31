@@ -46,7 +46,8 @@ int main() {
         }
         else 
         {
-            std::this_thread::sleep_for(std::chrono::microseconds(10));
+            // for dev env
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 

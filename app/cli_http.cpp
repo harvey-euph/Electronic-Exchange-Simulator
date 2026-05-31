@@ -66,9 +66,8 @@ net::awaitable<void> do_client(std::string csv_path) {
 
         std::cout << "[HTTP Client] Sent exec_id=" << order->exec_id() << " Response: " << res.body() << std::endl;
 
-        // 1 second stop for each order
         net::steady_timer timer(executor);
-        timer.expires_after(std::chrono::milliseconds(100));
+        timer.expires_after(std::chrono::milliseconds(50));
         co_await timer.async_wait(net::use_awaitable);
     }
 

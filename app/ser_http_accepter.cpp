@@ -50,6 +50,7 @@ net::awaitable<void> do_session(tcp::socket socket, Exchange::SHMRingBuffer& req
                 std::cout << "[Accepter] Received Request exec_id=" << exec_id << " order_id=" << order_req->order_id() << std::endl;
 
                 if (request_ring.enqueue(req.body().data(), req.body().size())) {
+                    std::cout << "[Accepter] Enqueued Request exec_id=" << exec_id << " size=" << req.body().size() << std::endl;
                     http::response<http::string_body> res{http::status::ok, version};
                     res.set(http::field::content_type, "text/plain");
                     set_cors(res);

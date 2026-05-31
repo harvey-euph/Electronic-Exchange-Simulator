@@ -41,17 +41,3 @@ L3 Update:    Same as L2
 
 
 ## Make comment below
-
-### Gemini CLI Comments:
-
-1. **L3 Snapshots**: DONE. `OrderBook` now has `getL3Snapshot`, and `level_3_publisher.cpp` sends full order snapshots to new subscribers, matching L2 behavior.
-
-2. **Client Manager Enhancements**: 
-   - **Union Format**: DONE. `order.fbs` now uses `ClientRequest` and `ClientResponse` unions. `ClientManager` handles these unified messages over WebSocket.
-   - **Persistence**: Still pending. DB integration for offline executions is the next logical step.
-   - **Order Entry over WS**: DONE. `ClientManager` now accepts `OrderRequest` via WebSocket and forwards it to the `ORDER_REQUEST` ring buffer.
-   - **Account Inquiries**: DONE. `ClientManager` supports Position inquiries. Cash is now treated as a symbol with `symbol_id = 0` (e.g., USD), eliminating the need for a separate `CashRequest` type.
-
-3. **L2 Snapshot Consistency**: DONE. Both publishers follow the "Empty frame ahead" then Snapshot pattern.
-
-4. **Message Sequencing**: INCREMENTALS from ring buffers include `seq_num`. Snapshots currently use `seq_num=0` as a convention for "full state reset".

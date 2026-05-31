@@ -8,9 +8,8 @@ namespace Exchange {
 SHMRingBuffer::SHMRingBuffer(const std::string& name, size_t capacity)
     : m_name("/" + name), m_capacity(capacity) // shm_open 通常要求以 '/' 開頭
 {
-    // 計算總大小：結構體大小 + 緩衝區大小
-    // 假設你的資料區大小是 capacity，請根據你原本的實作調整
-    m_total_size = sizeof(SHMRing) + m_capacity; 
+    // 計算總大小：結構體大小 + 緩衝區大小 + 4位元組安全 Padding
+    m_total_size = sizeof(SHMRing) + m_capacity + sizeof(uint32_t); 
 
     // 嘗試以 O_EXCL 建立。如果檔案已存在，此呼叫會失敗並回傳 EEXIST
     m_fd = shm_open(m_name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0666);
@@ -50,6 +49,9 @@ SHMRingBuffer::SHMRingBuffer(const std::string& name, size_t capacity)
     if (is_creator) {
         std::cout << "[SHMRing] " << m_name << " not found. Creating and initializing SHM..." << std::endl;
         
+        // 清空整塊記憶體，確保沒有殘留垃圾
+        std::memset(m_mmap, 0, m_total_size);
+
         // 初始化內部結構 (使用 memory_order_relaxed 因為此時還沒有其他人會讀這塊區塊)
         m_ring->head.store(0, std::memory_order_relaxed);
         m_ring->tail.store(0, std::memory_order_relaxed);
@@ -110,64 +112,45 @@ bool SHMRingBuffer::enqueue(void* data, size_t size) {
 
     // 計算當前在 Buffer 內的 Offset 位置 (利用 mask)
     uint64_t tail_offset = current_tail & m_ring->mask;
-    uint64_t head_offset = current_head & m_ring->mask;
+    size_t space_to_end = m_capacity - tail_offset;
 
-    // 計算當前可用的連續剩餘空間
-    size_t free_space = 0;
-    if (tail_offset >= head_offset) {
-        // tail 在 head 後面，剩餘空間被切成兩段：末端一段，開頭一段
-        size_t space_to_end = m_capacity - tail_offset;
-        
-        if (space_to_end >= required_space) {
-            // 情況 A：末端空間足夠寫入
-            uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
-            
-            // 1. 寫入長度
-            *reinterpret_cast<uint32_t*>(write_ptr) = static_cast<uint32_t>(size);
-            // 2. 寫入 Payload
-            std::memcpy(write_ptr + sizeof(uint32_t), data, size);
-            
-            // 3. 更新 tail (使用 release 確保 memcpy 的資料先於 tail 刷新被外面的 CPU 看見)
-            m_ring->tail.store(current_tail + required_space, std::memory_order_release);
-            return true;
-        } 
-        
-        // 情況 B：末端空間不夠寫入，需要「繞回」到最前面 (Offset 0)
-        // 此時必須確認開頭的空間（到 head 之前）是否夠放
-        if (head_offset >= required_space) {
-            uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
-            
-            // 1. 在末端打上 WRAP_MARKER 標記
-            *reinterpret_cast<uint32_t*>(write_ptr) = WRAP_MARKER;
-            
-            // 2. 跑到最開頭 (Offset 0) 寫入真正的資料
-            uint8_t* start_ptr = static_cast<uint8_t*>(m_data);
-            *reinterpret_cast<uint32_t*>(start_ptr) = static_cast<uint32_t>(size);
-            std::memcpy(start_ptr + sizeof(uint32_t), data, size);
-            
-            // 3. 推進 tail。注意：必須加上 (space_to_end + required_space)
-            // 這樣才能讓 tail_offset 完美對齊到下一次的開頭
-            m_ring->tail.store(current_tail + space_to_end + required_space, std::memory_order_release);
-            return true;
+    if (space_to_end >= required_space) {
+        // 情況 A：末端空間足夠寫入
+        // 檢查絕對可用空間 (確保 tail 不會追過 head 並覆蓋未讀取資料)
+        if (current_tail - current_head + required_space > m_capacity) {
+            return false;
         }
+
+        uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
         
-        // 空間不足（不論是末端還是繞回後的開頭都放不下）
-        return false;
+        // 1. 寫入長度
+        *reinterpret_cast<uint32_t*>(write_ptr) = static_cast<uint32_t>(size);
+        // 2. 寫入 Payload
+        std::memcpy(write_ptr + sizeof(uint32_t), data, size);
         
+        // 3. 更新 tail (使用 release 確保 memcpy 的資料先於 tail 刷新被外面的 CPU 看見)
+        m_ring->tail.store(current_tail + required_space, std::memory_order_release);
+        return true;
     } else {
-        // tail 在 head 前面，剩下的可用空間是連續的一整塊 (head_offset - tail_offset)
-        free_space = head_offset - tail_offset;
-        
-        if (free_space >= required_space) {
-            uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
-            *reinterpret_cast<uint32_t*>(write_ptr) = static_cast<uint32_t>(size);
-            std::memcpy(write_ptr + sizeof(uint32_t), data, size);
-            
-            m_ring->tail.store(current_tail + required_space, std::memory_order_release);
-            return true;
+        // 情況 B：末端空間不夠寫入，需要「繞回」到最前面 (Offset 0)
+        // 此時總共會消耗 space_to_end (Padding) + required_space 
+        if (current_tail - current_head + space_to_end + required_space > m_capacity) {
+            return false;
         }
+
+        uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
         
-        return false; // 空間不足
+        // 1. 在末端打上 WRAP_MARKER 標記 (因構造函數加了 4-byte padding，此處寫入安全)
+        *reinterpret_cast<uint32_t*>(write_ptr) = WRAP_MARKER;
+        
+        // 2. 跑到最開頭 (Offset 0) 寫入真正的資料
+        uint8_t* start_ptr = static_cast<uint8_t*>(m_data);
+        *reinterpret_cast<uint32_t*>(start_ptr) = static_cast<uint32_t>(size);
+        std::memcpy(start_ptr + sizeof(uint32_t), data, size);
+        
+        // 3. 推進 tail。注意：必須加上 (space_to_end + required_space)
+        m_ring->tail.store(current_tail + space_to_end + required_space, std::memory_order_release);
+        return true;
     }
 }
 
@@ -189,9 +172,8 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
     // 讀取標頭中的長度
     uint32_t length = *reinterpret_cast<uint32_t*>(read_ptr);
 
-    if (length == 0 || length > m_capacity) {
-        // Corrupt memory or invalid length
-        return false;
+    if (current_head != current_tail && (length == 0 || length > m_capacity) && length != WRAP_MARKER) {
+        std::cerr << "[SHMRing] Corrupt length: " << length << " head=" << current_head << " tail=" << current_tail << " offset=" << head_offset << std::endl;
     }
 
     // 處理繞回標記
@@ -212,12 +194,21 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
         read_ptr = static_cast<uint8_t*>(m_data);
         length = *reinterpret_cast<uint32_t*>(read_ptr);
         
+        if (length == 0 || length > m_capacity) {
+            return false;
+        }
+
         *size = length;
         *data = read_ptr + sizeof(uint32_t); // 傳回 Payload 的記憶體指標 (零拷貝)
 
         // 更新 head (使用 release 讓 Producer 知道這塊空間釋放了)
         m_ring->head.store(new_head + sizeof(uint32_t) + length, std::memory_order_release);
         return true;
+    }
+
+    if (length == 0 || length > m_capacity) {
+        // Corrupt memory or invalid length
+        return false;
     }
 
     // 正常情況：資料就在當前位置
