@@ -26,6 +26,7 @@ jobs:
             software-properties-common \
             libgtest-dev \
             googletest \
+            libboost-all-dev \
             libflatbuffers-dev \
             flatbuffers-compiler \
             pkg-config
@@ -71,6 +72,7 @@ jobs:
             g++ \
             libgtest-dev \
             googletest \
+            libboost-all-dev \
             libflatbuffers-dev \
             flatbuffers-compiler
 

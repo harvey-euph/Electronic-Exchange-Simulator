@@ -51,6 +51,7 @@ int main(int argc, char** argv) {
         std::cout << "[Mgmt Client] Connected to " << host << ":" << port << std::endl;
 
         client->run_async([](const void* data, size_t size) {
+            (void) size;
             auto client_resp = flatbuffers::GetRoot<ClientResponse>(data);
             print_client_response(client_resp);
         });

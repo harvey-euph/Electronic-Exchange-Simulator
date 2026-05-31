@@ -1,0 +1,73 @@
+#!/bin/bash
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+LOG_DIR="$PROJECT_ROOT/log"
+PID_FILE="$PROJECT_ROOT/.run_service.pid"
+
+mkdir -p "$LOG_DIR"
+echo $$ > "$PID_FILE"
+
+echo "Starting Exchange Services from $PROJECT_ROOT..."
+
+declare -A SERVICES
+SERVICES=(
+    ["Order Core"]="build/app/ser_order_core"
+    ["HTTP Order Accepter"]="build/app/ser_http_accepter"
+    ["Client Manager"]="build/app/ser_client_manager"
+    ["L2 Publisher"]="build/app/ser_l2_publisher"
+    ["L3 Publisher"]="build/app/ser_l3_publisher"
+)
+
+declare -A SERVICE_LOGS
+SERVICE_LOGS=(
+    ["Order Core"]="order_core.log"
+    ["HTTP Order Accepter"]="http_order_accepter.log"
+    ["Client Manager"]="client_manager.log"
+    ["L2 Publisher"]="level_2_publisher.log"
+    ["L3 Publisher"]="level_3_publisher.log"
+)
+
+declare -A SERVICE_PIDS
+
+start_service() {
+    local name="$1"
+    local exe="${SERVICES[$name]}"
+    local log="${SERVICE_LOGS[$name]}"
+    
+    "$PROJECT_ROOT/$exe" > "$LOG_DIR/$log" 2>&1 &
+    SERVICE_PIDS["$name"]=$!
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Started $name (PID: ${SERVICE_PIDS[$name]})"
+}
+
+stop_all() {
+    echo -e "\nStopping all services..."
+    pkill -f "build/app/"
+    rm -f /dev/shm/L2_UPDATE_RING /dev/shm/L3_UPDATE_RING /dev/shm/ORDER_REQUEST /dev/shm/ORDER_RESPONSE
+    rm -f "$PID_FILE"
+    exit 0
+}
+
+trap stop_all SIGINT SIGTERM
+
+SERVICE_NAMES=("Order Core" "HTTP Order Accepter" "Client Manager" "L2 Publisher" "L3 Publisher")
+
+for name in "${SERVICE_NAMES[@]}"; do
+    start_service "$name"
+    sleep 1
+done
+
+echo "------------------------------------------------"
+echo "Monitoring started. Logs in $LOG_DIR/"
+echo "To stop, press Ctrl+C or run: ./stop_service"
+echo "------------------------------------------------"
+
+while true; do
+    sleep 5
+    for name in "${SERVICE_NAMES[@]}"; do
+        pid=${SERVICE_PIDS["$name"]}
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "$(date '+%Y-%m-%d %H:%M:%S') - WARNING: $name (PID: $pid) is down. Restarting..."
+            start_service "$name"
+        fi
+    done
+done

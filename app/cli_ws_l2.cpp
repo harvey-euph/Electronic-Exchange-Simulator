@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
         std::cout << "[L2 Client] Connected to " << host << ":" << port << std::endl;
 
         client->run_async([](const void* data, size_t size) {
+            (void) size;
             auto l2_update = flatbuffers::GetRoot<L2Update>(data);
             if (l2_update->side() == Side_None) {
                 std::cout << "[L2 Client] Received Empty Frame (Snapshot Start)" << std::endl;

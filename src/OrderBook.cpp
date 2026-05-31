@@ -175,6 +175,7 @@ void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
             reporter_->onFill(
                 incoming,
                 existing,
+                req->side(),
                 index_to_price((*oppo) - price_array_.data()),
                 qty_fill);
 

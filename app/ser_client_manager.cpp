@@ -48,6 +48,7 @@ public:
     }
 
     void handle_execution_response(const OrderResponse* resp, const void* data, size_t size) {
+        (void) data;
         std::lock_guard<std::mutex> lock(sessions_mutex_);
         auto it = client_sessions_.find(resp->client_id());
         if (it != client_sessions_.end()) {
@@ -55,7 +56,7 @@ public:
                       << " | OrderID: " << resp->order_id() << " | Type: " << EnumNameExecType(resp->exec_type()) << std::endl;
             
             flatbuffers::FlatBufferBuilder fbb(size + 64);
-            auto resp_offset = CreateOrderResponse(fbb, resp->exec_type(), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->p(), resp->q(), resp->reject_code());
+            auto resp_offset = CreateOrderResponse(fbb, resp->exec_type(), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code());
             auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
             fbb.Finish(client_resp);
             

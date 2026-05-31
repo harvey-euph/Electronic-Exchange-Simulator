@@ -28,6 +28,7 @@ table OrderResponse
     client_id: uint;
     exec_id: ulong;           // Correlate with OrderRequest.exec_id
     symbol_id: uint;
+    side: Side;
     p: long;
     q: ulong;
     reject_code: RejectCode;

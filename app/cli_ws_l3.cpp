@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
         std::cout << "[L3 Client] Connected to " << host << ":" << port << std::endl;
 
         client->run_async([](const void* data, size_t size) {
+            (void) size;
             auto l3_update = flatbuffers::GetRoot<L3Update>(data);
             if (l3_update->side() == Side_None) {
                 std::cout << "[L3 Client] Received Empty Frame (Snapshot Start)" << std::endl;

@@ -21,8 +21,9 @@ public:
     virtual void onCancelled(const OrderRequest* req) = 0;
     virtual void onModified(const OrderRequest* req) = 0;
     virtual void onReject(const OrderRequest* req, RejectCode code) = 0;
-    virtual void onFill(const Order* incoming,
-                        const Order* existing,
+    virtual void onFill(const Order* taker,
+                        const Order* maker,
+                        const Side side,
                         int64_t price,
                         uint64_t qty_fill) = 0;
 };
@@ -35,8 +36,9 @@ public:
     void onCancelled(const OrderRequest* req) override;
     void onModified(const OrderRequest* req) override;
     void onReject(const OrderRequest* req, RejectCode code) override;
-    void onFill(const Order* incoming,
-                const Order* existing,
+    void onFill(const Order* taker,
+                const Order* maker,
+                const Side side,
                 int64_t price,
                 uint64_t qty_fill) override;
 };
@@ -52,8 +54,9 @@ public:
     void onCancelled(const OrderRequest* req) override;
     void onModified(const OrderRequest* req) override;
     void onReject(const OrderRequest* req, RejectCode code) override;
-    void onFill(const Order* incoming,
-                const Order* existing,
+    void onFill(const Order* taker,
+                const Order* maker,
+                const Side taker_side,
                 int64_t price,
                 uint64_t qty_fill) override;
 

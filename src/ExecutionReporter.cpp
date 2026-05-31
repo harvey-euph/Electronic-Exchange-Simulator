@@ -25,12 +25,12 @@ void print_client_channel(const char* event, uint32_t client_id, uint64_t order_
 
 void send_response(SHMRingBuffer* ring, flatbuffers::FlatBufferBuilder& fbb,
                   ExecType exec_type, uint64_t order_id, uint32_t client_id,
-                  uint64_t exec_id, uint32_t symbol_id, int64_t p, uint64_t q,
+                  uint64_t exec_id, uint32_t symbol_id, Side side, int64_t p, uint64_t q,
                   RejectCode reject_code)
 {
     if (!ring) return;
     fbb.Clear();
-    auto resp = CreateOrderResponse(fbb, exec_type, order_id, client_id, exec_id, symbol_id, p, q, reject_code);
+    auto resp = CreateOrderResponse(fbb, exec_type, order_id, client_id, exec_id, symbol_id, side, p, q, reject_code);
     fbb.Finish(resp);
     ring->enqueue(fbb.GetBufferPointer(), fbb.GetSize());
 }
@@ -111,21 +111,23 @@ void StdoutExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
                 static_cast<int>(code));
 }
 
-void StdoutExecutionReporter::onFill(const Order* incoming,
-                                     const Order* existing,
+void StdoutExecutionReporter::onFill(const Order* taker,
+                                     const Order* maker,
+                                     const Side taker_side,
                                      int64_t price,
                                      uint64_t qty_fill)
 {
-    if (!incoming || !existing) return;
+    if (!taker || !maker) return;
 
+    (void) taker_side;
     std::printf("[FILL] taker_order=%lu maker_order=%lu price=%ld qty=%lu "
                 "taker_remaining=%lu maker_remaining=%lu\n",
-                incoming->order_id,
-                existing->order_id,
+                taker->order_id,
+                maker->order_id,
                 price,
                 qty_fill,
-                incoming->qty_remaining,
-                existing->qty_remaining);
+                taker->qty_remaining,
+                maker->qty_remaining);
 }
 
 void ClientExecutionReporter::onRequest(const OrderRequest* req)
@@ -139,14 +141,14 @@ void ClientExecutionReporter::onAck(const OrderRequest* req, size_t price_index)
     if (!req) return;
     std::printf("[client] event=ack client_id=%u order_id=%lu price_idx=%zu\n",
                 req->client_id(), req->order_id(), price_index);
-    send_response(m_ring, fbb, ExecType_New, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), RejectCode_None);
+    send_response(m_ring, fbb, ExecType_New, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onCancelled(const OrderRequest* req)
 {
     if (!req) return;
     print_client_channel("cancelled", req->client_id(), req->order_id());
-    send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), RejectCode_None);
+    send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onModified(const OrderRequest* req)
@@ -154,7 +156,7 @@ void ClientExecutionReporter::onModified(const OrderRequest* req)
     if (!req) return;
     std::printf("[client] event=modified client_id=%u order_id=%lu price=%ld qty=%lu\n",
                 req->client_id(), req->order_id(), req->p(), req->q());
-    send_response(m_ring, fbb, ExecType_Replaced, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), RejectCode_None);
+    send_response(m_ring, fbb, ExecType_Replaced, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
@@ -165,27 +167,28 @@ void ClientExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
                 req->order_id(),
                 EnumNameRejectCode(code),
                 static_cast<int>(code));
-    send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->p(), req->q(), code);
+    send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), code);
 }
 
-void ClientExecutionReporter::onFill(const Order* incoming,
-                                     const Order* existing,
+void ClientExecutionReporter::onFill(const Order* taker,
+                                     const Order* maker,
+                                     const Side taker_side,
                                      int64_t price,
                                      uint64_t qty_fill)
 {
-    if (!incoming || !existing) return;
+    if (!taker || !maker) return;
     std::printf("[client] event=fill taker=%lu maker=%lu price=%ld qty=%lu\n",
-                incoming->order_id, existing->order_id, price, qty_fill);
+                taker->order_id, maker->order_id, price, qty_fill);
     
-    // Send response for taker
     send_response(m_ring, fbb, 
-                  incoming->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                  incoming->order_id, incoming->client_id, incoming->exec_id, 1, price, qty_fill, RejectCode_None);
+                  taker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
+                  taker->order_id, taker->client_id, taker->exec_id, 1, taker_side, price, qty_fill, RejectCode_None);
+
+    const Side maker_side = static_cast<Side>(1-static_cast<int>(taker_side));
     
-    // Send response for maker
     send_response(m_ring, fbb,
-                  existing->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                  existing->order_id, existing->client_id, existing->exec_id, 1, price, qty_fill, RejectCode_None);
+                  maker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
+                  maker->order_id, maker->client_id, maker->exec_id, 1, maker_side, price, qty_fill, RejectCode_None);
 }
 
 } // namespace Exchange
