@@ -41,3 +41,5 @@ L3 Update:    Same as L2
 
 
 ## Make comment below
+
+1. **SHMRingBuffer MPSC**: DONE. Upgraded to Multi-Producer Single-Consumer (MPSC) using DPDK-style CAS reservation and commit logic. Verified with `tests/SHMRingBufferTest.cpp`.

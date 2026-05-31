@@ -53,8 +53,9 @@ SHMRingBuffer::SHMRingBuffer(const std::string& name, size_t capacity)
         std::memset(m_mmap, 0, m_total_size);
 
         // 初始化內部結構 (使用 memory_order_relaxed 因為此時還沒有其他人會讀這塊區塊)
-        m_ring->head.store(0, std::memory_order_relaxed);
-        m_ring->tail.store(0, std::memory_order_relaxed);
+        m_ring->prod_head.store(0, std::memory_order_relaxed);
+        m_ring->prod_tail.store(0, std::memory_order_relaxed);
+        m_ring->cons_head.store(0, std::memory_order_relaxed);
         m_ring->capacity = m_capacity;
         m_ring->mask = m_capacity - 1; // 假設 capacity 是 2 的冪次方
         
@@ -106,60 +107,78 @@ bool SHMRingBuffer::enqueue(void* data, size_t size) {
     // 如果單筆封包大於整個 Ring 的容量，這是不可能的任務
     if (required_space > m_capacity) return false;
 
-    // 載入當前的 head 與 tail (核心關鍵：SPSC 下 tail 只有 Producer 會改，放 relaxed 即可)
-    uint64_t current_tail = m_ring->tail.load(std::memory_order_relaxed);
-    uint64_t current_head = m_ring->head.load(std::memory_order_acquire); // 確保看見 Consumer 更新的 head
+    uint64_t old_prod_head, new_prod_head;
+    uint64_t tail_offset;
+    size_t space_to_end;
+    bool wrapped = false;
 
-    // 計算當前在 Buffer 內的 Offset 位置 (利用 mask)
-    uint64_t tail_offset = current_tail & m_ring->mask;
-    size_t space_to_end = m_capacity - tail_offset;
+    // 1. 預約空間 (Reservation Phase)
+    while (true) {
+        old_prod_head = m_ring->prod_head.load(std::memory_order_acquire);
+        uint64_t current_cons_head = m_ring->cons_head.load(std::memory_order_acquire);
+        
+        tail_offset = old_prod_head & m_ring->mask;
+        space_to_end = m_capacity - tail_offset;
 
-    if (space_to_end >= required_space) {
-        // 情況 A：末端空間足夠寫入
-        // 檢查絕對可用空間 (確保 tail 不會追過 head 並覆蓋未讀取資料)
-        if (current_tail - current_head + required_space > m_capacity) {
+        if (space_to_end >= required_space) {
+            // 情況 A：末端空間足夠
+            new_prod_head = old_prod_head + required_space;
+            wrapped = false;
+        } else {
+            // 情況 B：末端空間不夠，需要繞回。總消耗 = 末端填充 + 實際空間
+            new_prod_head = old_prod_head + space_to_end + required_space;
+            wrapped = true;
+        }
+
+        // 檢查剩餘絕對空間是否足夠 (防止 Producer 追上 Consumer)
+        if (new_prod_head - current_cons_head > m_capacity) {
             return false;
         }
 
+        // 原子地嘗試更新 prod_head 以完成預約
+        if (m_ring->prod_head.compare_exchange_weak(old_prod_head, new_prod_head, 
+                                                   std::memory_order_acquire, 
+                                                   std::memory_order_relaxed)) {
+            break;
+        }
+        // 若 CAS 失敗，代表有其他 Producer 搶先，繼續迴圈重試
+    }
+
+    // 2. 寫入資料 (Writing Phase)
+    if (!wrapped) {
         uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
-        
-        // 1. 寫入長度
         *reinterpret_cast<uint32_t*>(write_ptr) = static_cast<uint32_t>(size);
-        // 2. 寫入 Payload
         std::memcpy(write_ptr + sizeof(uint32_t), data, size);
-        
-        // 3. 更新 tail (使用 release 確保 memcpy 的資料先於 tail 刷新被外面的 CPU 看見)
-        m_ring->tail.store(current_tail + required_space, std::memory_order_release);
-        return true;
     } else {
-        // 情況 B：末端空間不夠寫入，需要「繞回」到最前面 (Offset 0)
-        // 此時總共會消耗 space_to_end (Padding) + required_space 
-        if (current_tail - current_head + space_to_end + required_space > m_capacity) {
-            return false;
-        }
-
         uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
-        
-        // 1. 在末端打上 WRAP_MARKER 標記 (因構造函數加了 4-byte padding，此處寫入安全)
         *reinterpret_cast<uint32_t*>(write_ptr) = WRAP_MARKER;
         
-        // 2. 跑到最開頭 (Offset 0) 寫入真正的資料
         uint8_t* start_ptr = static_cast<uint8_t*>(m_data);
         *reinterpret_cast<uint32_t*>(start_ptr) = static_cast<uint32_t>(size);
         std::memcpy(start_ptr + sizeof(uint32_t), data, size);
-        
-        // 3. 推進 tail。注意：必須加上 (space_to_end + required_space)
-        m_ring->tail.store(current_tail + space_to_end + required_space, std::memory_order_release);
-        return true;
     }
+
+    // 3. 提交 (Commit Phase)
+    // 必須等到 prod_tail 追上自己的 old_prod_head，才代表輪到自己提交
+    while (m_ring->prod_tail.load(std::memory_order_acquire) != old_prod_head) {
+        #if defined(__x86_64__) || defined(_M_X64)
+            __builtin_ia32_pause();
+        #else
+            std::this_thread::yield();
+        #endif
+    }
+    
+    // 更新 prod_tail，讓 Consumer 可以看見這批新資料，也讓下一個 Producer 准許提交
+    m_ring->prod_tail.store(new_prod_head, std::memory_order_release);
+    return true;
 }
 
 bool SHMRingBuffer::dequeue(void** data, size_t* size) {
     if (!data || !size) return false;
 
-    // 載入當前的 head 與 tail (SPSC 下 head 只有 Consumer 會改，放 relaxed 即可)
-    uint64_t current_head = m_ring->head.load(std::memory_order_relaxed);
-    uint64_t current_tail = m_ring->tail.load(std::memory_order_acquire); // 確保看見 Producer 寫完的 tail
+    // 載入當前的 cons_head 與 prod_tail (MPSC 下 cons_head 只有單個 Consumer 會改，放 relaxed 即可)
+    uint64_t current_head = m_ring->cons_head.load(std::memory_order_relaxed);
+    uint64_t current_tail = m_ring->prod_tail.load(std::memory_order_acquire); // 確保看見 Producer 寫完並提交的 prod_tail
 
     // 如果 head 等於 tail，代表 Ring 裡面空空如也
     if (current_head == current_tail) {
@@ -186,7 +205,7 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
         
         // 再次檢查跳過後是否追上 tail，如果追上代表後面沒資料了
         if (new_head == current_tail) {
-            m_ring->head.store(new_head, std::memory_order_relaxed); // 默默更新 head
+            m_ring->cons_head.store(new_head, std::memory_order_relaxed); // 默默更新 head
             return false;
         }
 
@@ -201,8 +220,8 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
         *size = length;
         *data = read_ptr + sizeof(uint32_t); // 傳回 Payload 的記憶體指標 (零拷貝)
 
-        // 更新 head (使用 release 讓 Producer 知道這塊空間釋放了)
-        m_ring->head.store(new_head + sizeof(uint32_t) + length, std::memory_order_release);
+        // 更新 cons_head (使用 release 讓 Producer 知道這塊空間釋放了)
+        m_ring->cons_head.store(new_head + sizeof(uint32_t) + length, std::memory_order_release);
         return true;
     }
 
@@ -215,8 +234,8 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
     *size = length;
     *data = read_ptr + sizeof(uint32_t); // 傳回 Payload 的記憶體指標
 
-    // 推進 head 指標
-    m_ring->head.store(current_head + sizeof(uint32_t) + length, std::memory_order_release);
+    // 推進 cons_head 指標
+    m_ring->cons_head.store(current_head + sizeof(uint32_t) + length, std::memory_order_release);
     return true;
 }
 

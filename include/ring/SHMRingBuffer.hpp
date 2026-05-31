@@ -19,9 +19,12 @@ struct SHMRing {
     std::atomic<uint32_t> magic{0};    // 驗證是否為正確的 shm 格式
     std::atomic<uint32_t> ready{0};    // 0: 初始化中, 1: 初始化完成可安全使用
     
-    // 為了防止 False Sharing，將 Control 變數與 Data 變數對齊到 Cache Line (64 bytes)
-    alignas(64) std::atomic<uint64_t> head{0};
-    alignas(64) std::atomic<uint64_t> tail{0};
+    // MPSC 設計：DPDK 風格的 head/tail commit
+    // 為了防止 False Sharing，將 Control 變數對齊到 Cache Line (64 bytes)
+    alignas(64) std::atomic<uint64_t> prod_head{0}; // Producer 預約進度
+    alignas(64) std::atomic<uint64_t> prod_tail{0}; // Producer 寫入完成進度
+    
+    alignas(64) std::atomic<uint64_t> cons_head{0}; // Consumer 讀取進度
     
     uint64_t capacity;
     uint64_t mask;
