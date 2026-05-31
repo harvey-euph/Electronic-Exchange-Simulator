@@ -119,9 +119,9 @@ void StdoutExecutionReporter::onFill(const Order* taker,
 {
     if (!taker || !maker) return;
 
-    (void) taker_side;
-    std::printf("[FILL] taker_order=%lu maker_order=%lu price=%ld qty=%lu "
+    std::printf("[FILL] taker %s %lu from maker %lu price=%ld qty=%lu "
                 "taker_remaining=%lu maker_remaining=%lu\n",
+                EnumNameSide(taker_side),
                 taker->order_id,
                 maker->order_id,
                 price,
