@@ -132,6 +132,11 @@ void OrderBook::processRequest(const OrderRequest* req)
 
 void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
 {
+    if (active_orders_.count(req->order_id())) {
+        reporter_->onReject(req, RejectCode_DuplicateOrderID);
+        return;
+    }
+
     if (report_ack) {
         reporter_->onAck(req, price_to_index(req->p()));
     }

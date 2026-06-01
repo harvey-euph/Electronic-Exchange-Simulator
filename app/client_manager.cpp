@@ -31,7 +31,7 @@ public:
     {
         std::cout << "[ClientManager] Initializing on port " << port << std::endl;
 
-        ws_adaptor_->set_subscribe_handler([this](WSClientPtr client, uint32_t client_id, bool is_subscribe) {
+        auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe) {
             auto lock = get_client_lock(client_id);
             std::lock_guard<std::mutex> client_guard(*lock);
             
@@ -48,9 +48,11 @@ public:
                 client_sessions_.erase(client_id);
                 std::cout << "[ClientManager] Client " << client_id << " disconnected." << std::endl;
             }
-        });
+        };
 
-        ws_adaptor_->set_message_handler([this](WSClientPtr client, const void* data, size_t size) {
+        ws_adaptor_->set_subscribe_handler(subscribe_handler);
+
+        auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
             // We need to peek at the client_id to lock the correct mutex
             flatbuffers::Verifier verifier(static_cast<const uint8_t*>(data), size);
             if (!verifier.VerifyBuffer<ClientRequest>(nullptr)) return;
@@ -70,7 +72,9 @@ public:
             } else {
                 this->process_client_request(client, data, size);
             }
-        });
+        };
+
+        ws_adaptor_->set_message_handler(message_handler);
         
         std::cout << "[ClientManager] WS Handlers registered." << std::endl;
     }
@@ -127,11 +131,11 @@ public:
                 break;
             }
             case ClientRequestData_PositionRequest: {
-                auto pos_req = request->data_as_PositionRequest();
-                int64_t pos = db_->getPosition(pos_req->client_id(), pos_req->symbol_id());
+                auto post_req = request->data_as_PositionRequest();
+                int64_t pos = db_->getPosition(post_req->client_id(), post_req->symbol_id());
                 
                 flatbuffers::FlatBufferBuilder fbb(128);
-                auto pos_resp = CreatePositionResponse(fbb, pos_req->client_id(), pos_req->symbol_id(), pos);
+                auto pos_resp = CreatePositionResponse(fbb, post_req->client_id(), post_req->symbol_id(), pos);
                 auto client_resp = CreateClientResponse(fbb, ClientResponseData_PositionResponse, pos_resp.Union());
                 fbb.Finish(client_resp);
                 client->send(fbb.GetBufferPointer(), fbb.GetSize());

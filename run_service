@@ -7,10 +7,7 @@ PID_FILE="$PROJECT_ROOT/.run_service.pid"
 mkdir -p "$LOG_DIR"
 echo $$ > "$PID_FILE"
 
-echo "Starting Exchange Services from $PROJECT_ROOT..."
-
-declare -A SERVICES
-SERVICES=(
+declare -A SERVICES=(
     ["Order Core"]="build/app/order_core"
     ["HTTP Order Accepter"]="build/app/http_accepter"
     ["Client Manager"]="build/app/client_manager"
@@ -18,8 +15,9 @@ SERVICES=(
     ["L3 Publisher"]="build/app/l3_publisher"
 )
 
-declare -A SERVICE_LOGS
-SERVICE_LOGS=(
+SERVICE_NAMES=("Order Core" "HTTP Order Accepter" "Client Manager" "L2 Publisher" "L3 Publisher")
+
+declare -A SERVICE_LOGS=(
     ["Order Core"]="order_core.log"
     ["HTTP Order Accepter"]="http_order_accepter.log"
     ["Client Manager"]="client_manager.log"
@@ -33,40 +31,55 @@ start_service() {
     local name="$1"
     local exe="${SERVICES[$name]}"
     local log="${SERVICE_LOGS[$name]}"
-    
     "$PROJECT_ROOT/$exe" > "$LOG_DIR/$log" 2>&1 &
     SERVICE_PIDS["$name"]=$!
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Started $name (PID: ${SERVICE_PIDS[$name]})"
 }
 
 stop_all() {
-    echo -e "\nStopping all services..."
+    [[ -n $TAIL_PID ]] && kill $TAIL_PID 2>/dev/null
     pkill -f "build/app/"
     rm -f /dev/shm/L2_UPDATE_RING /dev/shm/L3_UPDATE_RING /dev/shm/ORDER_REQUEST /dev/shm/ORDER_RESPONSE
     rm -f "$PID_FILE"
+    echo -e "\nStopped."
     exit 0
 }
 
 trap stop_all SIGINT SIGTERM
 
-SERVICE_NAMES=("Order Core" "HTTP Order Accepter" "Client Manager" "L2 Publisher" "L3 Publisher")
-
+# Start all services
 for name in "${SERVICE_NAMES[@]}"; do
     start_service "$name"
-    sleep 1
 done
 
-echo "------------------------------------------------"
-echo "Monitoring started. Logs in $LOG_DIR/"
-echo "To stop, press Ctrl+C"
-echo "------------------------------------------------"
+CURRENT_IDX=0
+TAIL_PID=""
 
+update_view() {
+    [[ -n $TAIL_PID ]] && kill $TAIL_PID 2>/dev/null
+    clear
+    local name="${SERVICE_NAMES[$CURRENT_IDX]}"
+    echo "--- Viewing: $name (Use <- / -> to switch, Ctrl+C to stop) ---"
+    tail -f "$LOG_DIR/${SERVICE_LOGS[$name]}" &
+    TAIL_PID=$!
+}
+
+update_view
+
+# Main loop: Listen for keys and monitor health
 while true; do
-    sleep 5
+    # Read with a timeout so we can still check process health
+    read -rsn3 -t 1 key
+    if [[ $key == $'\e[C' ]]; then # Right Arrow
+        ((CURRENT_IDX=(CURRENT_IDX+1)%${#SERVICE_NAMES[@]}))
+        update_view
+    elif [[ $key == $'\e[D' ]]; then # Left Arrow
+        ((CURRENT_IDX=(CURRENT_IDX-1+${#SERVICE_NAMES[@]})%${#SERVICE_NAMES[@]}))
+        update_view
+    fi
+
+    # Health check
     for name in "${SERVICE_NAMES[@]}"; do
-        pid=${SERVICE_PIDS["$name"]}
-        if ! kill -0 "$pid" 2>/dev/null; then
-            echo "$(date '+%Y-%m-%d %H:%M:%S') - WARNING: $name (PID: $pid) is down. Restarting..."
+        if ! kill -0 "${SERVICE_PIDS[$name]}" 2>/dev/null; then
             start_service "$name"
         fi
     done

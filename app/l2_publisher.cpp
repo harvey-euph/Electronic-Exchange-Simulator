@@ -26,6 +26,9 @@ int main()
     signal(SIGTERM, signal_handler);
     signal(SIGPIPE, SIG_IGN);
 
+    // Use a small trick to clear screen initially
+    std::cout << "\033[2J\033[H" << std::flush;
+
     size_t ring_size = 16384;
 
     std::cout << "[L2Publisher] Connecting to SHMRingBuffer: " << L2_UPDATE_RING << "..." << std::endl;
@@ -41,12 +44,12 @@ int main()
     auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(9002);
     
     std::vector<std::unique_ptr<Exchange::L2OutputAdaptor>> adaptors;
-    adaptors.push_back(std::make_unique<Exchange::StdoutAdaptor>());
+    // adaptors.push_back(std::make_unique<Exchange::StdoutAdaptor>());
     
     std::map<uint32_t, std::shared_ptr<Exchange::L2Book>> books;
     std::mutex books_mutex;
 
-    auto get_or_create_book = [&](uint32_t symbol_id) {
+    auto get_or_create_book = [&books_mutex, &books](uint32_t symbol_id) {
         std::lock_guard<std::mutex> lock(books_mutex);
         auto it = books.find(symbol_id);
         if (it == books.end()) {
@@ -58,7 +61,7 @@ int main()
         return it->second;
     };
 
-    ws_adaptor->set_subscribe_handler([&](Exchange::WSClientPtr client, uint32_t symbol_id, bool is_subscribe) {
+    auto subscribe_handler = [&get_or_create_book](Exchange::WSClientPtr client, uint32_t symbol_id, bool is_subscribe) {
         if (!is_subscribe) return;
 
         auto book = get_or_create_book(symbol_id);
@@ -89,7 +92,9 @@ int main()
             }
         }
         std::cout << "[L2Publisher] Sent snapshot for symbol " << symbol_id << " to new subscriber." << std::endl;
-    });
+    };
+
+    ws_adaptor->set_subscribe_handler(subscribe_handler);
 
     std::cout << "[L2Publisher] Initialized " << adaptors.size() + 1 << " output adaptors (including WS)." << std::endl;
     std::cout << "[L2Publisher] Connected successfully. Start consuming..." << std::endl;
@@ -109,6 +114,7 @@ int main()
             
             auto book = get_or_create_book(l2_update->symbol_id());
             book->update(l2_update->side(), l2_update->p(), l2_update->q());
+            book->display();
 
             for (auto& adaptor : adaptors) {
                 adaptor->publish(l2_update, data_ptr, data_size);
