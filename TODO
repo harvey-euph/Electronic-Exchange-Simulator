@@ -1,0 +1,15 @@
+# TODO
+
+- [x] When User connect to client_manager, client_manager should:
+    - [x] Send pending executions (OrderResponse)
+    - [x] Send current open order as OrderResponse with ExecType=OrderStatus
+    - [x] Send current positions for all non-zero asset and cash(symbol_id=0)
+    - [x] Set ready for this client session and allow client request, before this, reject client session (this is control by sessio-wise)
+    - [x] Send ready frame (OrderResponse with ExecType=Complete) to client to inform start accepting request.
+- [x] DB 
+    - [x] support above features, storing open_orders_ like pending_responses_ and positions_
+    - [x] support loop through open_orders_, pending_responses_ and positions_ for a client.
+- [x] client_manager
+    - [x] Record open order by OrderResponse, change all ExecType to OrderStatus, in handle_execution_response
+
+# Comment below

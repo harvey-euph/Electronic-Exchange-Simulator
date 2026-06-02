@@ -51,4 +51,13 @@ inline void logOrder(const Order* o, const char* prefix = "[Order]") {
               << std::endl;
 }
 
+inline void logPositionResponse(const PositionResponse* resp, const char* prefix = "[PositionResponse]") {
+    if (!resp) return;
+    std::cout << prefix << " "
+              << "client=" << resp->client_id()
+              << ", symbol=" << resp->symbol_id()
+              << ", position=" << resp->position()
+              << std::endl;
+}
+
 } // namespace Exchange

@@ -27,7 +27,13 @@ public:
 
     // Positions
     virtual int64_t getPosition(uint32_t client_id, uint32_t symbol_id) = 0;
+    virtual std::map<uint32_t, int64_t> getAllPositions(uint32_t client_id) = 0;
     virtual void updatePosition(uint32_t client_id, uint32_t symbol_id, int64_t delta) = 0;
+
+    // Open Orders
+    virtual void addOrUpdateOpenOrder(uint32_t client_id, uint64_t order_id, const uint8_t* data, size_t size) = 0;
+    virtual void removeOpenOrder(uint32_t client_id, uint64_t order_id) = 0;
+    virtual std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) = 0;
 };
 
 /**
@@ -55,24 +61,54 @@ public:
 
     int64_t getPosition(uint32_t client_id, uint32_t symbol_id) override {
         std::lock_guard<std::mutex> lock(mutex_);
-        return get_or_create_position(client_id, symbol_id);
+        auto& client_pos = get_or_create_client_positions(client_id);
+        return client_pos[symbol_id];
+    }
+
+    std::map<uint32_t, int64_t> getAllPositions(uint32_t client_id) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return get_or_create_client_positions(client_id);
     }
 
     void updatePosition(uint32_t client_id, uint32_t symbol_id, int64_t delta) override {
         std::lock_guard<std::mutex> lock(mutex_);
-        int64_t current = get_or_create_position(client_id, symbol_id);
-        positions_[client_id][symbol_id] = current + delta;
+        auto& client_pos = get_or_create_client_positions(client_id);
+        client_pos[symbol_id] += delta;
+    }
+
+    void addOrUpdateOpenOrder(uint32_t client_id, uint64_t order_id, const uint8_t* data, size_t size) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        open_orders_[client_id][order_id] = std::vector<uint8_t>(data, data + size);
+    }
+
+    void removeOpenOrder(uint32_t client_id, uint64_t order_id) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = open_orders_.find(client_id);
+        if (it != open_orders_.end()) {
+            it->second.erase(order_id);
+        }
+    }
+
+    std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<std::vector<uint8_t>> result;
+        auto it = open_orders_.find(client_id);
+        if (it != open_orders_.end()) {
+            for (auto const& [order_id, data] : it->second) {
+                result.push_back(data);
+            }
+        }
+        return result;
     }
 
 private:
-    int64_t get_or_create_position(uint32_t client_id, uint32_t symbol_id) {
-        auto& client_pos = positions_[client_id];
-        auto it = client_pos.find(symbol_id);
-        if (it == client_pos.end()) {
-            // Default values
-            if (symbol_id == 0) return 10000000; // 10M USD
-            if (symbol_id == 1) return 10000;    // 10K Symbol 1
-            return 0;
+    std::map<uint32_t, int64_t>& get_or_create_client_positions(uint32_t client_id) {
+        auto it = positions_.find(client_id);
+        if (it == positions_.end()) {
+            auto& client_pos = positions_[client_id];
+            client_pos[0] = 10000000; // 10M USD
+            client_pos[1] = 10000;    // 10K Symbol 1
+            return client_pos;
         }
         return it->second;
     }
@@ -80,6 +116,7 @@ private:
     std::mutex mutex_;
     std::map<uint32_t, std::vector<PendingResponse>> pending_responses_;
     std::map<uint32_t, std::map<uint32_t, int64_t>> positions_;
+    std::map<uint32_t, std::map<uint64_t, std::vector<uint8_t>>> open_orders_;
 };
 
 } // namespace Exchange

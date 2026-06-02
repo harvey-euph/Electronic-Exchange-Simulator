@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <thread>
 #include <map>
+#include <set>
 #include <mutex>
 #include <algorithm>
 #include "define.hpp"
@@ -41,12 +42,63 @@ public:
             if (is_subscribe) {
                 client_sessions_[client_id].push_back(client);
                 std::cout << "[ClientManager] Client " << client_id << " connected (sessions: " 
-                          << client_sessions_[client_id].size() << "). Sending pending responses..." << std::endl;
+                          << client_sessions_[client_id].size() << ")." << std::endl;
                 
+                // 1. Send pending executions (OrderResponse)
                 auto pending = db_->popPendingResponses(client_id);
+                std::cout << "[ClientManager] Sending " << pending.size() << " pending responses." << std::endl;
                 for (auto& resp : pending) {
                     client->send(resp.data.data(), resp.data.size());
+                    auto client_resp = flatbuffers::GetRoot<ClientResponse>(resp.data.data());
+                    if (client_resp->data_type() == ClientResponseData_OrderResponse) {
+                        logOrderResponse(client_resp->data_as_OrderResponse(), "[ClientManager] Resending Pending:");
+                    }
                 }
+
+                // 2. Send current open order as OrderResponse with ExecType=OrderStatus
+                auto open_orders = db_->getOpenOrders(client_id);
+                std::cout << "[ClientManager] Sending " << open_orders.size() << " open orders." << std::endl;
+                for (auto& order_data : open_orders) {
+                    client->send(order_data.data(), order_data.size());
+                    auto client_resp = flatbuffers::GetRoot<ClientResponse>(order_data.data());
+                    if (client_resp->data_type() == ClientResponseData_OrderResponse) {
+                        logOrderResponse(client_resp->data_as_OrderResponse(), "[ClientManager] Resending Open Order:");
+                    }
+                }
+
+                // 3. Send current positions for all non-zero asset and cash(symbol_id=0)
+                auto positions = db_->getAllPositions(client_id);
+                std::cout << "[ClientManager] Sending positions for " << positions.size() << " symbols." << std::endl;
+                for (auto const& [sym, pos] : positions) {
+                    if (pos != 0 || sym == 0) {
+                        flatbuffers::FlatBufferBuilder fbb(128);
+                        auto pos_resp = CreatePositionResponse(fbb, client_id, sym, pos);
+                        auto client_resp = CreateClientResponse(fbb, ClientResponseData_PositionResponse, pos_resp.Union());
+                        fbb.Finish(client_resp);
+                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                        
+                        auto pos_resp_ptr = flatbuffers::GetRoot<ClientResponse>(fbb.GetBufferPointer())->data_as_PositionResponse();
+                        logPositionResponse(pos_resp_ptr, "[ClientManager] Resending Position:");
+                    }
+                }
+
+                // 4. Set ready for this client session
+                {
+                    std::lock_guard<std::mutex> ready_guard(ready_mutex_);
+                    ready_sessions_.insert(client);
+                }
+
+                // 5. Send ready frame (OrderResponse with ExecType=Complete)
+                flatbuffers::FlatBufferBuilder fbb(128);
+                auto ready_resp = CreateOrderResponse(fbb, ExecType_Complete, 0, client_id, 0, 0, Side_None, 0, 0, RejectCode_None);
+                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, ready_resp.Union());
+                fbb.Finish(client_resp);
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                
+                auto ready_resp_ptr = flatbuffers::GetRoot<ClientResponse>(fbb.GetBufferPointer())->data_as_OrderResponse();
+                logOrderResponse(ready_resp_ptr, "[ClientManager] Mgmt Ready:");
+
+                std::cout << "[ClientManager] Client " << client_id << " session ready (Mgmt Ready)." << std::endl;
             } else {
                 auto it = client_sessions_.find(client_id);
                 if (it != client_sessions_.end()) {
@@ -56,6 +108,10 @@ public:
                         client_sessions_.erase(it);
                     }
                 }
+                {
+                    std::lock_guard<std::mutex> ready_guard(ready_mutex_);
+                    ready_sessions_.erase(client);
+                }
                 std::cout << "[ClientManager] Client " << client_id << " disconnected." << std::endl;
             }
         };
@@ -63,6 +119,15 @@ public:
         ws_adaptor_->set_subscribe_handler(subscribe_handler);
 
         auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
+            // Check session readiness
+            {
+                std::lock_guard<std::mutex> ready_guard(ready_mutex_);
+                if (ready_sessions_.find(client) == ready_sessions_.end()) {
+                    // Optionally send an error or just ignore
+                    return;
+                }
+            }
+            
             // We need to peek at the client_id to lock the correct mutex
             flatbuffers::Verifier verifier(static_cast<const uint8_t*>(data), size);
             if (!verifier.VerifyBuffer<ClientRequest>(nullptr)) return;
@@ -110,6 +175,21 @@ public:
             }
         }
 
+        // Record open order by OrderResponse, change all ExecType to OrderStatus
+        if (resp->exec_type() == ExecType_New || resp->exec_type() == ExecType_PartialFill || resp->exec_type() == ExecType_Replaced) {
+            if (resp->reject_code() == RejectCode_None) {
+                flatbuffers::FlatBufferBuilder fbb(256);
+                auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code());
+                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
+                fbb.Finish(client_resp);
+                db_->addOrUpdateOpenOrder(client_id, resp->order_id(), fbb.GetBufferPointer(), fbb.GetSize());
+            } else {
+                db_->removeOpenOrder(client_id, resp->order_id());
+            }
+        } else if (resp->exec_type() == ExecType_Fill || resp->exec_type() == ExecType_Cancelled) {
+            db_->removeOpenOrder(client_id, resp->order_id());
+        }
+
         flatbuffers::FlatBufferBuilder fbb(256);
         auto resp_offset = CreateOrderResponse(fbb, resp->exec_type(), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code());
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
@@ -128,7 +208,7 @@ public:
     }
 
     void process_client_request(WSClientPtr client, const void* data, size_t size) {
-        (void) size;
+        (void) client; (void) size;
         auto request = flatbuffers::GetRoot<ClientRequest>(data);
         auto type = request->data_type();
 
@@ -177,7 +257,9 @@ private:
     std::shared_ptr<ClientDatabase> db_;
     std::map<uint32_t, std::vector<WSClientPtr>> client_sessions_;
     std::map<uint32_t, std::shared_ptr<std::mutex>> client_locks_;
+    std::set<WSClientPtr> ready_sessions_;
     std::mutex sessions_mutex_;
+    std::mutex ready_mutex_;
 };
 
 } // namespace Exchange
