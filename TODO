@@ -12,4 +12,13 @@
 - [x] client_manager
     - [x] Record open order by OrderResponse, change all ExecType to OrderStatus, in handle_execution_response
 
+- [ ] Ability check for:
+    - [ ] Max Order Entry TPS
+    - [ ] Max Matching TPS
+    - [ ] Max Market Data TPS
+    - [ ] Max Concurrent Connections
+    - [ ] Max Fanout ability
+    - [ ] P99 Latency 
+    - [ ] Who die first when extreme situation
+
 # Comment below

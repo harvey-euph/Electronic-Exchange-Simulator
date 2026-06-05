@@ -43,9 +43,6 @@ int main()
 
     auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(9002);
     
-    std::vector<std::unique_ptr<Exchange::L2OutputAdaptor>> adaptors;
-    // adaptors.push_back(std::make_unique<Exchange::StdoutAdaptor>());
-    
     std::map<uint32_t, std::shared_ptr<Exchange::L2Book>> books;
     std::mutex books_mutex;
 
@@ -96,7 +93,6 @@ int main()
 
     ws_adaptor->set_subscribe_handler(subscribe_handler);
 
-    std::cout << "[L2Publisher] Initialized " << adaptors.size() + 1 << " output adaptors (including WS)." << std::endl;
     std::cout << "[L2Publisher] Connected successfully. Start consuming..." << std::endl;
 
     void* data_ptr = nullptr;
@@ -114,11 +110,8 @@ int main()
             
             auto book = get_or_create_book(l2_update->symbol_id());
             book->update(l2_update->side(), l2_update->p(), l2_update->q());
-            book->display();
+            // book->display();
 
-            for (auto& adaptor : adaptors) {
-                adaptor->publish(l2_update, data_ptr, data_size);
-            }
             ws_adaptor->publish(l2_update, data_ptr, data_size);
         } 
         else 

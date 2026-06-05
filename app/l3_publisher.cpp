@@ -39,10 +39,7 @@ int main()
         return -1;
     }
 
-    auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(9003); 
-    
-    std::vector<std::unique_ptr<Exchange::L3OutputAdaptor>> adaptors;
-    adaptors.push_back(std::make_unique<Exchange::StdoutL3Adaptor>());
+    auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(9003);
 
     std::map<uint32_t, std::shared_ptr<Exchange::L3Book>> books;
     std::mutex books_mutex;
@@ -102,7 +99,6 @@ int main()
 
     ws_adaptor->set_subscribe_handler(subscribe_handler);
 
-    std::cout << "[L3Publisher] Initialized " << adaptors.size() + 1 << " output adaptors (including WS)." << std::endl;
     std::cout << "[L3Publisher] Connected successfully. Start consuming..." << std::endl;
 
     void* data_ptr = nullptr;
@@ -120,11 +116,8 @@ int main()
             
             auto book = get_or_create_book(l3_update->symbol_id());
             book->update(l3_update->exec_type(), l3_update->order_id(), l3_update->side(), l3_update->p(), l3_update->q());
-            book->display();
+            // book->display();
 
-            for (auto& adaptor : adaptors) {
-                adaptor->publish(l3_update, data_ptr, data_size);
-            }
             ws_adaptor->publish(l3_update, data_ptr, data_size);
         } 
         else 

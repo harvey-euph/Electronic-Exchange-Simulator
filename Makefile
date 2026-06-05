@@ -1,6 +1,6 @@
 CXX := g++
 CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP
-INCLUDES := -Iinclude -I/home/harvey/vcpkg/installed/x64-linux/include
+INCLUDES := -Iinclude
 
 BUILD_DIR := build
 SRC_DIR := src
@@ -8,7 +8,6 @@ APP_DIR := app
 TEST_DIR := tests
 FBS_DIR := fbs
 FBS_OUT := include/fbs
-LDFLAGS := -L/home/harvey/vcpkg/installed/x64-linux/lib
 LDLIBS := -lgtest -lgtest_main -pthread
 
 # -----------------------------------------------------------------------------
@@ -56,11 +55,11 @@ all: $(FBS_GENERATED) $(APP_TARGETS)
 
 $(BUILD_DIR)/app/client/%: $(APP_DIR)/client/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/app/client
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 $(BUILD_DIR)/app/%: $(APP_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/app
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Build Tests
@@ -68,7 +67,7 @@ $(BUILD_DIR)/app/%: $(APP_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 
 $(BUILD_DIR)/tests/%: $(TEST_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDFLAGS) $(LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Run Tests
