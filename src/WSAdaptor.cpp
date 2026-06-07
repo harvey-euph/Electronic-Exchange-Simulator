@@ -14,6 +14,7 @@
 #include <queue>
 #include <cstdio>
 #include <iostream>
+#include <chrono>
 
 namespace beast = boost::beast;
 namespace websocket = beast::websocket;
@@ -69,7 +70,22 @@ public:
 
     net::awaitable<void> start() {
         try {
-            ws_.set_option(websocket::stream_base::timeout::suggested(beast::role_type::server));
+            // Configure heartbeat and timeouts
+            websocket::stream_base::timeout opt;
+            opt.handshake_timeout = std::chrono::seconds(20);
+            opt.idle_timeout = std::chrono::seconds(30);
+            opt.keep_alive_pings = true; // Server will send Pings
+            ws_.set_option(opt);
+
+            // Control callback to handle pings/pongs
+            ws_.control_callback(
+                [this](websocket::frame_type kind, beast::string_view payload) {
+                    boost::ignore_unused(payload);
+                    if (kind == websocket::frame_type::pong) {
+                        // Successfully received pong from client browser
+                    }
+                });
+
             ws_.binary(true);
 
             co_await ws_.async_accept(net::use_awaitable);
