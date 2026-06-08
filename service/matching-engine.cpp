@@ -19,7 +19,7 @@ int main()
     std::cout << "[OrderCore] Starting matching engine..." << std::endl;
 
     Exchange::ClientExecutionReporter reporter(ORDER_RESPONSE);
-    Exchange::TelemetryProvider telemetry("EXCHANGE_TELEMETRY", false);
+    Exchange::TelemetryProvider telemetry(EXCHANGE_TELEMETRY, false);
 
     Exchange::OrderBook book(1, 1, 2000, 8192, &reporter);
 

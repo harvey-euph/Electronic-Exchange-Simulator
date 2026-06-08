@@ -6,6 +6,7 @@
 #define L3_UPDATE_RING "L3_UPDATE_RING"
 #define ORDER_REQUEST  "ORDER_REQUEST"
 #define ORDER_RESPONSE "ORDER_RESPONSE"
+#define EXCHANGE_TELEMETRY "EXCHANGE_TELEMETRY"
 
 // Unified sleep duration in milliseconds for dev/test environment polling loops
 #define POLL_SLEEP_MS 1
@@ -22,3 +23,19 @@
 #else
   #define POLL_BACKOFF() std::this_thread::sleep_for(std::chrono::milliseconds(POLL_SLEEP_MS))
 #endif
+
+namespace Exchange {
+
+// Bitmask to identify executions that update client position (Fill & PartialFill)
+constexpr uint8_t EXEC_MASK_POSITION_UPDATE = 0b00000110;
+
+// Bitmask to identify execution reports where the order remains active/open (New, PartialFill, & Replaced)
+constexpr uint8_t EXEC_MASK_UPSERT_OPEN = 0b00100011;
+
+// Bitmask to identify execution reports that terminate/remove the open order (Fill & Cancelled)
+constexpr uint8_t EXEC_MASK_REMOVE_OPEN = 0b00010100;
+
+// Bitmask to identify immediate client request responses for E2E latency tracking (New, Replaced, & Cancelled)
+constexpr uint8_t EXEC_MASK_LATENCY_TRACK = 0b00110001;
+
+} // namespace Exchange

@@ -26,7 +26,7 @@ public:
         , request_ring_(request_ring)
         , db_(db)
     {
-        telemetry_ = std::make_unique<TelemetryProvider>("EXCHANGE_TELEMETRY", false);
+        telemetry_ = std::make_unique<TelemetryProvider>(EXCHANGE_TELEMETRY, false);
         std::cout << "[ClientManager] Initializing on port " << port << std::endl;
 
         auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe) {
@@ -179,23 +179,13 @@ public:
         uint32_t client_id = resp->client_id();
         uint64_t order_id = resp->order_id();
 
-        uint64_t start_time = 0;
-        {
-            std::lock_guard<std::mutex> lock(metrics_mutex_);
-            auto it = order_start_times_.find(order_id);
-            if (it != order_start_times_.end()) {
-                start_time = it->second;
-                order_start_times_.erase(it);
-            }
-        }
-
         logOrderResponse(resp, "[ClientManager] Execution Report:");
 
         auto lock = get_client_lock(client_id);
         std::lock_guard<std::mutex> client_guard(*lock);
 
-        // Update positions on fill
-        if (resp->exec_type() == ExecType_Fill || resp->exec_type() == ExecType_PartialFill) {
+        if ((EXEC_MASK_POSITION_UPDATE >> resp->exec_type()) & 1)
+        {
             int64_t cost = static_cast<int64_t>(resp->p() * resp->q());
             if (resp->side() == Side_Buy) {
                 db_->updatePosition(client_id, 0, -cost); // Pay USD
@@ -206,8 +196,8 @@ public:
             }
         }
 
-        // Record open order by OrderResponse, change all ExecType to OrderStatus
-        if (resp->exec_type() == ExecType_New || resp->exec_type() == ExecType_PartialFill || resp->exec_type() == ExecType_Replaced) {
+        if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type()) & 1)
+        {
             if (resp->reject_code() == RejectCode_None) {
                 flatbuffers::FlatBufferBuilder fbb(256);
                 auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code());
@@ -215,7 +205,9 @@ public:
                 fbb.Finish(client_resp);
                 db_->addOrUpdateOpenOrder(client_id, resp->order_id(), fbb.GetBufferPointer(), fbb.GetSize());
             }
-        } else if (resp->exec_type() == ExecType_Fill || resp->exec_type() == ExecType_Cancelled) {
+        }
+        else if ((EXEC_MASK_REMOVE_OPEN >> resp->exec_type()) & 1)
+        {
             db_->removeOpenOrder(client_id, resp->order_id());
         }
 
@@ -239,8 +231,19 @@ public:
         uint64_t handle_lat = handle_end - handle_start;
         telemetry_->data()->mgmt_count.fetch_add(1, std::memory_order_relaxed);
         telemetry_->data()->mgmt_cycles_sum.fetch_add(handle_lat, std::memory_order_relaxed);
+        
+        uint64_t start_time = 0;
+        if ((EXEC_MASK_LATENCY_TRACK >> resp->exec_type()) & 1)
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            auto it = order_start_times_.find(order_id);
+            if (it != order_start_times_.end()) {
+                start_time = it->second;
+                order_start_times_.erase(it);
+            }
+        }
 
-        if (start_time != 0) {
+        if (start_time) {
             uint64_t total_lat = handle_end - start_time;
             telemetry_->data()->e2e_count.fetch_add(1, std::memory_order_relaxed);
             telemetry_->data()->e2e_cycles_sum.fetch_add(total_lat, std::memory_order_relaxed);

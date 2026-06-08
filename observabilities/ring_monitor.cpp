@@ -75,7 +75,7 @@ int main()
         // 嘗試連接 Telemetry
         if (!telemetry) {
             try {
-                telemetry = std::make_unique<Exchange::TelemetryProvider>("EXCHANGE_TELEMETRY", true);
+                telemetry = std::make_unique<Exchange::TelemetryProvider>(EXCHANGE_TELEMETRY, true);
             } catch (...) {
                 // 尚未建立，默默跳過
             }

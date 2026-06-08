@@ -9,6 +9,7 @@
 #include <iostream>
 #include <cstring>
 #include <thread>
+#include "define.hpp"
 
 namespace Exchange {
 
@@ -17,10 +18,12 @@ struct TelemetryData {
     std::atomic<uint32_t> ready{0};
 
     // 撮合核心指標 (Core matching engine)
+    alignas(64) 
     std::atomic<uint64_t> core_count{0};
     std::atomic<uint64_t> core_cycles_sum{0};
 
     // Client Manager 處理指標 (handle_execution_response)
+    alignas(64) 
     std::atomic<uint64_t> mgmt_count{0};
     std::atomic<uint64_t> mgmt_cycles_sum{0};
 
@@ -31,7 +34,7 @@ struct TelemetryData {
 
 class TelemetryProvider {
 public:
-    TelemetryProvider(const std::string& name = "EXCHANGE_TELEMETRY", bool read_only = false)
+    TelemetryProvider(const std::string& name = EXCHANGE_TELEMETRY, bool read_only = false)
         : m_name("/" + name), m_read_only(read_only)
     {
         size_t size = sizeof(TelemetryData);
