@@ -17,7 +17,51 @@ void producer(SHMRingBuffer& rb, int id, int count, std::atomic<int>& success_co
     }
 }
 
+void test_observer_read_only() {
+    std::string name = "test_observer_ring";
+    size_t capacity = 1024;
+    shm_unlink(("/" + name).c_str());
+
+    // 1. Create read-write ring buffer
+    SHMRingBuffer rb_rw(name, capacity);
+    assert(!rb_rw.is_read_only());
+    assert(rb_rw.get_capacity() == capacity);
+    assert(rb_rw.get_reserved_depth() == 0);
+    assert(rb_rw.get_uncommitted_depth() == 0);
+    assert(rb_rw.get_occupancy_ratio() == 0.0);
+
+    // 2. Create read-only observer instance (capacity 0 because it auto-detects)
+    SHMObserver rb_ro(name, 0);
+    assert(rb_ro.is_read_only());
+    assert(rb_ro.get_capacity() == capacity);
+
+    // 3. Enqueue on RW and check metrics on RO
+    int dummy = 42;
+    assert(rb_rw.enqueue(&dummy, sizeof(dummy)));
+    
+    // Check depths (each element takes sizeof(uint32_t) + payload size)
+    size_t expected_element_size = sizeof(uint32_t) + sizeof(dummy);
+    assert(rb_rw.get_reserved_depth() == expected_element_size);
+    assert(rb_rw.get_uncommitted_depth() == 0);
+    
+    assert(rb_ro.get_reserved_depth() == expected_element_size);
+    assert(rb_ro.get_uncommitted_depth() == 0);
+    assert(rb_ro.get_occupancy_ratio() > 0.0);
+
+    // 4. Dequeue on RW and verify metrics clear
+    void* data_ptr = nullptr;
+    size_t data_size = 0;
+    assert(rb_rw.dequeue(&data_ptr, &data_size));
+    assert(rb_ro.get_reserved_depth() == 0);
+    assert(rb_ro.get_uncommitted_depth() == 0);
+
+    shm_unlink(("/" + name).c_str());
+    std::cout << "Read-only Observer Test Passed!" << std::endl;
+}
+
 int main() {
+    test_observer_read_only();
+
     std::string name = "test_mpsc_ring";
     size_t capacity = 1024 * 1024; // 1MB
     

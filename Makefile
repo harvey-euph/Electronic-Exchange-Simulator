@@ -4,7 +4,7 @@ INCLUDES := -Iinclude
 
 BUILD_DIR := build
 SRC_DIR := src
-APP_DIR := app
+SERVICE_DIR := service
 TEST_DIR := tests
 FBS_DIR := fbs
 FBS_OUT := include/fbs
@@ -26,13 +26,21 @@ SRC_OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRC_SOURCES))
 SRC_DEPS := $(SRC_OBJECTS:.o=.d)
 
 # -----------------------------------------------------------------------------
-# App Executables
+# Service Executables
 # -----------------------------------------------------------------------------
 
-APP_SERVER_SOURCES := $(wildcard $(APP_DIR)/*.cpp)
-APP_SERVER_TARGETS := $(patsubst $(APP_DIR)/%.cpp,$(BUILD_DIR)/app/%,$(APP_SERVER_SOURCES))
+SERVICE_SOURCES := $(wildcard $(SERVICE_DIR)/*.cpp)
+SERVICE_TARGETS := $(patsubst $(SERVICE_DIR)/%.cpp,$(BUILD_DIR)/service/%,$(SERVICE_SOURCES))
 
-APP_TARGETS := $(APP_SERVER_TARGETS)
+APP_TARGETS := $(SERVICE_TARGETS)
+
+# -----------------------------------------------------------------------------
+# Observability Executables
+# -----------------------------------------------------------------------------
+
+OBS_DIR := observabilities
+OBS_SOURCES := $(wildcard $(OBS_DIR)/*.cpp)
+OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/observabilities/%,$(OBS_SOURCES))
 
 # -----------------------------------------------------------------------------
 # Test Executables
@@ -47,18 +55,26 @@ TEST_TARGETS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%,$(TEST_SOURCES
 # -----------------------------------------------------------------------------
 
 .PHONY: all
-all: $(FBS_GENERATED) $(APP_TARGETS)
+all: $(FBS_GENERATED) $(APP_TARGETS) $(OBS_TARGETS)
 
 # -----------------------------------------------------------------------------
-# Build Apps
+# Build Services
 # -----------------------------------------------------------------------------
 
-$(BUILD_DIR)/app/client/%: $(APP_DIR)/client/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
-	@mkdir -p $(BUILD_DIR)/app/client
+$(BUILD_DIR)/service/client/%: $(SERVICE_DIR)/client/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/service/client
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
-$(BUILD_DIR)/app/%: $(APP_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
-	@mkdir -p $(BUILD_DIR)/app
+$(BUILD_DIR)/service/%: $(SERVICE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/service
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
+
+# -----------------------------------------------------------------------------
+# Build Observabilities
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/observabilities/%: $(OBS_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/observabilities
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------

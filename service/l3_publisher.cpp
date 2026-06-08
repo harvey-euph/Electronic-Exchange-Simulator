@@ -7,25 +7,15 @@
 #include <vector>
 #include <memory>
 #include <atomic>
-#include <signal.h>
-#include <thread>
 #include <map>
 #include <mutex>
 #include "define.hpp"
+#include "SignalHandler.hpp"
 
-std::atomic<bool> g_running{true};
-
-void signal_handler(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        g_running = false;
-    }
-}
 
 int main() 
 {
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGPIPE, SIG_IGN);
+    setup_signals();
 
     size_t ring_size = 16384;
 
@@ -122,7 +112,7 @@ int main()
         } 
         else 
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            POLL_BACKOFF();
         }
     }
 

@@ -7,11 +7,11 @@ SESSION="exchange"
 mkdir -p "$LOG_DIR"
 
 declare -A SERVICES=(
-    ["Order Core"]="build/app/order_core"
-    ["HTTP Order Accepter"]="build/app/http_accepter"
-    ["Client Manager"]="build/app/client_manager"
-    ["L2 Publisher"]="build/app/l2_publisher"
-    ["L3 Publisher"]="build/app/l3_publisher"
+    ["Order Core"]="build/service/order_core"
+    ["HTTP Order Accepter"]="build/service/http_accepter"
+    ["Client Manager"]="build/service/client_manager"
+    ["L2 Publisher"]="build/service/l2_publisher"
+    ["L3 Publisher"]="build/service/l3_publisher"
 )
 
 SERVICE_NAMES=("Order Core" "HTTP Order Accepter" "Client Manager" "L2 Publisher" "L3 Publisher")
@@ -115,7 +115,7 @@ while true; do
     sleep 2
 done
 echo "Stopping all services..."
-pkill -f "build/app/"
+pkill -f "build/service/"
 rm -f /dev/shm/*RING /dev/shm/ORDER_*
 tmux kill-session -t "\$SESSION"
 EOF

@@ -6,25 +6,15 @@
 #include <vector>
 #include <memory>
 #include <atomic>
-#include <signal.h>
-#include <thread>
 #include <map>
 #include <mutex>
 #include "define.hpp"
+#include "SignalHandler.hpp"
 
-std::atomic<bool> g_running{true};
-
-void signal_handler(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        g_running = false;
-    }
-}
 
 int main() 
 {
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGPIPE, SIG_IGN);
+    setup_signals();
 
     // Use a small trick to clear screen initially
     std::cout << "\033[2J\033[H" << std::flush;
@@ -116,7 +106,7 @@ int main()
         } 
         else 
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            POLL_BACKOFF();
         }
     }
 

@@ -7,21 +7,12 @@
 #include <vector>
 #include <memory>
 #include <atomic>
-#include <signal.h>
-#include <thread>
 #include <map>
 #include <set>
 #include <mutex>
 #include <algorithm>
 #include "define.hpp"
-
-std::atomic<bool> g_running{true};
-
-void signal_handler(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        g_running = false;
-    }
-}
+#include "SignalHandler.hpp"
 
 namespace Exchange {
 
@@ -288,9 +279,7 @@ private:
 
 int main() 
 {
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGPIPE, SIG_IGN);
+    setup_signals();
 
     size_t ring_size = 16384;
     auto db = std::make_shared<Exchange::InMemoryClientDatabase>();
@@ -319,7 +308,7 @@ int main()
                 manager.handle_execution_response(resp, data_ptr, data_size);
             }
         } else {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            POLL_BACKOFF();
         }
     }
 

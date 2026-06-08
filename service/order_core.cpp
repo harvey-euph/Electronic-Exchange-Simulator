@@ -2,25 +2,14 @@
 #include "ExecutionReporter.hpp"
 #include "ring/SHMRingBuffer.hpp"
 #include <iostream>
-#include <chrono>
-#include <thread>
-#include <signal.h>
 #include <atomic>
 #include "define.hpp"
+#include "SignalHandler.hpp"
 #include "TimeUtil.hpp"
 #include <limits>
 
-std::atomic<bool> g_running{true};
-
-void signal_handler(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        g_running = false;
-    }
-}
-
 int main() {
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+    setup_signals();
 
     // Use a small trick to clear screen initially
     std::cout << "\033[2J\033[H" << std::flush;
@@ -76,8 +65,7 @@ int main() {
         }
         else 
         {
-            // for dev env
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            POLL_BACKOFF();
         }
     }
 

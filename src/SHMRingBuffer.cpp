@@ -5,100 +5,152 @@
 
 namespace Exchange {
 
-SHMRingBuffer::SHMRingBuffer(const std::string& name, size_t capacity)
-    : m_name("/" + name), m_capacity(capacity) // shm_open 通常要求以 '/' 開頭
+template <bool ReadOnly>
+SHMRingBufferImpl<ReadOnly>::SHMRingBufferImpl(const std::string& name, size_t capacity)
+    : m_name("/" + name), m_capacity(capacity)
 {
-    // 計算總大小：結構體大小 + 緩衝區大小 + 4位元組安全 Padding
-    m_total_size = sizeof(SHMRing) + m_capacity + sizeof(uint32_t); 
-
-    // 嘗試以 O_EXCL 建立。如果檔案已存在，此呼叫會失敗並回傳 EEXIST
-    m_fd = shm_open(m_name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0666);
-    
-    bool is_creator = false;
-
-    if (m_fd >= 0) {
-        // 1. 進入此分支，代表目前 Process 是「第一個建立者」 (Creator)
-        is_creator = true;
-        
-        // 調整 SHM 檔案大小
-        if (ftruncate(m_fd, m_total_size) == -1) {
-            shm_unlink(m_name.c_str());
-            throw std::runtime_error("Failed to ftruncate SHM");
-        }
-    } else if (errno == EEXIST) {
-        // 2. 進入此分支，代表 SHM 檔案早就被另一個 Process 創好了
-        m_fd = shm_open(m_name.c_str(), O_RDWR, 0666);
+    if constexpr (ReadOnly) {
+        // 唯讀 Observer 模式
+        // 1. 以唯讀方式開啟現有 SHM 段
+        m_fd = shm_open(m_name.c_str(), O_RDONLY, 0444);
         if (m_fd < 0) {
-            throw std::runtime_error("Failed to open existing SHM");
+            throw std::runtime_error("Failed to open SHM in read-only mode. Does it exist?");
         }
-    } else {
-        throw std::runtime_error("shm_open failed with unknown error");
-    }
 
-    // 3. 記憶體映射
-    m_mmap = mmap(nullptr, m_total_size, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
-    if (m_mmap == MAP_FAILED) {
-        close(m_fd);
-        throw std::runtime_error("mmap failed");
-    }
+        // 2. 先映射 sizeof(SHMRing) 的大小以讀取正確的 capacity 屬性
+        void* temp_mmap = mmap(nullptr, sizeof(SHMRing), PROT_READ, MAP_SHARED, m_fd, 0);
+        if (temp_mmap == MAP_FAILED) {
+            close(m_fd);
+            throw std::runtime_error("mmap failed for temp SHMRing in read-only mode");
+        }
 
-    m_ring = reinterpret_cast<SHMRing*>(m_mmap);
-    m_data = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_mmap) + sizeof(SHMRing));
-
-    // 4. 根據身份執行「初始化」或「自旋等待」
-    if (is_creator) {
-        std::cout << "[SHMRing] " << m_name << " not found. Creating and initializing SHM..." << std::endl;
+        SHMRing* temp_ring = reinterpret_cast<SHMRing*>(temp_mmap);
         
-        // 清空整塊記憶體，確保沒有殘留垃圾
-        std::memset(m_mmap, 0, m_total_size);
-
-        // 初始化內部結構 (使用 memory_order_relaxed 因為此時還沒有其他人會讀這塊區塊)
-        m_ring->prod_head.store(0, std::memory_order_relaxed);
-        m_ring->prod_tail.store(0, std::memory_order_relaxed);
-        m_ring->cons_head.store(0, std::memory_order_relaxed);
-        m_ring->capacity = m_capacity;
-        m_ring->mask = m_capacity - 1; // 假設 capacity 是 2 的冪次方
-        
-        m_ring->magic.store(SHM_RING_MAGIC, std::memory_order_relaxed);
-        
-        // 最後一步：發布 ready 訊號，讓等待中的 Consumer/Producer 通行
-        m_ring->ready.store(1, std::memory_order_release);
-    } else {
-        std::cout << "[SHMRing] " << m_name << " already exists. Waiting for initialization..." << std::endl;
-        
-        // 自旋等待 ready 標記變為 1 (使用 acquire 確保能看見 Creator 寫入的所有變數)
-        while (m_ring->ready.load(std::memory_order_acquire) != 1) {
+        // 自旋等待 creator 初始化完成
+        while (temp_ring->ready.load(std::memory_order_acquire) != 1) {
             #if defined(__x86_64__) || defined(_M_X64)
-                __builtin_ia32_pause(); // 減少 CPU 功耗與流水線阻塞
+                __builtin_ia32_pause();
             #else
                 std::this_thread::yield();
             #endif
         }
 
-        // 安全驗證 Magic Number
-        if (m_ring->magic.load(std::memory_order_relaxed) != SHM_RING_MAGIC) {
-            throw std::runtime_error("SHM Magic number mismatch! Corrupted or unexpected memory segment.");
+        // 驗證 Magic Number
+        if (temp_ring->magic.load(std::memory_order_relaxed) != SHM_RING_MAGIC) {
+            munmap(temp_mmap, sizeof(SHMRing));
+            close(m_fd);
+            throw std::runtime_error("SHM Magic number mismatch in read-only mode!");
         }
+
+        // 讀取真實的 capacity 並計算真正的總大小
+        m_capacity = temp_ring->capacity;
+        m_total_size = sizeof(SHMRing) + m_capacity + sizeof(uint32_t);
+
+        // 解除臨時映射
+        munmap(temp_mmap, sizeof(SHMRing));
+
+        // 3. 以唯讀模式重新映射完整大小的記憶體
+        m_mmap = mmap(nullptr, m_total_size, PROT_READ, MAP_SHARED, m_fd, 0);
+        if (m_mmap == MAP_FAILED) {
+            close(m_fd);
+            throw std::runtime_error("mmap failed for full SHM in read-only mode");
+        }
+
+        m_ring = reinterpret_cast<SHMRing*>(m_mmap);
+        m_data = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_mmap) + sizeof(SHMRing));
         
-        std::cout << "[SHMRing] SHM is ready and verified." << std::endl;
+        std::cout << "[SHMRing] Connected to SHM in read-only mode. Name=" << m_name 
+                  << " Capacity=" << m_capacity << std::endl;
+    } else {
+        // 一般讀寫 Creator/Attacher 模式
+        m_total_size = sizeof(SHMRing) + m_capacity + sizeof(uint32_t); 
+
+        // 嘗試以 O_EXCL 建立。如果檔案已存在，此呼叫會失敗並回傳 EEXIST
+        m_fd = shm_open(m_name.c_str(), O_RDWR | O_CREAT | O_EXCL, 0666);
+        
+        bool is_creator = false;
+
+        if (m_fd >= 0) {
+            is_creator = true;
+            
+            // 調整 SHM 檔案大小
+            if (ftruncate(m_fd, m_total_size) == -1) {
+                shm_unlink(m_name.c_str());
+                throw std::runtime_error("Failed to ftruncate SHM");
+            }
+        } else if (errno == EEXIST) {
+            // 代表 SHM 檔案早就被另一個 Process 創好了
+            m_fd = shm_open(m_name.c_str(), O_RDWR, 0666);
+            if (m_fd < 0) {
+                throw std::runtime_error("Failed to open existing SHM");
+            }
+        } else {
+            throw std::runtime_error("shm_open failed with unknown error");
+        }
+
+        // 記憶體映射
+        m_mmap = mmap(nullptr, m_total_size, PROT_READ | PROT_WRITE, MAP_SHARED, m_fd, 0);
+        if (m_mmap == MAP_FAILED) {
+            close(m_fd);
+            throw std::runtime_error("mmap failed");
+        }
+
+        m_ring = reinterpret_cast<SHMRing*>(m_mmap);
+        m_data = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_mmap) + sizeof(SHMRing));
+
+        // 根據身份執行「初始化」或「自旋等待」
+        if (is_creator) {
+            std::cout << "[SHMRing] " << m_name << " not found. Creating and initializing SHM..." << std::endl;
+            
+            // 清空整塊記憶體，確保沒有殘留垃圾
+            std::memset(m_mmap, 0, m_total_size);
+
+            // 初始化內部結構 (使用 memory_order_relaxed 因為此時還沒有其他人會讀這塊區塊)
+            m_ring->prod_head.store(0, std::memory_order_relaxed);
+            m_ring->prod_tail.store(0, std::memory_order_relaxed);
+            m_ring->cons_head.store(0, std::memory_order_relaxed);
+            m_ring->capacity = m_capacity;
+            m_ring->mask = m_capacity - 1; // 假設 capacity 是 2 的冪次方
+            
+            m_ring->magic.store(SHM_RING_MAGIC, std::memory_order_relaxed);
+            
+            m_ring->ready.store(1, std::memory_order_release);
+        } else {
+            std::cout << "[SHMRing] " << m_name << " already exists. Waiting for initialization..." << std::endl;
+            
+            while (m_ring->ready.load(std::memory_order_acquire) != 1) {
+                #if defined(__x86_64__) || defined(_M_X64)
+                    __builtin_ia32_pause(); // 減少 CPU 功耗與流水線阻塞
+                #else
+                    std::this_thread::yield();
+                #endif
+            }
+
+            // 安全驗證 Magic Number
+            if (m_ring->magic.load(std::memory_order_relaxed) != SHM_RING_MAGIC) {
+                throw std::runtime_error("SHM Magic number mismatch! Corrupted or unexpected memory segment.");
+            }
+            
+            std::cout << "[SHMRing] SHM is ready and verified." << std::endl;
+        }
     }
 }
 
-SHMRingBuffer::~SHMRingBuffer() {
+template <bool ReadOnly>
+SHMRingBufferImpl<ReadOnly>::~SHMRingBufferImpl() {
     if (m_mmap && m_mmap != MAP_FAILED) {
         munmap(m_mmap, m_total_size);
     }
     if (m_fd >= 0) {
         close(m_fd);
     }
-    // 注意：在低延遲交易系統中，我們通常「不」在析構子呼叫 shm_unlink。
-    // 因為重啟單個 Process 時，我們希望共享記憶體裏的資料與結構依然留在作業系統中。
-    // 如果你希望關閉時徹底刪除，可以手動呼叫 shm_unlink(m_name.c_str());
 }
 
 constexpr uint32_t WRAP_MARKER = 0xFFFFFFFF;
 
-bool SHMRingBuffer::enqueue(void* data, size_t size) {
+template <bool ReadOnly>
+bool SHMRingBufferImpl<ReadOnly>::enqueue(void* data, size_t size) requires (!ReadOnly) 
+{
     if (!data || size == 0) return false;
 
     // 每筆資料需要：4位元組長度 + 實際 Payload 大小
@@ -112,7 +164,7 @@ bool SHMRingBuffer::enqueue(void* data, size_t size) {
     size_t space_to_end;
     bool wrapped = false;
 
-    // 1. 預約空間 (Reservation Phase)
+    // 1. Reservation Phase
     while (true) {
         old_prod_head = m_ring->prod_head.load(std::memory_order_acquire);
         uint64_t current_cons_head = m_ring->cons_head.load(std::memory_order_acquire);
@@ -135,16 +187,14 @@ bool SHMRingBuffer::enqueue(void* data, size_t size) {
             return false;
         }
 
-        // 原子地嘗試更新 prod_head 以完成預約
         if (m_ring->prod_head.compare_exchange_weak(old_prod_head, new_prod_head, 
                                                    std::memory_order_acquire, 
                                                    std::memory_order_relaxed)) {
             break;
         }
-        // 若 CAS 失敗，代表有其他 Producer 搶先，繼續迴圈重試
     }
 
-    // 2. 寫入資料 (Writing Phase)
+    // 2. Writing Phase
     if (!wrapped) {
         uint8_t* write_ptr = static_cast<uint8_t*>(m_data) + tail_offset;
         *reinterpret_cast<uint32_t*>(write_ptr) = static_cast<uint32_t>(size);
@@ -158,8 +208,7 @@ bool SHMRingBuffer::enqueue(void* data, size_t size) {
         std::memcpy(start_ptr + sizeof(uint32_t), data, size);
     }
 
-    // 3. 提交 (Commit Phase)
-    // 必須等到 prod_tail 追上自己的 old_prod_head，才代表輪到自己提交
+    // 3. Commit Phase
     while (m_ring->prod_tail.load(std::memory_order_acquire) != old_prod_head) {
         #if defined(__x86_64__) || defined(_M_X64)
             __builtin_ia32_pause();
@@ -168,12 +217,13 @@ bool SHMRingBuffer::enqueue(void* data, size_t size) {
         #endif
     }
     
-    // 更新 prod_tail，讓 Consumer 可以看見這批新資料，也讓下一個 Producer 准許提交
     m_ring->prod_tail.store(new_prod_head, std::memory_order_release);
     return true;
 }
 
-bool SHMRingBuffer::dequeue(void** data, size_t* size) {
+template <bool ReadOnly>
+bool SHMRingBufferImpl<ReadOnly>::dequeue(void** data, size_t* size) requires (!ReadOnly)
+{
     if (!data || !size) return false;
 
     // 載入當前的 cons_head 與 prod_tail (MPSC 下 cons_head 只有單個 Consumer 會改，放 relaxed 即可)
@@ -238,5 +288,33 @@ bool SHMRingBuffer::dequeue(void** data, size_t* size) {
     m_ring->cons_head.store(current_head + sizeof(uint32_t) + length, std::memory_order_release);
     return true;
 }
+
+template <bool ReadOnly>
+uint64_t SHMRingBufferImpl<ReadOnly>::get_reserved_depth() const 
+{
+    if (!m_ring) return 0;
+    uint64_t cons = m_ring->cons_head.load(std::memory_order_relaxed);
+    uint64_t prod = m_ring->prod_head.load(std::memory_order_relaxed);
+    return prod - cons;
+}
+
+template <bool ReadOnly>
+uint64_t SHMRingBufferImpl<ReadOnly>::get_uncommitted_depth() const 
+{
+    if (!m_ring) return 0;
+    uint64_t tail = m_ring->prod_tail.load(std::memory_order_relaxed);
+    uint64_t head = m_ring->prod_head.load(std::memory_order_relaxed);
+    return head - tail;
+}
+
+template <bool ReadOnly>
+double SHMRingBufferImpl<ReadOnly>::get_occupancy_ratio() const
+{
+    if (!m_ring || m_capacity == 0) return 0.0;
+    return static_cast<double>(get_reserved_depth()) / static_cast<double>(m_capacity);
+}
+
+template class SHMRingBufferImpl<false>;
+template class SHMRingBufferImpl<true>;
 
 } // namespace Exchange
