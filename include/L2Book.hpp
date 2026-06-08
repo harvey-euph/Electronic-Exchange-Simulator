@@ -36,6 +36,16 @@ struct L2Book {
                 asks[price] = qty;
             }
         }
+
+        // Price cross check
+        if (!bids.empty() && !asks.empty()) {
+            auto best_bid = bids.begin()->first;
+            auto best_ask = asks.begin()->first;
+            if (best_bid >= best_ask) {
+                std::cerr << "[L2Book] WARNING: Orderbook crossed! Symbol: " << symbol_id 
+                          << " Best Bid: " << best_bid << " >= Best Ask: " << best_ask << std::endl;
+            }
+        }
     }
 
     void display() {

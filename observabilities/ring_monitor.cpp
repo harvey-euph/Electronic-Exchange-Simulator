@@ -10,23 +10,16 @@
 #include <iomanip>
 #include <csignal>
 #include <atomic>
-
-std::atomic<bool> g_running{true};
-
-void handle_signal(int signal) {
-    if (signal == SIGINT || signal == SIGTERM) {
-        g_running = false;
-    }
-}
+#include "SignalHandler.hpp"
 
 struct RingInfo {
     std::string name;
     std::unique_ptr<Exchange::SHMObserver> observer;
 };
 
-int main() {
-    std::signal(SIGINT, handle_signal);
-    std::signal(SIGTERM, handle_signal);
+int main()
+{
+    setup_signals();
 
     std::vector<std::string> ring_names = {
         ORDER_REQUEST,

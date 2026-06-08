@@ -19,8 +19,8 @@ const char* side_name(const OrderRequest* req)
 
 void print_client_channel(const char* event, uint32_t client_id, uint64_t order_id)
 {
-    std::printf("[client] event=%s client_id=%u order_id=%lu\n",
-                event, client_id, order_id);
+    // std::printf("[client] event=%s client_id=%u order_id=%lu\n",
+    //             event, client_id, order_id);
 }
 
 void send_response(SHMRingBuffer* ring, flatbuffers::FlatBufferBuilder& fbb,
@@ -139,8 +139,8 @@ void ClientExecutionReporter::onRequest(const OrderRequest* req)
 void ClientExecutionReporter::onAck(const OrderRequest* req, size_t price_index)
 {
     if (!req) return;
-    std::printf("[client] event=ack client_id=%u order_id=%lu price_idx=%zu\n",
-                req->client_id(), req->order_id(), price_index);
+    // std::printf("[client] event=ack client_id=%u order_id=%lu price_idx=%zu\n",
+    //             req->client_id(), req->order_id(), price_index);
     send_response(m_ring, fbb, ExecType_New, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), RejectCode_None);
 }
 
@@ -154,19 +154,19 @@ void ClientExecutionReporter::onCancelled(const OrderRequest* req)
 void ClientExecutionReporter::onModified(const OrderRequest* req)
 {
     if (!req) return;
-    std::printf("[client] event=modified client_id=%u order_id=%lu price=%ld qty=%lu\n",
-                req->client_id(), req->order_id(), req->p(), req->q());
+    // std::printf("[client] event=modified client_id=%u order_id=%lu price=%ld qty=%lu\n",
+    //             req->client_id(), req->order_id(), req->p(), req->q());
     send_response(m_ring, fbb, ExecType_Replaced, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), RejectCode_None);
 }
 
 void ClientExecutionReporter::onReject(const OrderRequest* req, RejectCode code)
 {
     if (!req) return;
-    std::printf("[client] event=reject client_id=%u order_id=%lu code=%s(%d)\n",
-                req->client_id(),
-                req->order_id(),
-                EnumNameRejectCode(code),
-                static_cast<int>(code));
+    // std::printf("[client] event=reject client_id=%u order_id=%lu code=%s(%d)\n",
+    //             req->client_id(),
+    //             req->order_id(),
+    //             EnumNameRejectCode(code),
+    //             static_cast<int>(code));
     send_response(m_ring, fbb, ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), code);
 }
 
@@ -177,8 +177,8 @@ void ClientExecutionReporter::onFill(const Order* taker,
                                      uint64_t qty_fill)
 {
     if (!taker || !maker) return;
-    std::printf("[client] event=fill taker=%lu maker=%lu price=%ld qty=%lu\n",
-                taker->order_id, maker->order_id, price, qty_fill);
+    // std::printf("[client] event=fill taker=%lu maker=%lu price=%ld qty=%lu\n",
+    //             taker->order_id, maker->order_id, price, qty_fill);
     
     send_response(m_ring, fbb, 
                   taker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,

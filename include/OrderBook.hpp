@@ -60,16 +60,6 @@ public:
     ~OrderBook();
 
     void processRequest(const OrderRequest* req);
-    void showL2(size_t depth = 10);
-
-    // Snapshot support
-    struct SnapshotOrder {
-        uint64_t order_id;
-        Side side;
-        int64_t price;
-        uint64_t qty;
-    };
-    std::vector<SnapshotOrder> getL3Snapshot() const;
 
 private:
     const uint64_t symbol_id_;

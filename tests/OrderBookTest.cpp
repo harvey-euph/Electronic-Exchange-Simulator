@@ -57,8 +57,6 @@ protected:
                 orderbook->processRequest(req);
             }
         }
-
-        orderbook->showL2();
     }
     
 protected:
@@ -354,8 +352,6 @@ TEST_F(OrderBookTest, CancelAndModify)
 
     // ==================== 整體一致性檢查 ====================
     EXPECT_EQ(orderbook->active_levels_[0].size(), 6) << "Bid 價格層應從 5 增加到 6 (新增 10450)";
-
-    orderbook->showL2();
 }
 
 TEST_F(OrderBookTest, CancelFullLevelMaintainsPriceLinks)
@@ -441,8 +437,6 @@ TEST_F(OrderBookTest, MatchSingleLayer)
     EXPECT_EQ(orderbook->active_levels_[0].size(), 6);
     EXPECT_EQ(orderbook->active_levels_[1].size(), 4);
     EXPECT_EQ(orderbook->active_orders_.size(), 28ULL);
-
-    orderbook->showL2();
 }
 
 // // ==================== MatchingMultiLayer ====================
@@ -458,7 +452,6 @@ TEST_F(OrderBookTest, MatchingMultiLayer)
         OrderAction_New, 8888, 8888, Side_Sell, OrderType_Limit, sell_price, incoming_qty);
 
     orderbook->processRequest(big_sell);
-    orderbook->showL2();
 
     // ==================== 詳細驗證 ====================
 

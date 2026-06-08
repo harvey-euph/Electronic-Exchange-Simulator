@@ -49,7 +49,6 @@ int main(int argc, char** argv)
         const uint64_t end = read_tsc_end();
         total_cycles += (end - start);
         ++request_count;
-        // ob.showL2();
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 

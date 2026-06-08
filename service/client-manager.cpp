@@ -257,10 +257,9 @@ public:
                 auto order_req = request->data_as_OrderRequest();
                 logOrderRequest(order_req, "[ClientManager] Received Order Request:");
 
-                uint64_t start_time = Exchange::read_tsc_begin();
                 {
                     std::lock_guard<std::mutex> lock(metrics_mutex_);
-                    order_start_times_[order_req->order_id()] = start_time;
+                    order_start_times_[order_req->order_id()] = Exchange::read_tsc_begin();
                 }
 
                 flatbuffers::FlatBufferBuilder fbb(256);
