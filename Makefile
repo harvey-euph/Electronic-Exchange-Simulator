@@ -41,6 +41,7 @@ APP_TARGETS := $(SERVICE_TARGETS)
 OBS_DIR := observabilities
 OBS_SOURCES := $(wildcard $(OBS_DIR)/*.cpp)
 OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/observabilities/%,$(OBS_SOURCES))
+EBPF_DIR := observabilities/ebpf
 
 # -----------------------------------------------------------------------------
 # Test Executables
@@ -55,7 +56,11 @@ TEST_TARGETS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%,$(TEST_SOURCES
 # -----------------------------------------------------------------------------
 
 .PHONY: all
-all: $(FBS_GENERATED) $(APP_TARGETS) $(OBS_TARGETS)
+all: $(FBS_GENERATED) $(APP_TARGETS) $(OBS_TARGETS) ebpf_target
+
+.PHONY: ebpf_target
+ebpf_target: $(FBS_GENERATED)
+	$(MAKE) -C $(EBPF_DIR)
 
 # -----------------------------------------------------------------------------
 # Build Services
@@ -120,6 +125,7 @@ $(FBS_OUT)/%_generated.h: $(FBS_DIR)/%.fbs
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf $(FBS_OUT)
+	$(MAKE) -C $(EBPF_DIR) clean
 
 # -----------------------------------------------------------------------------
 # Include Dependency Files

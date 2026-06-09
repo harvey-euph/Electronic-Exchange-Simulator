@@ -9,3 +9,9 @@ build
 data/*
 !data/basic.csv
 .run_service.pid
+
+# eBPF Generated Files
+observabilities/ebpf/vmlinux.h
+observabilities/ebpf/ws_monitor.skel.h
+observabilities/ebpf/ws_monitor.bpf.o
+observabilities/ebpf/ws_monitor
