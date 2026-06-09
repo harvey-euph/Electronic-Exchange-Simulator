@@ -1,6 +1,31 @@
 CXX := g++
-CXXFLAGS := -std=c++20 -Wall -Wextra -MMD -MP
 INCLUDES := -Iinclude
+
+# Detect CPU core count to determine performance tier
+NUM_CORES := $(shell nproc)
+CXXFLAGS := -std=c++20 -O3 -Wall -Wextra -MMD -MP
+
+ifeq ($(shell test $(NUM_CORES) -ge 8; echo $$?),0)
+    # Enable busy-waiting and native microarchitecture tuning on systems with >= 8 cores
+    CXXFLAGS += -march=native -DPRODUCTION_MODE
+endif
+
+# Automatically determine default affinity profile based on CPU core count,
+# unless it is already overridden on the command line.
+ifndef AFFINITY_PROFILE
+    ifeq ($(shell test $(NUM_CORES) -ge 6; echo $$?),0)
+        AFFINITY_PROFILE := AFFINITY_PROFILE_ISOLATED
+    else ifeq ($(shell test $(NUM_CORES) -ge 4; echo $$?),0)
+        AFFINITY_PROFILE := AFFINITY_PROFILE_COMPACT
+    else
+        AFFINITY_PROFILE := AFFINITY_PROFILE_SHARED
+    endif
+endif
+
+# If AFFINITY_PROFILE is defined (either automatically or manually), compile it in
+ifdef AFFINITY_PROFILE
+    CXXFLAGS += -D$(AFFINITY_PROFILE)
+endif
 
 BUILD_DIR := build
 SRC_DIR := src

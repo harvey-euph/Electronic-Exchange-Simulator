@@ -1,4 +1,6 @@
 #include "WSAdaptor.hpp"
+#include "ThreadUtil.hpp"
+#include <cstdlib>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/dispatch.hpp>
@@ -272,24 +274,32 @@ public:
 struct WSAdaptor::Impl {
     net::io_context ioc;
     std::shared_ptr<WSListener> listener;
-    std::thread ioc_thread;
 
     Impl(int port) {
         auto const address = net::ip::make_address("0.0.0.0");
         listener = std::make_shared<WSListener>(ioc, tcp::endpoint{address, static_cast<unsigned short>(port)});
         net::co_spawn(ioc, listener->run(), net::detached);
-        ioc_thread = std::thread([this]() { ioc.run(); });
     }
 
     ~Impl() {
         ioc.stop();
-        if (ioc_thread.joinable()) ioc_thread.join();
+    }
+
+    void poll() {
+        if (ioc.stopped()) {
+            ioc.restart();
+        }
+        ioc.poll();
     }
 };
 
 WSAdaptor::WSAdaptor(int port) : pimpl_(std::make_unique<Impl>(port)) {}
 
 WSAdaptor::~WSAdaptor() = default;
+
+void WSAdaptor::poll() {
+    pimpl_->poll();
+}
 
 void WSAdaptor::publish(const Exchange::L2Update* l2_update, const void* raw_data, size_t raw_size) {
     std::string data(static_cast<const char*>(raw_data), raw_size);

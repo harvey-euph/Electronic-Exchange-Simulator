@@ -95,20 +95,20 @@ void OrderBook::handleNewOrder(const OrderRequest* req, bool report_ack)
         reporter_->onReject(req, RejectCode_DuplicateOrderID);
         return;
     }
+    
+    Order* taker = createOrder(req);
+    
+    const int side_int = static_cast<int>(req->side());
+    const size_t price_idx = (req->type() == OrderType_Market)
+    ? (req->side() == Side_Buy ? max_price_levels_ - 1 : 0)
+    : price_to_index(req->p());
+    
+    PriceLevel **oppo = &best_levels_[1^side_int];
 
     if (report_ack) {
         size_t ack_idx = (req->type() == OrderType_Market) ? 0 : price_to_index(req->p());
         reporter_->onAck(req, ack_idx);
     }
-
-    Order* taker = createOrder(req);
-
-    const int side_int = static_cast<int>(req->side());
-    const size_t price_idx = (req->type() == OrderType_Market)
-        ? (req->side() == Side_Buy ? max_price_levels_ - 1 : 0)
-        : price_to_index(req->p());
-    
-    PriceLevel **oppo = &best_levels_[1^side_int];
 
     while (*oppo && taker->qty_remaining)
     {

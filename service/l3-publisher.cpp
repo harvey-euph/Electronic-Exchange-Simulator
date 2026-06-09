@@ -3,6 +3,9 @@
 #include "WSAdaptor.hpp"
 #include "L3OutputAdaptor.hpp"
 #include "L3Book.hpp"
+#include "ThreadUtil.hpp"
+#include "AffinityConfig.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 #include <memory>
@@ -52,19 +55,19 @@ int main()
         
         flatbuffers::FlatBufferBuilder fbb(1024);
 
-        // 1. Send empty frame (Side=None) to clear old data
+        // 1. Send empty frame (ExecType=Complete, Side=None) to clear old data
         {
-            auto l3_update = Exchange::CreateL3Update(fbb, symbol_id, Exchange::ExecType_New, 0, 0, Exchange::Side_None, 0, 0, 0);
+            auto l3_update = Exchange::CreateL3Update(fbb, symbol_id, Exchange::ExecType_Complete, 0, 0, Exchange::Side_None, 0, 0, 0);
             fbb.Finish(l3_update);
             client->send(fbb.GetBufferPointer(), fbb.GetSize());
         }
 
-        // 2. Send snapshots (all active orders in priority order)
+        // 2. Send snapshots
         {
             std::lock_guard<std::mutex> lock(book->mutex);
-            // Bids first (highest to lowest)
-            for (auto const& [price, queue] : book->bids) {
-                for (uint64_t order_id : queue) {
+            // Bids (highest to lowest)
+            for (auto it = book->bids.rbegin(); it != book->bids.rend(); ++it) {
+                for (uint64_t order_id : it->second) {
                     auto const& order = book->orders.at(order_id);
                     fbb.Clear();
                     auto l3_update = Exchange::CreateL3Update(fbb, symbol_id, Exchange::ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
@@ -88,6 +91,11 @@ int main()
 
     ws_adaptor->set_subscribe_handler(subscribe_handler);
 
+    int main_core = L3_MAIN_CORE;
+    if (main_core >= 0) {
+        Exchange::set_thread_affinity(main_core, "L3Publisher_Main");
+    }
+
     std::cout << "[L3Publisher] Connected successfully. Start consuming..." << std::endl;
 
     void* data_ptr = nullptr;
@@ -95,6 +103,8 @@ int main()
 
     while (g_running.load(std::memory_order_relaxed))
     {
+        ws_adaptor->poll();
+
         if (ring_buffer->dequeue(&data_ptr, &data_size))
         {
             if (data_ptr == nullptr || data_size == 0) {

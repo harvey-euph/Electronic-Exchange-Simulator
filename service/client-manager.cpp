@@ -2,9 +2,12 @@
 #include "fbs/order_generated.h"
 #include "WSAdaptor.hpp"
 #include "ClientDatabase.hpp"
+#include "ThreadUtil.hpp"
+#include "AffinityConfig.hpp"
+#include <cstdlib>
 #include "LogUtil.hpp"
 #include "TimeUtil.hpp"
-#include "Telemetry.hpp"
+// #include "Telemetry.hpp"
 #include <iostream>
 #include <unordered_map>
 #include <vector>
@@ -26,7 +29,7 @@ public:
         , request_ring_(request_ring)
         , db_(db)
     {
-        telemetry_ = std::make_unique<TelemetryProvider>(EXCHANGE_TELEMETRY, false);
+        // telemetry_ = std::make_unique<TelemetryProvider>(EXCHANGE_TELEMETRY, false);
         std::cout << "[ClientManager] Initializing on port " << port << std::endl;
 
         auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe) {
@@ -174,10 +177,8 @@ public:
     }
 
     void handle_execution_response(const OrderResponse* resp, const void* data, size_t size) {
-        uint64_t handle_start = Exchange::read_tsc_begin();
         (void) data; (void) size;
         uint32_t client_id = resp->client_id();
-        uint64_t order_id = resp->order_id();
 
         logOrderResponse(resp, "[ClientManager] Execution Report:");
 
@@ -195,12 +196,24 @@ public:
                 db_->updatePosition(client_id, resp->symbol_id(), -static_cast<int64_t>(resp->q())); // Give Asset
             }
         }
+        
+        uint64_t start_time = 0;
+        {
+            std::lock_guard<std::mutex> lock(metrics_mutex_);
+            auto it = order_start_times_.find(resp->exec_id());
+            if (it != order_start_times_.end()) {
+                start_time = it->second;
+                order_start_times_.erase(it);
+            }
+        }
+
+        uint64_t total_lat = start_time ? Exchange::read_tsc_end() - start_time : 0;
 
         if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type()) & 1)
         {
             if (resp->reject_code() == RejectCode_None) {
                 flatbuffers::FlatBufferBuilder fbb(256);
-                auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code());
+                auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code(), resp->engine_latency(), total_lat);
                 auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
                 fbb.Finish(client_resp);
                 db_->addOrUpdateOpenOrder(client_id, resp->order_id(), fbb.GetBufferPointer(), fbb.GetSize());
@@ -212,7 +225,7 @@ public:
         }
 
         flatbuffers::FlatBufferBuilder fbb(256);
-        auto resp_offset = CreateOrderResponse(fbb, resp->exec_type(), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code());
+        auto resp_offset = CreateOrderResponse(fbb, resp->exec_type(), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code(), resp->engine_latency(), total_lat);
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
         fbb.Finish(client_resp);
         
@@ -225,28 +238,6 @@ public:
         } else {
             std::cout << "[ClientManager] Client " << client_id << " offline. Storing pending response." << std::endl;
             db_->addPendingResponse(client_id, fbb.GetBufferPointer(), fbb.GetSize());
-        }
-
-        uint64_t handle_end = Exchange::read_tsc_end();
-        uint64_t handle_lat = handle_end - handle_start;
-        telemetry_->data()->mgmt_count.fetch_add(1, std::memory_order_relaxed);
-        telemetry_->data()->mgmt_cycles_sum.fetch_add(handle_lat, std::memory_order_relaxed);
-        
-        uint64_t start_time = 0;
-        if ((EXEC_MASK_LATENCY_TRACK >> resp->exec_type()) & 1)
-        {
-            std::lock_guard<std::mutex> lock(metrics_mutex_);
-            auto it = order_start_times_.find(order_id);
-            if (it != order_start_times_.end()) {
-                start_time = it->second;
-                order_start_times_.erase(it);
-            }
-        }
-
-        if (start_time) {
-            uint64_t total_lat = handle_end - start_time;
-            telemetry_->data()->e2e_count.fetch_add(1, std::memory_order_relaxed);
-            telemetry_->data()->e2e_cycles_sum.fetch_add(total_lat, std::memory_order_relaxed);
         }
     }
 
@@ -262,7 +253,7 @@ public:
 
                 {
                     std::lock_guard<std::mutex> lock(metrics_mutex_);
-                    order_start_times_[order_req->order_id()] = Exchange::read_tsc_begin();
+                    order_start_times_[order_req->exec_id()] = Exchange::read_tsc_begin();
                 }
 
                 flatbuffers::FlatBufferBuilder fbb(256);
@@ -290,6 +281,10 @@ public:
         }
     }
 
+    void poll() {
+        ws_adaptor_->poll();
+    }
+
 private:
     std::shared_ptr<std::mutex> get_client_lock(uint32_t client_id) {
         std::lock_guard<std::mutex> lock(sessions_mutex_);
@@ -310,7 +305,7 @@ private:
     std::mutex ready_mutex_;
     std::unordered_map<uint64_t, uint64_t> order_start_times_;
     std::mutex metrics_mutex_;
-    std::unique_ptr<TelemetryProvider> telemetry_;
+    // std::unique_ptr<TelemetryProvider> telemetry_;
 };
 
 } // namespace Exchange
@@ -333,11 +328,18 @@ int main()
 
     Exchange::ClientManager manager(9001, request_ring, db);
 
+    int main_core = CM_MAIN_CORE;
+    if (main_core >= 0) {
+        Exchange::set_thread_affinity(main_core, "ClientManager_Main");
+    }
+
     void* data_ptr = nullptr;
     size_t data_size = 0;
 
     while (g_running.load(std::memory_order_relaxed))
     {
+        manager.poll();
+
         if (response_ring->dequeue(&data_ptr, &data_size))
         {
             if (data_ptr && data_size > 0) {

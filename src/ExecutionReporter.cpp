@@ -1,10 +1,14 @@
 #include "OrderBook.hpp"
 #include "ExecutionReporter.hpp"
+#include "TimeUtil.hpp"
 
 #include <cstdio>
 #include <iostream>
+#include <random>
 
 namespace Exchange {
+
+thread_local uint64_t g_current_request_start_tsc = 0;
 
 namespace {
 const char* action_name(const OrderRequest* req)
@@ -19,6 +23,9 @@ const char* side_name(const OrderRequest* req)
 
 void print_client_channel(const char* event, uint32_t client_id, uint64_t order_id)
 {
+    (void) event;
+    (void) client_id;
+    (void) order_id;
     // std::printf("[client] event=%s client_id=%u order_id=%lu\n",
     //             event, client_id, order_id);
 }
@@ -30,7 +37,11 @@ void send_response(SHMRingBuffer* ring, flatbuffers::FlatBufferBuilder& fbb,
 {
     if (!ring) return;
     fbb.Clear();
-    auto resp = CreateOrderResponse(fbb, exec_type, order_id, client_id, exec_id, symbol_id, side, p, q, reject_code);
+    uint64_t engine_lat = 0;
+    if (g_current_request_start_tsc > 0) {
+        engine_lat = Exchange::read_tsc_end() - g_current_request_start_tsc;
+    }
+    auto resp = CreateOrderResponse(fbb, exec_type, order_id, client_id, exec_id, symbol_id, side, p, q, reject_code, engine_lat, 0);
     fbb.Finish(resp);
     ring->enqueue(fbb.GetBufferPointer(), fbb.GetSize());
 }
@@ -139,6 +150,7 @@ void ClientExecutionReporter::onRequest(const OrderRequest* req)
 void ClientExecutionReporter::onAck(const OrderRequest* req, size_t price_index)
 {
     if (!req) return;
+    (void) price_index;
     // std::printf("[client] event=ack client_id=%u order_id=%lu price_idx=%zu\n",
     //             req->client_id(), req->order_id(), price_index);
     send_response(m_ring, fbb, ExecType_New, req->order_id(), req->client_id(), req->exec_id(), req->symbol_id(), req->side(), req->p(), req->q(), RejectCode_None);
@@ -177,18 +189,19 @@ void ClientExecutionReporter::onFill(const Order* taker,
                                      uint64_t qty_fill)
 {
     if (!taker || !maker) return;
-    // std::printf("[client] event=fill taker=%lu maker=%lu price=%ld qty=%lu\n",
-    //             taker->order_id, maker->order_id, price, qty_fill);
+    
+    static thread_local std::mt19937_64 gen(std::random_device{}());
+    uint64_t rand_exec_id = gen();
     
     send_response(m_ring, fbb, 
                   taker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                  taker->order_id, taker->client_id, taker->exec_id, 1, taker_side, price, qty_fill, RejectCode_None);
+                  taker->order_id, taker->client_id, rand_exec_id, 1, taker_side, price, qty_fill, RejectCode_None);
 
     const Side maker_side = static_cast<Side>(1-static_cast<int>(taker_side));
     
     send_response(m_ring, fbb,
                   maker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                  maker->order_id, maker->client_id, maker->exec_id, 1, maker_side, price, qty_fill, RejectCode_None);
+                  maker->order_id, maker->client_id, rand_exec_id, 1, maker_side, price, qty_fill, RejectCode_None);
 }
 
 } // namespace Exchange

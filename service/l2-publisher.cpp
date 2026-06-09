@@ -2,6 +2,9 @@
 #include "fbs/order_generated.h"
 #include "WSAdaptor.hpp"
 #include "L2Book.hpp"
+#include "ThreadUtil.hpp"
+#include "AffinityConfig.hpp"
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 #include <memory>
@@ -81,6 +84,11 @@ int main()
 
     ws_adaptor->set_subscribe_handler(subscribe_handler);
 
+    int main_core = L2_MAIN_CORE;
+    if (main_core >= 0) {
+        Exchange::set_thread_affinity(main_core, "L2Publisher_Main");
+    }
+
     std::cout << "[L2Publisher] Connected successfully. Start consuming..." << std::endl;
 
     void* data_ptr = nullptr;
@@ -88,6 +96,8 @@ int main()
 
     while (g_running.load(std::memory_order_relaxed))
     {
+        ws_adaptor->poll();
+
         if (ring_buffer->dequeue(&data_ptr, &data_size))
         {
             if (data_ptr == nullptr || data_size == 0) {

@@ -28,6 +28,8 @@ public:
     WSAdaptor(int port);
     virtual ~WSAdaptor();
 
+    void poll();
+
     // Market Data Broadcasting
     void publish(const Exchange::L2Update* l2_update, const void* raw_data, size_t raw_size) override;
     void publish(const Exchange::L3Update* l3_update, const void* raw_data, size_t raw_size) override;
