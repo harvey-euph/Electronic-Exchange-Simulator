@@ -80,12 +80,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     console.log(`[L2] ${new Date().toLocaleTimeString()} - ${msg}`);
   }, []);
 
+  // 1. Fetch SymbolInfo when activeSymbolId changes
   useEffect(() => {
-    setBids(new Map());
-    setAsks(new Map());
-    bidsRef.current.clear();
-    asksRef.current.clear();
-    
     if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
     
     let active = true;
@@ -113,17 +109,6 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         
         setSymbolInfo(infoData);
         addMgmtLog(`Fetched SymbolInfo for ${infoData.name} (id=${infoData.symbolId}): exp=${infoData.priceExp}, step=${infoData.priceMinStep}, min=${infoData.priceMin}, max=${infoData.priceMax}`);
-        
-        // Subscribe to L2 after fetching SymbolInfo
-        if (l2WsRef.current?.readyState === WebSocket.OPEN) {
-          const builder = new flatbuffers.Builder(128);
-          MarketDataRequest.startMarketDataRequest(builder);
-          MarketDataRequest.addSymbolId(builder, activeSymbolId);
-          const offset = MarketDataRequest.endMarketDataRequest(builder);
-          MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
-          l2WsRef.current.send(builder.asUint8Array() as any);
-          setSubscribedSymbols(prev => new Set(prev).add(activeSymbolId));
-        }
       } catch (err) {
         addMgmtLog(`Failed to fetch SymbolInfo for symbol ${activeSymbolId}: ${err}`);
       }
@@ -134,7 +119,29 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     return () => {
       active = false;
     };
-  }, [activeSymbolId, connected.l2, addMgmtLog]);
+  }, [activeSymbolId, addMgmtLog]);
+
+  // 2. Clear bids/asks and subscribe to L2 when activeSymbolId, connected.l2, or symbolInfo changes
+  useEffect(() => {
+    setBids(new Map());
+    setAsks(new Map());
+    bidsRef.current.clear();
+    asksRef.current.clear();
+
+    if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
+
+    if (connected.l2 && symbolInfo && symbolInfo.symbolId === activeSymbolId) {
+      if (l2WsRef.current?.readyState === WebSocket.OPEN) {
+        const builder = new flatbuffers.Builder(128);
+        MarketDataRequest.startMarketDataRequest(builder);
+        MarketDataRequest.addSymbolId(builder, activeSymbolId);
+        const offset = MarketDataRequest.endMarketDataRequest(builder);
+        MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
+        l2WsRef.current.send(builder.asUint8Array() as any);
+        setSubscribedSymbols(prev => new Set(prev).add(activeSymbolId));
+      }
+    }
+  }, [activeSymbolId, connected.l2, symbolInfo]);
 
   const subscribeL2 = useCallback((sId: number) => {
     if (l2WsRef.current?.readyState === WebSocket.OPEN) {

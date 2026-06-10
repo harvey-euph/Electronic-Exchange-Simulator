@@ -9,7 +9,10 @@
     - 並且客戶端要知道，所有交流的價格 p (Market data/order entry) 都滿足這個關係: p_real = p * 10 ^ price_exp，我們會用整數 p 來交流避免 p_read 的浮點造成問題，並且 price_exp 要從 public-data 拿到
     
 - [x] 訂閱
-  - 新增 fbs 結構 MarketDataRequest，不用分 L2 L3，送給 L2 server 的就是要 L2, 送給 L3 server 的就是要 L3
-  - service side: 當 L2 L3 來連線，預設不送東西，要明確接到 MarketDataRequest 才放入送的對象列表
-  - web 和 client 端都要做修改，暫時都用 symbol_id=1
-  - 當自己的資料出問題 (有 cross/斷線/漏包) 都可以隨時 MarketDataRequest
+    - 新增 fbs 結構 MarketDataRequest，不用分 L2 L3，送給 L2 server 的就是要 L2, 送給 L3 server 的就是要 L3
+    - service side: 當 L2 L3 來連線，預設不送東西，要明確接到 MarketDataRequest 才放入送的對象列表
+    - web 和 client 端都要做修改，暫時都用 symbol_id=1
+    - 當自己的資料出問題 (有 cross/斷線/漏包) 都可以隨時 MarketDataRequest
+
+- [ ] 前端檢查
+    - 收到的價格要確認是
