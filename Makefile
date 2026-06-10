@@ -29,18 +29,22 @@ endif
 
 BUILD_DIR := build
 SRC_DIR := src
-SERVICE_DIR := service
+SERVICE_DIR := app/services
+AGENT_DIR := app/client-agents
+EXAMPLE_DIR := app/client-examples
 TEST_DIR := tests
 FBS_DIR := fbs
 FBS_OUT := include/fbs
-LDLIBS := -lgtest -lgtest_main -pthread
+LDLIBS := -lgtest -lgtest_main -pthread -lrt
 
 # -----------------------------------------------------------------------------
 # FlatBuffers
 # -----------------------------------------------------------------------------
 
 FBS_SOURCES := $(wildcard $(FBS_DIR)/*.fbs)
-FBS_GENERATED := $(patsubst $(FBS_DIR)/%.fbs,$(FBS_OUT)/%_generated.h,$(FBS_SOURCES))
+FBS_TS_OUT := web/src/fbs
+FBS_TS_GENERATED := $(patsubst $(FBS_DIR)/%.fbs,$(FBS_TS_OUT)/%.ts,$(FBS_SOURCES))
+FBS_GENERATED := $(patsubst $(FBS_DIR)/%.fbs,$(FBS_OUT)/%_generated.h,$(FBS_SOURCES)) $(FBS_TS_GENERATED)
 
 # -----------------------------------------------------------------------------
 # Source Objects
@@ -55,18 +59,31 @@ SRC_DEPS := $(SRC_OBJECTS:.o=.d)
 # -----------------------------------------------------------------------------
 
 SERVICE_SOURCES := $(wildcard $(SERVICE_DIR)/*.cpp)
-SERVICE_TARGETS := $(patsubst $(SERVICE_DIR)/%.cpp,$(BUILD_DIR)/service/%,$(SERVICE_SOURCES))
+SERVICE_TARGETS := $(patsubst $(SERVICE_DIR)/%.cpp,$(BUILD_DIR)/services/%,$(SERVICE_SOURCES))
 
-APP_TARGETS := $(SERVICE_TARGETS)
+# -----------------------------------------------------------------------------
+# Agent Executables
+# -----------------------------------------------------------------------------
+
+AGENT_SOURCES := $(wildcard $(AGENT_DIR)/*.cpp)
+AGENT_TARGETS := $(patsubst $(AGENT_DIR)/%.cpp,$(BUILD_DIR)/client-agents/%,$(AGENT_SOURCES))
+
+# -----------------------------------------------------------------------------
+# Example Executables
+# -----------------------------------------------------------------------------
+
+EXAMPLE_SOURCES := $(wildcard $(EXAMPLE_DIR)/*.cpp)
+EXAMPLE_TARGETS := $(patsubst $(EXAMPLE_DIR)/%.cpp,$(BUILD_DIR)/client-examples/%,$(EXAMPLE_SOURCES))
 
 # -----------------------------------------------------------------------------
 # Observability Executables
 # -----------------------------------------------------------------------------
 
-OBS_DIR := observabilities
+OBS_DIR := app/perf
 OBS_SOURCES := $(wildcard $(OBS_DIR)/*.cpp)
-OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/observabilities/%,$(OBS_SOURCES))
-EBPF_DIR := observabilities/ebpf
+OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/app/perf/%,$(OBS_SOURCES))
+EBPF_DIR := app/perf/ebpf
+EBPF_EXP_DIR := app/perf/ebpf-exp
 
 # -----------------------------------------------------------------------------
 # Test Executables
@@ -80,31 +97,56 @@ TEST_TARGETS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%,$(TEST_SOURCES
 # Default Target
 # -----------------------------------------------------------------------------
 
-.PHONY: all
-all: $(FBS_GENERATED) $(APP_TARGETS) $(OBS_TARGETS) ebpf_target
+WEB_DIR := web
 
-.PHONY: ebpf_target
-ebpf_target: $(FBS_GENERATED)
+.PHONY: all
+all: $(FBS_GENERATED) $(SERVICE_TARGETS) $(AGENT_TARGETS) $(EXAMPLE_TARGETS) $(OBS_TARGETS) web_target
+
+.PHONY: fbs
+fbs: $(FBS_GENERATED)
+
+.PHONY: ebpf
+ebpf: $(FBS_GENERATED)
 	$(MAKE) -C $(EBPF_DIR)
+
+.PHONY: ebpf-exp
+ebpf-exp: $(FBS_GENERATED)
+	$(MAKE) -C $(EBPF_EXP_DIR)
+
+.PHONY: web_target
+web_target: $(FBS_GENERATED)
+	$(MAKE) -C $(WEB_DIR)
 
 # -----------------------------------------------------------------------------
 # Build Services
 # -----------------------------------------------------------------------------
 
-$(BUILD_DIR)/service/client/%: $(SERVICE_DIR)/client/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
-	@mkdir -p $(BUILD_DIR)/service/client
+$(BUILD_DIR)/services/%: $(SERVICE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/services
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
-$(BUILD_DIR)/service/%: $(SERVICE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
-	@mkdir -p $(BUILD_DIR)/service
+# -----------------------------------------------------------------------------
+# Build Agents
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/client-agents/%: $(AGENT_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/client-agents
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
+
+# -----------------------------------------------------------------------------
+# Build Examples
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/client-examples/%: $(EXAMPLE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/client-examples
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Build Observabilities
 # -----------------------------------------------------------------------------
 
-$(BUILD_DIR)/observabilities/%: $(OBS_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
-	@mkdir -p $(BUILD_DIR)/observabilities
+$(BUILD_DIR)/app/perf/%: $(OBS_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/app/perf
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
@@ -142,6 +184,10 @@ $(FBS_OUT)/%_generated.h: $(FBS_DIR)/%.fbs
 	@mkdir -p $(FBS_OUT)
 	flatc --cpp --gen-mutable --gen-object-api -o $(FBS_OUT) $<
 
+$(FBS_TS_OUT)/%.ts: $(FBS_DIR)/%.fbs
+	@mkdir -p $(FBS_TS_OUT)
+	flatc --ts -o $(FBS_TS_OUT) $<
+
 # -----------------------------------------------------------------------------
 # Clean
 # -----------------------------------------------------------------------------
@@ -150,7 +196,10 @@ $(FBS_OUT)/%_generated.h: $(FBS_DIR)/%.fbs
 clean:
 	rm -rf $(BUILD_DIR)
 	rm -rf $(FBS_OUT)
+	rm -rf $(FBS_TS_OUT)
 	$(MAKE) -C $(EBPF_DIR) clean
+	$(MAKE) -C $(EBPF_EXP_DIR) clean
+	$(MAKE) -C $(WEB_DIR) clean
 
 # -----------------------------------------------------------------------------
 # Include Dependency Files

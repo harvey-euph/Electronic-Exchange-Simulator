@@ -1,0 +1,21 @@
+#!/bin/bash
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+echo "=== Stopping Exchange Client Agents ==="
+pkill -f "build/client-agents/"
+tmux kill-session -t "exchange_agents" 2>/dev/null || true
+
+echo "=== Stopping Exchange Core Services ==="
+sudo pkill -f "build/services/"
+tmux kill-session -t "exchange" 2>/dev/null || true
+
+echo "=== Cleaning up shared memory files ==="
+sudo rm -f /dev/shm/ORDER_REQUEST \
+        /dev/shm/ORDER_RESPONSE \
+        /dev/shm/L2_UPDATE_RING \
+        /dev/shm/L3_UPDATE_RING \
+        /dev/shm/EXCHANGE_TELEMETRY \
+        /dev/shm/*TELEMETRY 2>/dev/null || true
+
+echo "=== All processes stopped ==="

@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include "L2Updater.hpp"
 #include "L3Updater.hpp"
-#include "fbs/order_generated.h"
+#include "fbs/exchange_generated.h"
 #include "ExecutionReporter.hpp"
 #include "Order.hpp"
 

@@ -1,0 +1,108 @@
+#!/bin/bash
+
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+BUILD_AGENT_DIR="$PROJECT_ROOT/build/client-agents"
+LOG_DIR="$PROJECT_ROOT/log"
+SESSION="exchange_agents"
+
+mkdir -p "$LOG_DIR"
+
+# First stop everything to ensure clean state
+"$PROJECT_ROOT/kill-all"
+
+echo ""
+echo "=== Starting Exchange Core Services ==="
+"$PROJECT_ROOT/run-services"
+
+echo "Waiting 1 second for services to initialize..."
+sleep 1
+
+# Grant read/write permissions on the created shared memory segments to allow client agents to connect
+sudo chmod 666 /dev/shm/ORDER_REQUEST* \
+               /dev/shm/ORDER_RESPONSE \
+               /dev/shm/L2_UPDATE_RING \
+               /dev/shm/L3_UPDATE_RING \
+               /dev/shm/EXCHANGE_TELEMETRY \
+               /dev/shm/*TELEMETRY 2>/dev/null || true
+
+echo ""
+echo "=== Starting Exchange Client Agents (MM and Noise) ==="
+
+# Check CPU count and set the appropriate Tier
+NUM_CORES=$(nproc)
+if [ "$NUM_CORES" -lt 8 ]; then
+    TIER=1
+elif [ "$NUM_CORES" -lt 24 ]; then
+    TIER=2
+else
+    TIER=3
+fi
+
+# Find and filter executable agents dynamically
+ALL_AGENTS=($(find "$BUILD_AGENT_DIR" -maxdepth 1 -type f -executable | sort))
+AGENTS=()
+for agent in "${ALL_AGENTS[@]}"; do
+    name=$(basename "$agent")
+    if [[ "$name" == *mm* || "$name" == *noise* ]]; then
+        AGENTS+=("$agent")
+    fi
+done
+
+if [ ${#AGENTS[@]} -eq 0 ]; then
+    echo "Error: No MM or Noise executable agents found in $BUILD_AGENT_DIR."
+    exit 1
+fi
+
+get_run_cmd() {
+    local exe_path="$1"
+    local agent_name="$2"
+    if [ "$TIER" -eq 3 ]; then
+        local core_id=""
+        case "$agent_name" in
+            "mm-advanced")    core_id="8" ;;
+            "mm-native")      core_id="9" ;;
+            "stra-insider")   core_id="10" ;;
+            "stra-noise")     core_id="11" ;;
+            "stress-trader")  core_id="12" ;;
+        esac
+        if [ -n "$core_id" ]; then
+            echo "taskset -c $core_id $exe_path"
+        else
+            echo "$exe_path"
+        fi
+    else
+        echo "$exe_path"
+    fi
+}
+
+# Start a new detached session with the first agent
+first_exe="${AGENTS[0]}"
+first_name=$(basename "$first_exe")
+log="$LOG_DIR/${first_name}.log"
+first_run_cmd=$(get_run_cmd "$first_exe" "$first_name")
+
+tmux new-session -d -s "$SESSION" -n "$first_name" "bash -c 'while true; do echo \"--- Starting $first_name ---\"; $first_run_cmd 2>&1 | tee -a $log; echo \"--- $first_name stopped/crashed, restarting in 2s ---\"; sleep 2; done'"
+
+# Configure status bar for help
+tmux set-option -t "$SESSION" status-bg black
+tmux set-option -t "$SESSION" status-fg white
+
+# Bind Ctrl+B + Arrows to switch windows easily
+tmux bind-key -r Left select-window -t :-
+tmux bind-key -r Right select-window -t :+
+
+# Create windows for the remaining agents
+for ((i=1; i<${#AGENTS[@]}; i++)); do
+    exe="${AGENTS[$i]}"
+    name=$(basename "$exe")
+    log="$LOG_DIR/${name}.log"
+    run_cmd=$(get_run_cmd "$exe" "$name")
+    
+    # Run the agent in a loop for auto-restart
+    tmux new-window -t "$SESSION" -n "$name" "bash -c 'while true; do echo \"--- Starting $name ---\"; $run_cmd 2>&1 | tee -a $log; echo \"--- $name stopped/crashed, restarting in 2s ---\"; sleep 2; done'"
+done
+
+# Select the first window by default
+tmux select-window -t "$SESSION":0
+
+echo "Agents successfully started. To view them, run: tmux attach -t $SESSION"

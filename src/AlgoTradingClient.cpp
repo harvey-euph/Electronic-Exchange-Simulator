@@ -1,0 +1,208 @@
+#include "AlgoTradingClient.hpp"
+#include <boost/beast/core.hpp>
+#include <boost/beast/http.hpp>
+#include <boost/asio/connect.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <iostream>
+#include <chrono>
+#include <thread>
+
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace net = boost::asio;
+using tcp = boost::asio::ip::tcp;
+
+namespace Exchange {
+
+AlgoTradingClient::AlgoTradingClient(const Config& config) : config_(config) {
+    mgmt_client_ = SimpleWSClient::create(config_.host, config_.mgmt_port);
+    l2_client_ = SimpleWSClient::create(config_.host, config_.l2_port);
+    l3_client_ = SimpleWSClient::create(config_.host, config_.l3_port);
+}
+
+AlgoTradingClient::~AlgoTradingClient() {
+    stop();
+}
+
+void AlgoTradingClient::new_limit_order(uint32_t symbol_id, Side side, int64_t p, uint64_t q, uint64_t visible_qty) {
+    new_order(symbol_id, side, OrderType_Limit, p, q, visible_qty);
+}
+
+void AlgoTradingClient::new_market_order(uint32_t symbol_id, Side side, uint64_t q) {
+    new_order(symbol_id, side, OrderType_Market, 0, q, q);
+}
+
+void AlgoTradingClient::new_order(uint32_t symbol_id, Side side, OrderType type, int64_t p, uint64_t q, uint64_t visible_qty) {
+    OrderRequestT req;
+    req.action = OrderAction_New;
+    req.symbol_id = symbol_id;
+    req.side = side;
+    req.type = type;
+    req.p = p;
+    req.q = q;
+    req.visible_qty = (visible_qty == 0) ? q : visible_qty;
+    send_order_request(req);
+}
+
+void AlgoTradingClient::replace_order(uint64_t order_id, int64_t p, uint64_t q, uint32_t symbol_id, Side side) {
+    OrderRequestT req;
+    req.action = OrderAction_Modify;
+    req.order_id = order_id;
+    req.symbol_id = symbol_id;
+    req.side = side;
+    req.p = p;
+    req.q = q;
+    send_order_request(req);
+}
+
+void AlgoTradingClient::cancel_order(uint64_t order_id, uint32_t symbol_id, Side side) {
+    OrderRequestT req;
+    req.action = OrderAction_Cancel;
+    req.order_id = order_id;
+    req.symbol_id = symbol_id;
+    req.side = side;
+    send_order_request(req);
+}
+
+void AlgoTradingClient::send_order_request(OrderRequestT& order) {
+    order.client_id = config_.client_id;
+    if (order.action == OrderAction_New) {
+        order.order_id = next_id_++;
+        order.exec_id = order.order_id;
+    } else {
+        order.exec_id = next_id_++;
+    }
+
+    order.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+
+    if (config_.use_http) {
+        try {
+            net::io_context ioc;
+            tcp::resolver resolver(ioc);
+            beast::tcp_stream stream(ioc);
+
+            auto const results = resolver.resolve(config_.host, config_.http_port);
+            stream.connect(results);
+
+            flatbuffers::FlatBufferBuilder fbb(256);
+            auto order_offset = OrderRequest::Pack(fbb, &order);
+            fbb.Finish(order_offset);
+
+            http::request<http::vector_body<char>> req{http::verb::post, "/order", 11};
+            req.set(http::field::host, config_.host);
+            req.set(http::field::content_type, "application/octet-stream");
+            
+            auto const* data = reinterpret_cast<const char*>(fbb.GetBufferPointer());
+            req.body().assign(data, data + fbb.GetSize());
+            req.prepare_payload();
+
+            http::write(stream, req);
+
+            beast::flat_buffer buffer;
+            http::response<http::string_body> res;
+            http::read(stream, buffer, res);
+
+            beast::error_code ec;
+            stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+        } catch (std::exception const& e) {
+            std::cerr << "[AlgoTradingClient] HTTP Request error: " << e.what() << std::endl;
+        }
+    } else {
+        flatbuffers::FlatBufferBuilder fbb(256);
+        auto order_offset = OrderRequest::Pack(fbb, &order);
+        auto client_req = CreateClientRequest(fbb, ClientRequestData_OrderRequest, order_offset.Union());
+        fbb.Finish(client_req);
+        mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
+    }
+}
+
+void AlgoTradingClient::query_position(uint32_t symbol_id) {
+    flatbuffers::FlatBufferBuilder fbb(128);
+    auto pos_req = CreatePositionRequest(fbb, config_.client_id, symbol_id);
+    auto client_req = CreateClientRequest(fbb, ClientRequestData_PositionRequest, pos_req.Union());
+    fbb.Finish(client_req);
+    mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
+}
+
+void AlgoTradingClient::on_order_response(const OrderResponse* response) {
+    account_.handle_order_response(response);
+}
+
+void AlgoTradingClient::on_position_response(const PositionResponse* response) {
+    account_.handle_position_response(response);
+}
+
+void AlgoTradingClient::wait_until_ready() {
+    std::unique_lock<std::mutex> lock(ready_mtx_);
+    ready_cv_.wait(lock, [this] { return ready_.load(); });
+}
+
+int AlgoTradingClient::run() {
+    if (!mgmt_client_->connect()) {
+        std::cerr << "Failed to connect to Management port " << config_.mgmt_port << std::endl;
+        return 1;
+    }
+    if (!l2_client_->connect()) {
+        std::cerr << "Failed to connect to L2 port " << config_.l2_port << std::endl;
+        return 1;
+    }
+    if (!l3_client_->connect()) {
+        std::cerr << "Failed to connect to L3 port " << config_.l3_port << std::endl;
+        return 1;
+    }
+
+    mgmt_client_->run_async([this](const void* data, size_t size) {
+        (void)size;
+        auto resp = flatbuffers::GetRoot<ClientResponse>(data);
+        if (resp->data_type() == ClientResponseData_OrderResponse) {
+            auto order_resp = resp->data_as_OrderResponse();
+            if (order_resp->exec_type() == ExecType_Complete) {
+                {
+                    std::lock_guard<std::mutex> lock(ready_mtx_);
+                    ready_ = true;
+                }
+                ready_cv_.notify_all();
+                return;
+            }
+            on_order_response(order_resp);
+        } else if (resp->data_type() == ClientResponseData_PositionResponse) {
+            on_position_response(resp->data_as_PositionResponse());
+        }
+    });
+
+    l2_client_->run_async([this](const void* data, size_t size) {
+        (void)size;
+        auto update = flatbuffers::GetRoot<L2Update>(data);
+        on_l2_update(update);
+    });
+
+    l3_client_->run_async([this](const void* data, size_t size) {
+        (void)size;
+        auto update = flatbuffers::GetRoot<L3Update>(data);
+        on_l3_update(update);
+    });
+
+    // Subscriptions
+    mgmt_client_->send_text("sub " + std::to_string(config_.client_id));
+    for (auto sym : config_.symbol_ids) {
+        l2_client_->send_text("sub " + std::to_string(sym));
+        l3_client_->send_text("sub " + std::to_string(sym));
+    }
+
+    while (running_) {
+        on_timer();
+        std::this_thread::sleep_for(std::chrono::milliseconds(config_.timer_interval_ms));
+    }
+    return 0;
+}
+
+void AlgoTradingClient::stop() {
+    running_ = false;
+    if (mgmt_client_) mgmt_client_->stop();
+    if (l2_client_) l2_client_->stop();
+    if (l3_client_) l3_client_->stop();
+}
+
+} // namespace Exchange

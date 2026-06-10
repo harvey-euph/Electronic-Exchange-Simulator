@@ -6,7 +6,7 @@
 #include <vector>
 #include <string>
 #include <memory>
-#include "fbs/order_generated.h"
+#include "fbs/exchange_generated.h"
 #include "OrderBook.hpp"
 
 namespace Exchange {

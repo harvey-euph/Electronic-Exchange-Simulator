@@ -1,0 +1,23 @@
+## TODO
+    
+- [x] **SymbolTable**
+    - i64 price -> struct Price { i64 man; i8 exp; }; (price = man * 10^e)
+    - 要和 fbs 良好整合
+    - 先用 InMemoryClientDatabase，日後要用 PostgreSQL，先幫我設計 schema (包含原本的 open orders/positions/pending executions) 
+    - 存有 symbol_name(BTC), p_exp(-1), p_min_step(0.1), p_min(20000.0), p_max(12000.0), p_min_step * 10^{-p_exp} (1 實際上因為整數運算要用到這個), ...
+    - 要有 fbs response struct 並且 client manager 和 market data publisher 都要有能力發送 (on login/on request)
+    - price 在登入後訊息中只傳送 man ，要確保交流正確使用 **Price**
+
+- [x] Apply understanding of SymbolTable protocol to client program (exchange-cpp-client, web), 
+    - make double price interface but sending as man for cpp client
+    - make the up and down step aligned with p_min_step
+
+- [x] Explicit Snapshot Request to L2/L3 Publisher (Not Logon auto sub)
+
+- [x] **Symbol-wise ring buffer**
+
+- [x] **分離責任** requires **Symbol-wise ring buffer**
+    - 讓 client manager 處理所有 multi-client parallelizable 任務
+    - 讓 matching engine 處理所有 multi-symbol parallelizable 任務
+    - 現狀可能是有點混在一起
+

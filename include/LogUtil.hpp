@@ -1,6 +1,6 @@
 #pragma once
 #include <iostream>
-#include "fbs/order_generated.h"
+#include "fbs/exchange_generated.h"
 #include "Order.hpp"
 
 namespace Exchange {
@@ -57,6 +57,40 @@ inline void logPositionResponse(const PositionResponse* resp, const char* prefix
               << "client=" << resp->client_id()
               << ", symbol=" << resp->symbol_id()
               << ", position=" << resp->position()
+              << std::endl;
+}
+
+inline void logL2Update(const L2Update* update, const char* prefix = "[L2Update]") {
+    if (!update) return;
+    if (update->side() == Side_None) {
+        std::cout << prefix << " Snapshot Start | Symbol: " << update->symbol_id() << std::endl;
+        return;
+    }
+    std::cout << prefix << " "
+              << "symbol=" << update->symbol_id()
+              << ", side=" << EnumNameSide(update->side())
+              << ", price=" << update->p()
+              << ", qty=" << update->q()
+              << ", seq=" << update->seq_num()
+              << ", ts=" << update->timestamp()
+              << std::endl;
+}
+
+inline void logL3Update(const L3Update* update, const char* prefix = "[L3Update]") {
+    if (!update) return;
+    if (update->side() == Side_None) {
+        std::cout << prefix << " Snapshot Start | Symbol: " << update->symbol_id() << std::endl;
+        return;
+    }
+    std::cout << prefix << " "
+              << "symbol=" << update->symbol_id()
+              << ", type=" << EnumNameExecType(update->exec_type())
+              << ", order_id=" << update->order_id()
+              << ", side=" << EnumNameSide(update->side())
+              << ", price=" << update->p()
+              << ", qty=" << update->q()
+              << ", seq=" << update->seq_num()
+              << ", ts=" << update->timestamp()
               << std::endl;
 }
 

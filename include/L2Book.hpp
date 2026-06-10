@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <vector>
 #include <string>
-#include "fbs/order_generated.h"
+#include "fbs/exchange_generated.h"
 
 namespace Exchange {
 

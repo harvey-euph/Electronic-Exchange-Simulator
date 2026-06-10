@@ -11,8 +11,15 @@ data/*
 .run_service.pid
 
 # eBPF Generated Files
-observabilities/ebpf/vmlinux.h
-observabilities/ebpf/ws_monitor.skel.h
-observabilities/ebpf/ws_monitor.bpf.o
-observabilities/ebpf/ws_monitor
-observabilities/ebpf/lat-tracer
+vmlinux.h
+*.skel.h
+app/perf/ebpf/ws_monitor
+app/perf/ebpf/lat-tracer
+app/perf/ebpf-exp/lat-tracer
+
+# Web Frontend Rules
+web/node_modules
+web/dist
+web/dist-ssr
+web/*.local
+web/src/fbs

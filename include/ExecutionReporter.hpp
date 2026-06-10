@@ -5,7 +5,7 @@
 #include <string>
 #include <flatbuffers/flatbuffers.h>
 #include "ring/SHMRingBuffer.hpp"
-#include "fbs/order_generated.h"
+#include "fbs/exchange_generated.h"
 #include "define.hpp"
 
 namespace Exchange {
