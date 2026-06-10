@@ -30,3 +30,54 @@ export interface ConnectedState {
   mgmtReady: boolean;
   l2: boolean;
 }
+
+export interface SymbolInfoData {
+  symbolId: number;
+  name: string;
+  priceExp: number;
+  priceMinStep: bigint;
+  priceMin: bigint;
+  priceMax: bigint;
+}
+
+export function formatPrice(price: bigint, priceExp: number | undefined): string {
+  if (priceExp === undefined) return price.toString();
+  if (priceExp >= 0) {
+    return (price * BigInt(10 ** priceExp)).toString();
+  }
+  const expLength = -priceExp;
+  const factor = BigInt(10 ** expLength);
+  const isNegative = price < 0n;
+  const absPrice = isNegative ? -price : price;
+  
+  const integerPart = absPrice / factor;
+  const fractionalPart = absPrice % factor;
+  const fracStr = fractionalPart.toString().padStart(expLength, '0');
+  
+  return `${isNegative ? '-' : ''}${integerPart}.${fracStr}`;
+}
+
+export function parsePrice(priceStr: string, priceExp: number | undefined): bigint {
+  if (priceExp === undefined || priceExp >= 0) {
+    const clean = priceStr.replace(/[^0-9]/g, '');
+    return BigInt(clean || '0');
+  }
+  
+  const parts = priceStr.split('.');
+  const integerPart = BigInt(parts[0].replace(/[^0-9]/g, '') || '0');
+  let fractionStr = parts[1] || '';
+  const expLength = -priceExp;
+  if (fractionStr.length > expLength) {
+    fractionStr = fractionStr.substring(0, expLength);
+  } else {
+    fractionStr = fractionStr.padEnd(expLength, '0');
+  }
+  const fractionalPart = BigInt(fractionStr.replace(/[^0-9]/g, '') || '0');
+  
+  return integerPart * BigInt(10 ** expLength) + fractionalPart;
+}
+
+export function getPriceExpForSymbol(symbolId: number): number {
+  if (symbolId === 3) return -3;
+  return -2; // BTC and ETH are -2, SOL is -3
+}

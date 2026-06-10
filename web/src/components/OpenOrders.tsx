@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Side } from '../fbs/exchange/side';
 import type { OrderData } from '../types';
 import { NumericInput } from './NumericInput';
+import { formatPrice, getPriceExpForSymbol } from '../types';
 
 interface OpenOrdersProps {
   orders: OrderData[];
@@ -40,7 +41,8 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
       const next = { ...prev };
       orders.forEach(o => {
         const orderId = o.orderId;
-        const pStr = o.p.toString();
+        const exp = getPriceExpForSymbol(o.symbolId);
+        const pStr = formatPrice(o.p, exp);
         const qStr = o.q.toString();
         const last = lastOrdersRef.current.get(orderId);
 
@@ -84,9 +86,10 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
   };
 
   const handleRevert = (orderId: string, order: OrderData) => {
+    const exp = getPriceExpForSymbol(order.symbolId);
     setEditValues(prev => ({
       ...prev,
-      [orderId]: { p: order.p.toString(), q: order.q.toString() }
+      [orderId]: { p: formatPrice(order.p, exp), q: order.q.toString() }
     }));
   };
 
@@ -121,8 +124,10 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
                     </td>
                   </tr>
                   {expandedSymbols.has(sid) && ordersBySymbol[sid].map((o, index) => {
-                    const vals = editValues[o.orderId] || { p: o.p.toString(), q: o.q.toString() };
-                    const isModified = vals.p !== o.p.toString() || vals.q !== o.q.toString();
+                    const exp = getPriceExpForSymbol(o.symbolId);
+                    const formattedPriceVal = formatPrice(o.p, exp);
+                    const vals = editValues[o.orderId] || { p: formattedPriceVal, q: o.q.toString() };
+                    const isModified = vals.p !== formattedPriceVal || vals.q !== o.q.toString();
                     const displayId = `${o.orderId}`;
                     
                     return (
@@ -149,6 +154,7 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
                             onChange={(v) => handleUpdate(o.orderId, 'p', v)}
                             onKeyDown={(e) => handleKeyDown(e, o)}
                             onBlur={() => handleRevert(o.orderId, o)}
+                            allowDecimal
                             style={{ 
                               width: '70%', 
                               height: '22px', 

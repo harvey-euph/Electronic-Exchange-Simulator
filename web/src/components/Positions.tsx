@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import type { SymbolPosition } from '../types';
 import { Side } from '../fbs/exchange/side';
+import { formatPrice, getPriceExpForSymbol } from '../types';
 
 interface PositionsProps {
   positions: [number, SymbolPosition][];
@@ -38,6 +39,7 @@ export const Positions: React.FC<PositionsProps> = ({
           </thead>
           <tbody>
             {activePositions.map(([sId, pos]) => {
+              const exp = getPriceExpForSymbol(sId);
               const markPrice = prices.get(sId) || pos.averagePrice || 0n;
               const unrealizedPnL = pos.side === Side.Buy 
                 ? (markPrice - pos.averagePrice) * pos.totalQuantity
@@ -58,10 +60,10 @@ export const Positions: React.FC<PositionsProps> = ({
                   grouped.timestamp = Math.max(grouped.timestamp, lot.timestamp);
                 } else {
                   const grouped = { 
-                    orderId: lot.orderId, 
-                    quantity: lot.quantity, 
-                    totalPrice: lot.price * lot.quantity, 
-                    timestamp: lot.timestamp 
+                     orderId: lot.orderId, 
+                     quantity: lot.quantity, 
+                     totalPrice: lot.price * lot.quantity, 
+                     timestamp: lot.timestamp 
                   };
                   orderIdMap.set(lot.orderId, grouped);
                   groupedLots.push(grouped);
@@ -101,10 +103,10 @@ export const Positions: React.FC<PositionsProps> = ({
                       )}
                     </td>
                     <td style={{ textAlign: 'right', fontSize: '10px', verticalAlign: 'middle', color: 'var(--text-primary)' }}>
-                      {pos.averagePrice.toString()}
+                      {formatPrice(pos.averagePrice, exp)}
                     </td>
                     <td style={{ textAlign: 'right', fontSize: '10px', verticalAlign: 'middle', color: 'var(--text-secondary)' }}>
-                      {markPrice.toString()}
+                      {formatPrice(markPrice, exp)}
                     </td>
                     <td style={{ 
                       textAlign: 'right', 
@@ -112,7 +114,7 @@ export const Positions: React.FC<PositionsProps> = ({
                       verticalAlign: 'middle', 
                       color: unrealizedPnL >= 0n ? 'var(--accent-green)' : 'var(--accent-red)' 
                     }}>
-                      {unrealizedPnL >= 0n ? '+' : ''}{unrealizedPnL.toString()}
+                      {unrealizedPnL >= 0n ? '+' : ''}{formatPrice(unrealizedPnL, exp)}
                     </td>
                     <td style={{ 
                       textAlign: 'right', 
@@ -121,7 +123,7 @@ export const Positions: React.FC<PositionsProps> = ({
                       color: pos.realizedPnL >= 0n ? 'var(--text-secondary)' : 'var(--accent-red)',
                       opacity: 0.8 
                     }}>
-                      {pos.realizedPnL >= 0n ? '+' : ''}{pos.realizedPnL.toString()}
+                      {pos.realizedPnL >= 0n ? '+' : ''}{formatPrice(pos.realizedPnL, exp)}
                     </td>
                   </tr>
                   {isExpanded && groupedLots.map((gl, idx) => {
@@ -146,7 +148,7 @@ export const Positions: React.FC<PositionsProps> = ({
                           )}
                         </td>
                         <td style={{ textAlign: 'right', fontSize: '10px', color: 'var(--text-secondary)', padding: '4px 8px' }}>
-                          {avgPrice.toString()}
+                          {formatPrice(avgPrice, exp)}
                         </td>
                         <td style={{ padding: '4px 8px' }}></td>
                         <td colSpan={2} style={{ textAlign: 'right', fontSize: '10px', color: 'var(--text-secondary)', padding: '4px 8px' }}>

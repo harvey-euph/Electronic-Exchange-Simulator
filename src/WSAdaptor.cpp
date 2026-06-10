@@ -109,7 +109,22 @@ public:
                 std::string msg = beast::buffers_to_string(buffer_.data());
                 buffer_.consume(buffer_.size());
                 
-                {
+                bool is_fbs_sub = false;
+                if (msg.size() >= 8) {
+                    flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
+                    if (Exchange::VerifyMarketDataRequestBuffer(verifier)) {
+                        auto req = Exchange::GetMarketDataRequest(msg.data());
+                        uint32_t sym = req->symbol_id();
+                        {
+                            std::lock_guard<std::mutex> lock(sub_mutex_);
+                            subscriptions_.insert(sym);
+                            if (sub_handler_) sub_handler_(shared_from_this(), sym, true);
+                        }
+                        is_fbs_sub = true;
+                    }
+                }
+                
+                if (!is_fbs_sub) {
                     std::lock_guard<std::mutex> lock(sub_mutex_);
                     if (msg.find("sub ") == 0) {
                         try {

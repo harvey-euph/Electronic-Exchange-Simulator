@@ -14,7 +14,10 @@ import { ClientRequest } from '../fbs/exchange/client-request';
 import { ClientRequestData as ClientReqData } from '../fbs/exchange/client-request-data';
 import { PositionRequest } from '../fbs/exchange/position-request';
 import { RejectCode } from '../fbs/exchange/reject-code';
-import type { OrderData, ConnectedState, SymbolPosition } from '../types';
+import type { OrderData, ConnectedState, SymbolPosition, SymbolInfoData } from '../types';
+import { formatPrice, parsePrice } from '../types';
+import { MarketDataRequest } from '../fbs/exchange/market-data-request';
+import { SymbolInfo } from '../fbs/exchange/symbol-info';
 
 /**
  * Simple DJB2-like hash for mapping alphanumeric strings to uint32
@@ -46,6 +49,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
   const [cash, setCash] = useState<bigint>(0n);
   const [subscribedSymbols, setSubscribedSymbols] = useState<Set<number>>(new Set());
   const [mgmtLogs, setMgmtLogs] = useState<string[]>([]);
+  const [symbolInfo, setSymbolInfo] = useState<SymbolInfoData | null>(null);
 
   const inflightOrdersRef = useRef<Map<string, { side: Side, symbolId: number }>>(new Map());
   const orderMetadataRef = useRef<Map<string, { side: Side, symbolId: number }>>(new Map());
@@ -65,20 +69,6 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
   const bidsRef = useRef<Map<bigint, bigint>>(new Map());
   const asksRef = useRef<Map<bigint, bigint>>(new Map());
 
-  useEffect(() => {
-    setBids(new Map());
-    setAsks(new Map());
-    bidsRef.current.clear();
-    asksRef.current.clear();
-  }, [activeSymbolId]);
-
-  const subscribeL2 = useCallback((sId: number) => {
-    if (l2WsRef.current?.readyState === WebSocket.OPEN) {
-      l2WsRef.current.send(`sub ${sId}`);
-      setSubscribedSymbols(prev => new Set(prev).add(sId));
-    }
-  }, []);
-
   const addMgmtLog = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
     const logEntry = `[${timestamp}] ${msg}`;
@@ -88,6 +78,74 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
 
   const addL2Log = useCallback((msg: string) => {
     console.log(`[L2] ${new Date().toLocaleTimeString()} - ${msg}`);
+  }, []);
+
+  useEffect(() => {
+    setBids(new Map());
+    setAsks(new Map());
+    bidsRef.current.clear();
+    asksRef.current.clear();
+    
+    if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
+    
+    let active = true;
+    const fetchSymbol = async () => {
+      try {
+        const res = await fetch(`/v1/symbol/${activeSymbolId}`);
+        if (!res.ok) {
+          throw new Error(`HTTP error: ${res.status}`);
+        }
+        const arrayBuffer = await res.arrayBuffer();
+        if (!active) return;
+        
+        const buf = new Uint8Array(arrayBuffer);
+        const bb = new flatbuffers.ByteBuffer(buf);
+        const info = SymbolInfo.getRootAsSymbolInfo(bb);
+        
+        const infoData: SymbolInfoData = {
+          symbolId: info.symbolId(),
+          name: info.name() || '',
+          priceExp: info.priceExp(),
+          priceMinStep: info.priceMinStep(),
+          priceMin: info.priceMin(),
+          priceMax: info.priceMax()
+        };
+        
+        setSymbolInfo(infoData);
+        addMgmtLog(`Fetched SymbolInfo for ${infoData.name} (id=${infoData.symbolId}): exp=${infoData.priceExp}, step=${infoData.priceMinStep}, min=${infoData.priceMin}, max=${infoData.priceMax}`);
+        
+        // Subscribe to L2 after fetching SymbolInfo
+        if (l2WsRef.current?.readyState === WebSocket.OPEN) {
+          const builder = new flatbuffers.Builder(128);
+          MarketDataRequest.startMarketDataRequest(builder);
+          MarketDataRequest.addSymbolId(builder, activeSymbolId);
+          const offset = MarketDataRequest.endMarketDataRequest(builder);
+          MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
+          l2WsRef.current.send(builder.asUint8Array() as any);
+          setSubscribedSymbols(prev => new Set(prev).add(activeSymbolId));
+        }
+      } catch (err) {
+        addMgmtLog(`Failed to fetch SymbolInfo for symbol ${activeSymbolId}: ${err}`);
+      }
+    };
+    
+    fetchSymbol();
+    
+    return () => {
+      active = false;
+    };
+  }, [activeSymbolId, connected.l2, addMgmtLog]);
+
+  const subscribeL2 = useCallback((sId: number) => {
+    if (l2WsRef.current?.readyState === WebSocket.OPEN) {
+      const builder = new flatbuffers.Builder(128);
+      MarketDataRequest.startMarketDataRequest(builder);
+      MarketDataRequest.addSymbolId(builder, sId);
+      const offset = MarketDataRequest.endMarketDataRequest(builder);
+      MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
+      l2WsRef.current.send(builder.asUint8Array() as any);
+      setSubscribedSymbols(prev => new Set(prev).add(sId));
+    }
   }, []);
 
   const handleOrderResponse = useCallback((resp: OrderResponse) => {
@@ -390,9 +448,21 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       setConnected(prev => ({ ...prev, l2: true }));
       addL2Log('Connected');
       // Resubscribe to previous symbols if any
-      subscribedSymbols.forEach(sId => ws.send(`sub ${sId}`));
+      subscribedSymbols.forEach(sId => {
+        const builder = new flatbuffers.Builder(128);
+        MarketDataRequest.startMarketDataRequest(builder);
+        MarketDataRequest.addSymbolId(builder, sId);
+        const offset = MarketDataRequest.endMarketDataRequest(builder);
+        MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
+        ws.send(builder.asUint8Array() as any);
+      });
       if (subscribedSymbols.size === 0) {
-        ws.send('sub 1');
+        const builder = new flatbuffers.Builder(128);
+        MarketDataRequest.startMarketDataRequest(builder);
+        MarketDataRequest.addSymbolId(builder, 1);
+        const offset = MarketDataRequest.endMarketDataRequest(builder);
+        MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
+        ws.send(builder.asUint8Array() as any);
         setSubscribedSymbols(new Set([1]));
       }
     };
@@ -529,7 +599,10 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.addSymbolId(builder, parseInt(symbolId));
     OrderRequest.addSide(builder, side);
     OrderRequest.addType(builder, type);
-    OrderRequest.addP(builder, BigInt(price));
+    
+    const pVal = parsePrice(price, symbolInfo?.priceExp);
+    OrderRequest.addP(builder, pVal);
+    
     OrderRequest.addQ(builder, qVal);
     OrderRequest.addVisibleQty(builder, qVal);
     OrderRequest.addTimestamp(builder, BigInt(Date.now()));
@@ -539,11 +612,11 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     ClientRequest.addData(builder, off);
     builder.finish(ClientRequest.endClientRequest(builder));
     try {
-      addMgmtLog(`Sending ${Side[side]} ${OrderType[type]} order: ClientID=${clientId}(${numericClientId}) P=${price} Q=${quantity} ID=${orderId} ExecID=${execId}`);
+      addMgmtLog(`Sending ${Side[side]} ${OrderType[type]} order: ClientID=${clientId}(${numericClientId}) P=${price} (raw=${pVal}) Q=${quantity} ID=${orderId} ExecID=${execId}`);
       sentRequestsRef.current.set(execId.toString(), performance.now());
       mgmtWsRef.current.send(builder.asUint8Array() as any);
     } catch (err) { addMgmtLog(`Order send error: ${err}`); }
-  }, [addMgmtLog]);
+  }, [addMgmtLog, symbolInfo]);
 
   const cancelOrder = useCallback((order: OrderData, clientId: string) => {
     if (!mgmtWsRef.current || mgmtWsRef.current.readyState !== WebSocket.OPEN) return;
@@ -580,7 +653,10 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.addClientId(builder, numericClientId);
     OrderRequest.addSymbolId(builder, order.symbolId);
     OrderRequest.addSide(builder, order.side);
-    OrderRequest.addP(builder, BigInt(newPrice));
+    
+    const pVal = parsePrice(newPrice, symbolInfo?.priceExp);
+    OrderRequest.addP(builder, pVal);
+    
     OrderRequest.addQ(builder, BigInt(newQty));
     OrderRequest.addTimestamp(builder, BigInt(Date.now()));
     const off = OrderRequest.endOrderRequest(builder);
@@ -588,10 +664,10 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     ClientRequest.addDataType(builder, ClientReqData.OrderRequest);
     ClientRequest.addData(builder, off);
     builder.finish(ClientRequest.endClientRequest(builder));
-    addMgmtLog(`Modifying Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} NewP=${newPrice} NewQ=${newQty} ExecID=${execId}`)
+    addMgmtLog(`Modifying Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} NewP=${newPrice} (raw=${pVal}) NewQ=${newQty} ExecID=${execId}`)
     sentRequestsRef.current.set(execId.toString(), performance.now());
     mgmtWsRef.current.send(builder.asUint8Array() as any)
-  }, [addMgmtLog]);
+  }, [addMgmtLog, symbolInfo]);
 
   const clearMgmtLogs = useCallback(() => {
     setMgmtLogs([]);
@@ -613,6 +689,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     cancelOrder,
     modifyOrder,
     mgmtLogs,
-    clearMgmtLogs
+    clearMgmtLogs,
+    symbolInfo
   };
 }

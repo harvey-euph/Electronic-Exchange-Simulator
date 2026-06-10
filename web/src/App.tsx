@@ -9,6 +9,7 @@ import { Positions } from './components/Positions';
 import { EmbeddedLog } from './components/EmbeddedLog';
 import { NotificationSystem } from './components/NotificationSystem';
 import type { NotificationSystemRef } from './components/NotificationSystem';
+import { formatPrice } from './types';
 import './App.css';
 
 function App() {
@@ -43,14 +44,18 @@ function App() {
     cancelOrder,
     modifyOrder,
     mgmtLogs,
-    clearMgmtLogs
+    clearMgmtLogs,
+    symbolInfo
   } = useExchange(parseInt(symbolId), handleNotification);
 
+  // Set default prices based on the selected symbol info
   useEffect(() => {
-    if (symbolId !== '0') {
-      subscribeL2(parseInt(symbolId));
+    if (symbolInfo) {
+      if (symbolInfo.symbolId === 1) setPrice('50000.00');
+      else if (symbolInfo.symbolId === 2) setPrice('3000.00');
+      else if (symbolInfo.symbolId === 3) setPrice('150.00');
     }
-  }, [symbolId, subscribeL2, connected.l2]);
+  }, [symbolInfo]);
 
   // Track initial successful connection to disable inputs
   useEffect(() => {
@@ -209,6 +214,7 @@ function App() {
           symbolId={symbolId} onSymbolChange={setSymbolId}
           bids={sortedBids} asks={sortedAsks} onPriceClick={handlePriceClick} 
           onReconnectL2={connectL2}
+          priceExp={symbolInfo?.priceExp}
         />
 
         <div className="right-panel">
@@ -235,7 +241,7 @@ function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>NAV:</span>
                       <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}>
-                        {totalValue.toString()}
+                        {formatPrice(totalValue, symbolInfo?.priceExp)}
                       </span>
                     </div>
                     <button 
@@ -283,6 +289,7 @@ function App() {
                 onSendOrder={handleSendOrder}
                 cash={cash}
                 disabled={!connected.mgmtReady}
+                priceExp={symbolInfo?.priceExp}
               />
               <EmbeddedLog logs={mgmtLogs} onClear={clearMgmtLogs} />
             </div>

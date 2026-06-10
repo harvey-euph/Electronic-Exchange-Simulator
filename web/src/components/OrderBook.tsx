@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Side } from '../fbs/exchange/side';
+import { formatPrice } from '../types';
 
 interface OrderBookProps {
   symbolId: string;
@@ -8,9 +9,10 @@ interface OrderBookProps {
   asks: { price: bigint; quantity: bigint }[];
   onPriceClick?: (price: string, side: Side, peggedLevel?: number | null) => void;
   onReconnectL2?: () => void;
+  priceExp?: number;
 }
 
-export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, bids, asks, onPriceClick, onReconnectL2 }) => {
+export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, bids, asks, onPriceClick, onReconnectL2, priceExp }) => {
   const [midColor, setMidColor] = useState('var(--text-primary)');
   const prevMidRef = useRef<bigint | null>(null);
 
@@ -117,7 +119,7 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
                           height: '18px'
                         }}
                         disabled={!level}
-                        onClick={() => level && onPriceClick?.(level.price.toString(), Side.Sell, levelNum)}
+                        onClick={() => level && onPriceClick?.(formatPrice(level.price, priceExp), Side.Sell, levelNum)}
                       >
                         ASK {levelNum}
                       </button>
@@ -128,9 +130,9 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
                         color: level ? 'var(--text-primary)' : 'var(--border-color)',
                         cursor: level ? 'pointer' : 'default'
                       }}
-                      onClick={() => level && onPriceClick?.(level.price.toString(), Side.Sell, null)}
+                      onClick={() => level && onPriceClick?.(formatPrice(level.price, priceExp), Side.Sell, null)}
                     >
-                      {level ? level.price.toString() : '-'}
+                      {level ? formatPrice(level.price, priceExp) : '-'}
                     </td>
                     <td style={{ textAlign: 'right', color: level ? 'var(--text-secondary)' : 'var(--border-color)' }}>
                       {level ? level.quantity.toString() : '-'}
@@ -148,7 +150,7 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
                   fontWeight: 700,
                   transition: 'color 0.2s ease'
                 }}>
-                  {currentMid !== null ? currentMid.toString() : '-'}
+                  {currentMid !== null ? formatPrice(currentMid, priceExp) : '-'}
                 </td>
               </tr>
 
@@ -170,7 +172,7 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
                           height: '18px'
                         }}
                         disabled={!level}
-                        onClick={() => level && onPriceClick?.(level.price.toString(), Side.Buy, levelNum)}
+                        onClick={() => level && onPriceClick?.(formatPrice(level.price, priceExp), Side.Buy, levelNum)}
                       >
                         BID {levelNum}
                       </button>
@@ -181,9 +183,9 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
                         color: level ? 'var(--text-primary)' : 'var(--border-color)',
                         cursor: level ? 'pointer' : 'default'
                       }}
-                      onClick={() => level && onPriceClick?.(level.price.toString(), Side.Buy, null)}
+                      onClick={() => level && onPriceClick?.(formatPrice(level.price, priceExp), Side.Buy, null)}
                     >
-                      {level ? level.price.toString() : '-'}
+                      {level ? formatPrice(level.price, priceExp) : '-'}
                     </td>
                     <td style={{ textAlign: 'right', color: level ? 'var(--text-secondary)' : 'var(--border-color)' }}>
                       {level ? level.quantity.toString() : '-'}

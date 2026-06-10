@@ -1,6 +1,6 @@
 ## TODO
 
-- [ ] 新的 Service 叫做 public-data，接受 http 連線，設計 API，我的第一個要提供的是關於 symbol 資訊: 
+- [x] 新的 Service 叫做 public-data，接受 http 連線，設計 API，我的第一個要提供的是關於 symbol 資訊: 
     - 新增一個 fbs 結構 SymbolInfo (舉例) 包含 name(BTC), price_exp(-2), price_min_step(0.25), price_min(30000.00), price_max(120000.00)
     - GET /v1/symbol/$symbol_id -> SymbolInfo in fbs data as payload
     - 暫時用 C++ InMemaryDatabase 存兩三個 symbol 資訊，之後會移到 pgsql (詳見 docs/PostgreSQL_Schema.md) 
@@ -8,7 +8,7 @@
     - web 最先做的事是要拿到想要看的 SymbolInfo, 再 subscribe
     - 並且客戶端要知道，所有交流的價格 p (Market data/order entry) 都滿足這個關係: p_real = p * 10 ^ price_exp，我們會用整數 p 來交流避免 p_read 的浮點造成問題，並且 price_exp 要從 public-data 拿到
     
-- [ ] 訂閱
+- [x] 訂閱
   - 新增 fbs 結構 MarketDataRequest，不用分 L2 L3，送給 L2 server 的就是要 L2, 送給 L3 server 的就是要 L3
   - service side: 當 L2 L3 來連線，預設不送東西，要明確接到 MarketDataRequest 才放入送的對象列表
   - web 和 client 端都要做修改，暫時都用 symbol_id=1

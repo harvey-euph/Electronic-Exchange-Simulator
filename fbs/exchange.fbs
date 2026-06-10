@@ -104,6 +104,19 @@ table L3Batch {
     updates: [L3Update];
 }
 
+table SymbolInfo {
+    symbol_id: uint;
+    name: string;
+    price_exp: int;
+    price_min_step: long;
+    price_min: long;
+    price_max: long;
+}
+
+table MarketDataRequest {
+    symbol_id: uint;
+}
+
 root_type OrderRequest;
 root_type OrderResponse;
 root_type ClientRequest;
@@ -114,3 +127,6 @@ root_type L2Batch;
 
 root_type L3Update;
 root_type L3Batch;
+
+root_type SymbolInfo;
+root_type MarketDataRequest;

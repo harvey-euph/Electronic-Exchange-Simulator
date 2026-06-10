@@ -1,6 +1,7 @@
 import React from 'react';
 import { Side } from '../fbs/exchange/side';
 import { NumericInput } from './NumericInput';
+import { formatPrice } from '../types';
 
 interface OrderEntryProps {
   // Login props
@@ -22,13 +23,14 @@ interface OrderEntryProps {
   
   cash?: bigint;
   disabled?: boolean;
+  priceExp?: number;
 }
 
 export const OrderEntry: React.FC<OrderEntryProps> = ({
   isLoggedIn, clientId, setClientId, onLogin,
   price, quantity, side, peggedLevel, 
   setPrice, setQuantity, setSide, setPeggedLevel,
-  onSendOrder, cash, disabled
+  onSendOrder, cash, disabled, priceExp
 }) => {
 
   const handlePriceChange = (v: string) => {
@@ -93,7 +95,7 @@ export const OrderEntry: React.FC<OrderEntryProps> = ({
         {cash !== undefined && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cash:</span>
-            <span style={{ fontSize: '12px', color: 'var(--accent-blue)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{cash.toString()}</span>
+            <span style={{ fontSize: '12px', color: 'var(--accent-blue)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{formatPrice(cash, priceExp)}</span>
           </div>
         )}
       </div>
@@ -139,6 +141,7 @@ export const OrderEntry: React.FC<OrderEntryProps> = ({
               fontFamily: 'var(--font-mono)'
             }} 
             disabled={disabled}
+            allowDecimal
           />
         </div>
 
