@@ -23,7 +23,7 @@ int main()
 
     int main_core = L2_MAIN_CORE;
     if (main_core >= 0) {
-        Exchange::set_thread_affinity(main_core, "L2Publisher_Main");
+        Exchange::set_thread_affinity(main_core, "L2Publisher");
     }
 
     std::cout << "[L2Publisher] Connected successfully. Start consuming..." << std::endl;

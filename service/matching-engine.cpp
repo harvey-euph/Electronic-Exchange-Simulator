@@ -15,9 +15,6 @@ int main()
         Exchange::set_thread_affinity(main_core, "MatchingEngineS");
     }
 
-    // Use a small trick to clear screen initially
-    std::cout << "\033[2J\033[H" << std::flush;
-
     std::cout << "[OrderCore] Starting matching engine..." << std::endl;
 
     Exchange::ClientExecutionReporter reporter(ORDER_RESPONSE);

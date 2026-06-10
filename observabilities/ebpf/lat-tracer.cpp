@@ -368,6 +368,20 @@ int main(int argc, char *argv[]) {
 
     uint16_t selected_port = 9001;
 
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-h" || arg == "--help") {
+            print_usage(argv[0]);
+            return 0;
+        } else if (arg == "-p" && i + 1 < argc) {
+            selected_port = std::stoi(argv[++i]);
+        } else {
+            std::cerr << "Unknown argument: " << arg << "\n";
+            print_usage(argv[0]);
+            return 1;
+        }
+    }
+
     // Calibrate TSC Frequency
     {
         auto start_time = std::chrono::steady_clock::now();

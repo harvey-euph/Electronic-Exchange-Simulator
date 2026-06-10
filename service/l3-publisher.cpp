@@ -21,7 +21,7 @@ int main()
 
     int main_core = L3_MAIN_CORE;
     if (main_core >= 0) {
-        Exchange::set_thread_affinity(main_core, "L3Publisher_Main");
+        Exchange::set_thread_affinity(main_core, "L3Publisher");
     }
 
     std::cout << "[L3Publisher] Connected successfully. Start consuming..." << std::endl;
