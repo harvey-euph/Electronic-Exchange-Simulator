@@ -158,22 +158,20 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
     uint64_t engine_lat = ev->engine_latency;
     uint64_t manager_lat = ev->manager_latency;
 
-    if (manager_lat > 0 && engine_lat > 0) {
-        uint64_t engine_val = engine_lat;
-        uint64_t manager_minus_engine_val = (manager_lat > engine_lat) ? (manager_lat - engine_lat) : 0;
-        
-        uint64_t manager_ns = (tsc_hz > 0.0) ? static_cast<uint64_t>(static_cast<double>(manager_lat) / tsc_hz * 1e9) : 0;
-        uint64_t kernel_minus_manager_val = (latency_ns > manager_ns) ? (latency_ns - manager_ns) : 0;
+    uint64_t engine_val = engine_lat;
+    uint64_t manager_minus_engine_val = (manager_lat > engine_lat) ? (manager_lat - engine_lat) : 0;
+    
+    uint64_t manager_ns = (tsc_hz > 0.0) ? static_cast<uint64_t>(static_cast<double>(manager_lat) / tsc_hz * 1e9) : 0;
+    uint64_t kernel_minus_manager_val = (latency_ns > manager_ns) ? (latency_ns - manager_ns) : 0;
 
-        auto& row = stats_by_type[exec_type];
-        row.kernel.add(kernel_minus_manager_val);
-        row.manager.add(manager_minus_engine_val);
-        row.engine.add(engine_val);
+    auto& row = stats_by_type[exec_type];
+    row.kernel.add(kernel_minus_manager_val);
+    row.manager.add(manager_minus_engine_val);
+    row.engine.add(engine_val);
 
-        global_stats.kernel.add(kernel_minus_manager_val);
-        global_stats.manager.add(manager_minus_engine_val);
-        global_stats.engine.add(engine_val);
-    }
+    global_stats.kernel.add(kernel_minus_manager_val);
+    global_stats.manager.add(manager_minus_engine_val);
+    global_stats.engine.add(engine_val);
 
     return 0;
 }

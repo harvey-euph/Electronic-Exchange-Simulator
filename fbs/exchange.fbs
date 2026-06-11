@@ -32,8 +32,6 @@ table OrderResponse
     p: long;
     q: ulong;
     reject_code: RejectCode;
-    engine_latency: ulong = 0;
-    manager_latency: ulong = 0;
 }
 
 table PositionRequest {

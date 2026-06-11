@@ -18,10 +18,6 @@ void StdoutExecutionReporter::processResponse(const OrderResponseT& resp)
                     static_cast<int>(resp.reject_code));
     }
 
-    if (resp.engine_latency > 0) {
-        std::printf(" engine_lat=%lu", resp.engine_latency);
-    }
-
     std::printf("\n");
 }
 

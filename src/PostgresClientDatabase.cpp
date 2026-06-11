@@ -164,7 +164,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::getOpenOrders(uint32_t
         uint64_t qty = row[4].as<uint64_t>();
 
         flatbuffers::FlatBufferBuilder fbb(256);
-        auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, order_id, client_id, 0 /* exec_id */, symbol_id, static_cast<Side>(side), price, qty, RejectCode_None, 0, 0);
+        auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, order_id, client_id, 0 /* exec_id */, symbol_id, static_cast<Side>(side), price, qty, RejectCode_None);
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
         fbb.Finish(client_resp);
 

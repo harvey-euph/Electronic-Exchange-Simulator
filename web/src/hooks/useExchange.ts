@@ -204,8 +204,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     let latencyStr = '';
     if (sentTime !== undefined) {
       const rttMs = performance.now() - sentTime;
-      const engineLat = resp.engineLatency();
-      const managerLat = resp.managerLatency();
+      const engineLat = 0;
+      const managerLat = 0;
       latencyStr = ` Latency=${rttMs.toFixed(3)}ms`;
       if (engineLat > 0n || managerLat > 0n) {
         latencyStr += ` (Engine=${engineLat}cyc, Mgr=${managerLat}cyc)`;

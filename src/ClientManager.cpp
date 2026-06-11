@@ -14,10 +14,8 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
 {
     std::cout << "[ClientManager] Initializing on port " << port << std::endl;
 
-    auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe) {
-        auto lock = get_client_lock(client_id);
-        std::lock_guard<std::mutex> client_guard(*lock);
-        
+    auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe)
+    {    
         std::lock_guard<std::mutex> sessions_guard(sessions_mutex_);
         if (is_subscribe) {
             client_sessions_[client_id].push_back(client);
@@ -131,26 +129,8 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
                 return;
             }
         }
-        
-        // We need to peek at the client_id to lock the correct mutex
-        flatbuffers::Verifier verifier(static_cast<const uint8_t*>(data), size);
-        if (!verifier.VerifyBuffer<ClientRequest>(nullptr)) return;
-        
-        auto request = flatbuffers::GetRoot<ClientRequest>(data);
-        uint32_t client_id = 0;
-        if (request->data_type() == ClientRequestData_OrderRequest) {
-            client_id = request->data_as_OrderRequest()->client_id();
-        } else if (request->data_type() == ClientRequestData_PositionRequest) {
-            client_id = request->data_as_PositionRequest()->client_id();
-        }
 
-        if (client_id != 0) {
-            auto lock = get_client_lock(client_id);
-            std::lock_guard<std::mutex> client_guard(*lock);
-            this->process_client_request(client, data, size);
-        } else {
-            this->process_client_request(client, data, size);
-        }
+        this->process_client_request(client, data, size);
     };
 
     ws_adaptor_->set_message_handler(message_handler);
@@ -159,13 +139,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
 }
 
 void ClientManager::handle_execution_response(const OrderResponseT* resp)
-{    
-    uint64_t start_time = 0;
-    auto start_time_it = order_start_times_.find(resp->exec_id);
-    if (start_time_it != order_start_times_.end()) {
-        start_time = start_time_it->second;
-        order_start_times_.erase(start_time_it);
-    }
+{
     uint32_t client_id = resp->client_id;
 
     // logOrderResponse(resp, "[ClientManager] Execution Report:");
@@ -185,17 +159,14 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
         }
     }
 
-    uint64_t total_lat = start_time ? read_tsc_end() - start_time : 0;
-
     if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type) & 1)
     {
-        if (resp->reject_code == RejectCode_None) {
-            flatbuffers::FlatBufferBuilder fbb(256);
-            auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id, resp->client_id, resp->exec_id, resp->symbol_id, resp->side, resp->p, resp->q, resp->reject_code, resp->engine_latency, total_lat);
-            auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
-            fbb.Finish(client_resp);
-            db_->addOrUpdateOpenOrder(client_id, resp->order_id, fbb.GetBufferPointer(), fbb.GetSize());
-        }
+        flatbuffers::FlatBufferBuilder fbb(256);
+        auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id, resp->client_id, resp->exec_id, resp->symbol_id, resp->side, resp->p, resp->q, resp->reject_code);
+        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
+        fbb.Finish(client_resp);
+        db_->addOrUpdateOpenOrder(client_id, resp->order_id, fbb.GetBufferPointer(), fbb.GetSize());
+        // db_->addOrUpdateOpenOrder(client_id, resp);
     }
     else if ((EXEC_MASK_REMOVE_OPEN >> resp->exec_type) & 1)
     {
@@ -203,7 +174,7 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
     }
 
     flatbuffers::FlatBufferBuilder fbb(256);
-    auto resp_offset = CreateOrderResponse(fbb, resp->exec_type, resp->order_id, resp->client_id, resp->exec_id, resp->symbol_id, resp->side, resp->p, resp->q, resp->reject_code, resp->engine_latency, total_lat);
+    auto resp_offset = OrderResponse::Pack(fbb, resp);
     auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
     fbb.Finish(client_resp);
     
@@ -214,7 +185,6 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
             session->send(fbb.GetBufferPointer(), fbb.GetSize());
         }
     } else {
-        std::cout << "[ClientManager] Client " << client_id << " offline. Storing pending response." << std::endl;
         db_->addPendingResponse(client_id, fbb.GetBufferPointer(), fbb.GetSize());
     }
 }
@@ -227,9 +197,8 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
     switch (type) {
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
-            logOrderRequest(order_req, "[ClientManager] Received Order Request:");
-
-            order_start_times_[order_req->exec_id()] = read_tsc_begin();
+            
+            // logOrderRequest(order_req, "[ClientManager] Received Order Request:");
 
             flatbuffers::FlatBufferBuilder fbb(256);
             auto or_offset = CreateOrderRequest(fbb, 
@@ -271,15 +240,6 @@ int ClientManager::poll_server() {
         }
     }
     return 0;
-}
-
-std::shared_ptr<std::mutex> ClientManager::get_client_lock(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(sessions_mutex_);
-    auto& mutex_ptr = client_locks_[client_id];
-    if (!mutex_ptr) {
-        mutex_ptr = std::make_shared<std::mutex>();
-    }
-    return mutex_ptr;
 }
 
 } // namespace Exchange

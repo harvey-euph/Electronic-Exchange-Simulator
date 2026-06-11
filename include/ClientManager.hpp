@@ -36,7 +36,7 @@ private:
     std::set<WSClientPtr> ready_sessions_;
     std::mutex sessions_mutex_;
     std::mutex ready_mutex_;
-    std::unordered_map<uint64_t, uint64_t> order_start_times_;
+    // std::unordered_map<uint64_t, uint64_t> order_start_times_;
 };
 
 } // namespace Exchange

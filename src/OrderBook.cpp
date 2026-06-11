@@ -81,7 +81,7 @@ void OrderBook::processRequest(const OrderRequest* req)
         return;
 
     default:
-        sendResponse(ExecType_Cancelled, req->order_id(), req->client_id(), req->exec_id(), req->side(), req->p(), req->q(), RejectCode_InvalidAction);
+        sendResponse(ExecType_Rejected, req->order_id(), req->client_id(), req->exec_id(), req->side(), req->p(), req->q(), RejectCode_InvalidAction);
         return;
     }
 }
@@ -373,10 +373,6 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t order_id, uint32_t cli
                               RejectCode reject_code)
 {
     if (!response_ring_) return;
-    uint64_t engine_lat = 0;
-    if (g_current_request_start_tsc > 0) {
-        engine_lat = read_tsc_end() - g_current_request_start_tsc;
-    }
     OrderResponseT resp;
     resp.exec_type = exec_type;
     resp.order_id = order_id;
@@ -387,8 +383,6 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t order_id, uint32_t cli
     resp.p = p;
     resp.q = q;
     resp.reject_code = reject_code;
-    resp.engine_latency = engine_lat;
-    resp.manager_latency = 0;
 
     response_ring_->enqueue(&resp, sizeof(OrderResponseT));
 }
