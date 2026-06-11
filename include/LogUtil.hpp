@@ -37,6 +37,21 @@ inline void logOrderResponse(const OrderResponse* resp, const char* prefix = "[O
               << std::endl;
 }
 
+inline void logOrderResponse(const OrderResponseT* resp, const char* prefix = "[OrderResponse]") {
+    if (!resp) return;
+    std::cout << prefix << " "
+              << "exec_type=" << EnumNameExecType(resp->exec_type)
+              << ", order_id=" << resp->order_id
+              << ", client=" << resp->client_id
+              << ", exec_id=" << resp->exec_id
+              << ", symbol=" << resp->symbol_id
+              << ", side=" << EnumNameSide(resp->side)
+              << ", p=" << resp->p
+              << ", q=" << resp->q
+              << ", reject=" << EnumNameRejectCode(resp->reject_code)
+              << std::endl;
+}
+
 inline void logOrder(const Order* o, const char* prefix = "[Order]") {
     if (!o) return;
     std::cout << prefix << " "

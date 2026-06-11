@@ -63,7 +63,6 @@ public:
 
 private:
     SHMRingBuffer* m_ring = nullptr;
-    flatbuffers::FlatBufferBuilder fbb;
 };
 
 } // namespace Exchange

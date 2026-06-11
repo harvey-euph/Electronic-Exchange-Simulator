@@ -158,29 +158,28 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
     std::cout << "[ClientManager] WS Handlers registered." << std::endl;
 }
 
-void ClientManager::handle_execution_response(const OrderResponse* resp, const void* data, size_t size) {
-    (void) data; (void) size;
-    uint32_t client_id = resp->client_id();
+void ClientManager::handle_execution_response(const OrderResponseT* resp) {
+    uint32_t client_id = resp->client_id;
 
     logOrderResponse(resp, "[ClientManager] Execution Report:");
 
     auto lock = get_client_lock(client_id);
     std::lock_guard<std::mutex> client_guard(*lock);
 
-    if ((EXEC_MASK_POSITION_UPDATE >> resp->exec_type()) & 1)
+    if ((EXEC_MASK_POSITION_UPDATE >> resp->exec_type) & 1)
     {
-        int64_t cost = static_cast<int64_t>(resp->p() * resp->q());
-        if (resp->side() == Side_Buy) {
+        int64_t cost = static_cast<int64_t>(resp->p * resp->q);
+        if (resp->side == Side_Buy) {
             db_->updatePosition(client_id, 0, -cost); // Pay USD
-            db_->updatePosition(client_id, resp->symbol_id(), static_cast<int64_t>(resp->q())); // Get Asset
+            db_->updatePosition(client_id, resp->symbol_id, static_cast<int64_t>(resp->q)); // Get Asset
         } else {
             db_->updatePosition(client_id, 0, cost); // Get USD
-            db_->updatePosition(client_id, resp->symbol_id(), -static_cast<int64_t>(resp->q())); // Give Asset
+            db_->updatePosition(client_id, resp->symbol_id, -static_cast<int64_t>(resp->q)); // Give Asset
         }
     }
     
     uint64_t start_time = 0;
-    auto start_time_it = order_start_times_.find(resp->exec_id());
+    auto start_time_it = order_start_times_.find(resp->exec_id);
     if (start_time_it != order_start_times_.end()) {
         start_time = start_time_it->second;
         order_start_times_.erase(start_time_it);
@@ -188,23 +187,23 @@ void ClientManager::handle_execution_response(const OrderResponse* resp, const v
 
     uint64_t total_lat = start_time ? read_tsc_end() - start_time : 0;
 
-    if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type()) & 1)
+    if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type) & 1)
     {
-        if (resp->reject_code() == RejectCode_None) {
+        if (resp->reject_code == RejectCode_None) {
             flatbuffers::FlatBufferBuilder fbb(256);
-            auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code(), resp->engine_latency(), total_lat);
+            auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp->order_id, resp->client_id, resp->exec_id, resp->symbol_id, resp->side, resp->p, resp->q, resp->reject_code, resp->engine_latency, total_lat);
             auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
             fbb.Finish(client_resp);
-            db_->addOrUpdateOpenOrder(client_id, resp->order_id(), fbb.GetBufferPointer(), fbb.GetSize());
+            db_->addOrUpdateOpenOrder(client_id, resp->order_id, fbb.GetBufferPointer(), fbb.GetSize());
         }
     }
-    else if ((EXEC_MASK_REMOVE_OPEN >> resp->exec_type()) & 1)
+    else if ((EXEC_MASK_REMOVE_OPEN >> resp->exec_type) & 1)
     {
-        db_->removeOpenOrder(client_id, resp->order_id());
+        db_->removeOpenOrder(client_id, resp->order_id);
     }
 
     flatbuffers::FlatBufferBuilder fbb(256);
-    auto resp_offset = CreateOrderResponse(fbb, resp->exec_type(), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), resp->side(), resp->p(), resp->q(), resp->reject_code(), resp->engine_latency(), total_lat);
+    auto resp_offset = CreateOrderResponse(fbb, resp->exec_type, resp->order_id, resp->client_id, resp->exec_id, resp->symbol_id, resp->side, resp->p, resp->q, resp->reject_code, resp->engine_latency, total_lat);
     auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
     fbb.Finish(client_resp);
     
@@ -265,9 +264,9 @@ int ClientManager::poll_server() {
     void* data_ptr = nullptr;
     size_t data_size = 0;
     if (response_ring_->dequeue(&data_ptr, &data_size)) {
-        if (data_ptr && data_size > 0) {
-            auto resp = flatbuffers::GetRoot<OrderResponse>(data_ptr);
-            handle_execution_response(resp, data_ptr, data_size);
+        if (data_ptr && data_size >= sizeof(OrderResponseT)) {
+            auto resp = reinterpret_cast<const OrderResponseT*>(data_ptr);
+            handle_execution_response(resp);
             return 1;
         }
     }

@@ -23,6 +23,7 @@ struct Order
     PriceLevel* price_level = nullptr;
 
     uint64_t timestamp;
+    uint32_t symbol_id = 0;
 };
 
 } // namespace Exchange

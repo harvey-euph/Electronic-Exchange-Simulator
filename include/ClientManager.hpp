@@ -18,7 +18,7 @@ class ClientManager : public Worker<ClientManager> {
 public:
     ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffer* response_ring, std::shared_ptr<ClientDatabase> db);
 
-    void handle_execution_response(const OrderResponse* resp, const void* data, size_t size);
+    void handle_execution_response(const OrderResponseT* resp);
     void process_client_request(WSClientPtr client, const void* data, size_t size);
     
     int poll_client();
