@@ -13,7 +13,7 @@ int main()
 
     int main_core = ME_MAIN_CORE;
     if (main_core >= 0) {
-        Exchange::set_thread_affinity(main_core, "MatchingEngineS");
+        Exchange::set_thread_affinity(main_core, "MatchingEngine");
     }
 
     std::cout << "[OrderCore] Starting matching engine..." << std::endl;

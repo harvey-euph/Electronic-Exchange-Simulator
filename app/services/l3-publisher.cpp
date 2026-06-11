@@ -7,7 +7,6 @@
 int main() 
 {
     setup_signals();
-    std::cout << "\033[2J\033[H" << std::flush;
 
     std::cout << "[L3Publisher] Connecting to SHMRingBuffer: " << L3_UPDATE_RING << "..." << std::endl;
 

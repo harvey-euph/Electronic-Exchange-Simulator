@@ -8,9 +8,6 @@ int main()
 {
     setup_signals();
 
-    // Use a small trick to clear screen initially
-    std::cout << "\033[2J\033[H" << std::flush;
-
     std::cout << "[L2Publisher] Connecting to SHMRingBuffer: " << L2_UPDATE_RING << "..." << std::endl;
 
     Exchange::SHMRingBuffer* ring_buffer = nullptr;

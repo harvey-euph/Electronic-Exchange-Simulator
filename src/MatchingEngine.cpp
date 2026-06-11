@@ -6,8 +6,7 @@ namespace Exchange {
 extern thread_local uint64_t g_current_request_start_tsc;
 
 MatchingEngine::MatchingEngine(SHMRingBuffer* request_ring, OrderBook* book)
-    : request_ring_(request_ring)
-    , book_(book)
+    : request_ring_(request_ring), book_(book)
 {}
 
 int MatchingEngine::poll_client() {

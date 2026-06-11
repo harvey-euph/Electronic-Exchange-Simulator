@@ -11,7 +11,8 @@ int main()
 {
     setup_signals();
 
-    auto db = std::make_shared<Exchange::PostgresClientDatabase>(Exchange::DbUtil::getConnectionString());
+    auto db = std::make_shared<Exchange::InMemoryClientDatabase>();
+    // auto db = std::make_shared<Exchange::PostgresClientDatabase>(Exchange::DbUtil::getConnectionString());
 
     Exchange::SHMRingBuffer* response_ring = nullptr;
     Exchange::SHMRingBuffer* request_ring = nullptr;
