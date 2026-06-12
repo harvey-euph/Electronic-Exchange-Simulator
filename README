@@ -153,73 +153,16 @@ The `lat-tracer` eBPF program measures end-to-end latency of order requests by h
 
 ### Latency Tracing Workflow
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client as Network / Client
-    participant Kernel as Kernel (tcp_recvmsg / sendmsg)
-    participant BPF as eBPF Maps
-    participant CM as Client Manager
-    participant OB as Matching Engine (OrderBook)
-    participant RB as BPF RingBuffer
-    participant Tracer as lat-tracer (User Space)
+![tcp_recvmsg (RX Path)](assets/img/tcp_recvmsg.svg)
 
-    Client->>Kernel: Incoming Order Packet (recvmsg)
-    activate Kernel
-    Note over Kernel: [kprobe] tcp_recvmsg
-    Kernel->>BPF: Save socket & buf ctx (recv_ctx_map, key: TID)
-    Note over Kernel: [kretprobe] tcp_recvmsg
-    Kernel->>BPF: Read & Delete recv_ctx_map[TID]<br/>Extract exec_id
-    Kernel->>BPF: Save Start Time T0 (pending_requests, key: exec_id)
-    Kernel-->>CM: Deliver Payload
-    deactivate Kernel
+#### 2. Client Manager Processing
+![Client Manager Processing](assets/img/client_manager.svg)
 
-    activate CM
-    Note over CM: [uprobe] process_client_request<br/>Extract exec_id
-    CM->>BPF: Save CM Start Time (manager_start_map, key: exec_id)
-    CM-->>OB: Enqueue to Request Ring Buffer
-    deactivate CM
-    
-    activate OB
-    Note over OB: [uprobe] processRequest<br/>Extract exec_id
-    OB->>BPF: Save Engine Start Time (engine_start_map, key: exec_id)
-    OB->>BPF: Associate TID to exec_id (active_exec_id_map, key: TID)
-    Note over OB: Matching Logic
-    Note over OB: [uretprobe] processRequest
-    OB->>BPF: Read & Delete active_exec_id_map[TID] -> exec_id
-    OB->>BPF: Read & Delete engine_start_map[exec_id] -> Start Time
-    OB->>BPF: Save Engine Latency (engine_lat_map, key: exec_id)
-    OB-->>CM: Enqueue to Response Ring Buffer
-    deactivate OB
-    
-    activate CM
-    Note over CM: [uprobe] handle_execution_response<br/>Extract exec_id
-    CM->>BPF: Associate TID to exec_id (active_exec_id_map, key: TID)
-    Note over CM: Response Logic
-    Note over CM: [uretprobe] handle_execution_response
-    CM->>BPF: Read & Delete active_exec_id_map[TID] -> exec_id
-    CM->>BPF: Read & Delete manager_start_map[exec_id] -> Start Time
-    CM->>BPF: Save CM Latency (manager_lat_map, key: exec_id)
-    CM->>Kernel: send() / write()
-    deactivate CM
-    
-    activate Kernel
-    Note over Kernel: [kprobe] tcp_sendmsg<br/>Extract exec_id
-    Kernel->>BPF: Read T0 (pending_requests[exec_id])
-    Kernel->>BPF: Read Engine Latency (engine_lat_map[exec_id])
-    Kernel->>BPF: Read CM Latency (manager_lat_map[exec_id])
-    Note over Kernel: Calculate Total Latency
-    Kernel->>RB: Submit latency_event
-    Kernel->>BPF: Delete map entries for exec_id
-    Kernel-->>Client: Outgoing Response Packet
-    deactivate Kernel
-    
-    RB-->>Tracer: Poll event
-    activate Tracer
-    Note over Tracer: Calculate Kernel Overhead<br/>(Total - Engine - CM)
-    Note over Tracer: Update Stats & Print Table
-    deactivate Tracer
-```
+#### 3. Matching Engine Processing
+![Matching Engine Processing](assets/img/matching_engine.svg)
+
+#### 4. TX Path & Userspace Aggregation (tcp_sendmsg)
+![tcp_sendmsg (TX Path) & Userspace Aggregation](assets/img/tcp_sendmsg.svg)
 
 #### Responsibilities
 

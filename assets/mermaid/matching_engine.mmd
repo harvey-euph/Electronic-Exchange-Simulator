@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant OB as Matching Engine<br/>(User Space)
+    participant StartMap as engine_start_map
+    participant TidMap as active_exec_id_map
+    participant LatMap as engine_lat_map
+
+    Note over OB: [uprobe] processRequest
+    OB->>StartMap: Save Engine Start Time (key: exec_id)
+    OB->>TidMap: Save active exec_id (key: TID)
+    
+    Note over OB: [uretprobe] processRequest_ret
+    TidMap-->>OB: Read & Delete active exec_id (key: TID)
+    StartMap-->>OB: Read & Delete Engine Start Time (key: exec_id)
+    OB->>LatMap: Save Engine Latency (key: exec_id)

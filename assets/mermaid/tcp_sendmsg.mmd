@@ -1,0 +1,25 @@
+sequenceDiagram
+    participant Kernel as tcp_sendmsg<br/>(Kernel)
+    participant TxCtx as tx_ctx_map
+    participant ReqMap as pending_requests
+    participant EngineLat as engine_lat_map
+    participant MgrLat as manager_lat_map
+    participant RB as BPF RingBuffer
+    participant Tracer as lat-tracer<br/>(User Space)
+
+    Note over Kernel: [kprobe] tcp_sendmsg
+    Note over Kernel: Parse FlatBuffer Payload
+    Kernel->>TxCtx: Save tx_ctx with exec_ids (key: TID)
+    
+    Note over Kernel: [kretprobe] tcp_sendmsg_ret
+    Note over Kernel: Capture TX End Timestamp
+    TxCtx-->>Kernel: Read & Delete tx_ctx (key: TID)
+    ReqMap-->>Kernel: Read & Delete T0 (key: exec_id)
+    EngineLat-->>Kernel: Read & Delete Engine Latency (key: exec_id)
+    MgrLat-->>Kernel: Read & Delete CM Latency (key: exec_id)
+    
+    Kernel->>RB: Submit latency_event
+    
+    RB-->>Tracer: Poll event
+    Note over Tracer: Calculate Kernel Overhead<br/>(Total - Engine - CM)
+    Note over Tracer: Aggregate & Display Stats
