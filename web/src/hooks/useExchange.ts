@@ -27,7 +27,7 @@ function hashClientId(id: string): number {
   for (let i = 0; i < id.length; i++) {
     hash = (hash * 33) ^ id.charCodeAt(i);
   }
-  return (hash >>> 0); // Convert to unsigned 32-bit integer
+  return (hash & 0x7FFFFFFF); // Convert to positive signed 32-bit integer
 }
 
 function validatePrice(pVal: bigint, symbolInfo: SymbolInfoData | null): string | null {
