@@ -283,7 +283,7 @@ static __always_inline bool get_exec_id_from_order_response_t(const void *resp, 
     return true;
 }
 
-static __always_inline void process_rx_packet(const uint8_t *payload, uint32_t len, uint64_t timestamp_ns) {
+static __noinline void process_rx_packet(const uint8_t *payload, uint32_t len, uint64_t timestamp_ns) {
     uint32_t curr_offset = 0;
 
     for (int frame_idx = 0; frame_idx < 4; frame_idx++) {
@@ -381,7 +381,7 @@ next_frame:
     }
 }
 
-static __always_inline void parse_tx_packet(const uint8_t *payload, uint32_t len, struct tx_ctx *ctx) {
+static __noinline void parse_tx_packet(const uint8_t *payload, uint32_t len, struct tx_ctx *ctx) {
     uint32_t curr_offset = 0;
     ctx->count = 0;
 
