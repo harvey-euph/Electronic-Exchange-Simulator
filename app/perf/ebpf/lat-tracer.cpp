@@ -103,11 +103,11 @@ static void print_stats_table() {
 
     std::cout << "=================================================== Latency Statistics (us) ===================================================\n";
     printed_lines++;
-    std::cout << std::left << std::setw(15) << "Exec Type"
-              << std::right << std::setw(12) << "Total Count"
-              << std::right << std::setw(32) << "kernel - client manager"
+    std::cout << std::left << std::setw(15) << "ExecType"
+              << std::right << std::setw(12) << "Count"
+              << std::right << std::setw(32) << "matching engine"
               << std::right << std::setw(32) << "client manager"
-              << std::right << std::setw(32) << "matching engine" << "\n";
+              << std::right << std::setw(32) << "kernel - client manager" << "\n";
     printed_lines++;
     std::cout << "-------------------------------------------------------------------------------------------------------------------------------\n";
     printed_lines++;
@@ -115,9 +115,9 @@ static void print_stats_table() {
     auto print_row = [&](const std::string& label, LatencyRow& r) {
         std::cout << std::left << std::setw(15) << label
                   << std::right << std::setw(12) << r.kernel.total_count
-                  << std::right << std::setw(32) << format_stats(r.kernel, ns_factor)
+                  << std::right << std::setw(32) << format_stats(r.engine, ns_factor)
                   << std::right << std::setw(32) << format_stats(r.manager, ns_factor)
-                  << std::right << std::setw(32) << format_stats(r.engine, ns_factor) << "\n";
+                  << std::right << std::setw(32) << format_stats(r.kernel, ns_factor) << "\n";
         printed_lines++;
     };
 
@@ -199,6 +199,13 @@ int main(int argc, char *argv[]) {
 
     skel->rodata->target_port = selected_port;
 
+    // Disable auto-attach for uprobes so we can attach them manually with relative paths
+    bpf_program__set_autoattach(skel->progs.process_client_request_entry, false);
+    bpf_program__set_autoattach(skel->progs.handle_execution_response_entry, false);
+    bpf_program__set_autoattach(skel->progs.handle_execution_response_ret, false);
+    bpf_program__set_autoattach(skel->progs.processRequest_entry, false);
+    bpf_program__set_autoattach(skel->progs.processRequest_ret, false);
+
     int err = lat_tracer_bpf__load(skel);
     if (err) {
         std::cerr << "Failed to load BPF skeleton\n";
@@ -206,6 +213,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // Auto-attach kprobes
     err = lat_tracer_bpf__attach(skel);
     if (err) {
         std::cerr << "Failed to attach BPF skeleton\n";
@@ -215,8 +223,8 @@ int main(int argc, char *argv[]) {
 
     DECLARE_LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
     long pid = -1;
-    const char *cm_path = "/home/andy16384/exchange/build/services/client-manager";
-    const char *me_path = "/home/andy16384/exchange/build/services/matching-engine";
+    const char *cm_path = "./build/services/client-manager";
+    const char *me_path = "./build/services/matching-engine";
 
     uprobe_opts.func_name = "_ZN8Exchange13ClientManager22process_client_requestESt10shared_ptrINS_8WSClientEEPKvm";
     uprobe_opts.retprobe = false;
