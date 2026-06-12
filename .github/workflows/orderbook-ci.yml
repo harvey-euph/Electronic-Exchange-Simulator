@@ -29,7 +29,9 @@ jobs:
             libboost-all-dev \
             libflatbuffers-dev \
             flatbuffers-compiler \
-            pkg-config
+            pkg-config \
+            libpq-dev \
+            libpqxx-dev
 
       - name: Setup Compiler
         run: |
@@ -74,7 +76,9 @@ jobs:
             googletest \
             libboost-all-dev \
             libflatbuffers-dev \
-            flatbuffers-compiler
+            flatbuffers-compiler \
+            libpq-dev \
+            libpqxx-dev
 
       - name: Generate FlatBuffers & Run Tests
         run: |
