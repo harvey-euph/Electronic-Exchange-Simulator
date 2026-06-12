@@ -153,16 +153,87 @@ The `lat-tracer` eBPF program measures end-to-end latency of order requests by h
 
 ### Latency Tracing Workflow
 
-![tcp_recvmsg (RX Path)](assets/img/tcp_recvmsg.svg)
+```mermaid
+sequenceDiagram
+    participant Kernel as tcp_recvmsg<br/>(Kernel)
+    participant CtxMap as recv_ctx_map
+    participant ReqMap as pending_requests
+
+    Note over Kernel: [kprobe] tcp_recvmsg
+    Kernel->>CtxMap: Save sock & msghdr context (key: TID)
+    
+    Note over Kernel: [kretprobe] tcp_recvmsg_ret
+    CtxMap-->>Kernel: Read & Delete context (key: TID)
+    Note over Kernel: Parse FlatBuffer Payload
+    Kernel->>ReqMap: Save Start Timestamp T0 (key: exec_id)
+```
 
 #### 2. Client Manager Processing
-![Client Manager Processing](assets/img/client_manager.svg)
+```mermaid
+sequenceDiagram
+    participant CM as Client Manager<br/>(User Space)
+    participant StartMap as manager_start_map
+    participant TidMap as active_exec_id_map
+    participant LatMap as manager_lat_map
+
+    Note over CM: [uprobe] process_client_request
+    CM->>StartMap: Save CM Start Time (key: exec_id)
+    
+    Note over CM: [uprobe] handle_execution_response
+    CM->>TidMap: Save active exec_id (key: TID)
+    
+    Note over CM: [uretprobe] handle_execution_response_ret
+    TidMap-->>CM: Read & Delete active exec_id (key: TID)
+    StartMap-->>CM: Read & Delete CM Start Time (key: exec_id)
+    CM->>LatMap: Save CM Latency (key: exec_id)
+```
 
 #### 3. Matching Engine Processing
-![Matching Engine Processing](assets/img/matching_engine.svg)
+```mermaid
+sequenceDiagram
+    participant OB as Matching Engine<br/>(User Space)
+    participant StartMap as engine_start_map
+    participant TidMap as active_exec_id_map
+    participant LatMap as engine_lat_map
+
+    Note over OB: [uprobe] processRequest
+    OB->>StartMap: Save Engine Start Time (key: exec_id)
+    OB->>TidMap: Save active exec_id (key: TID)
+    
+    Note over OB: [uretprobe] processRequest_ret
+    TidMap-->>OB: Read & Delete active exec_id (key: TID)
+    StartMap-->>OB: Read & Delete Engine Start Time (key: exec_id)
+    OB->>LatMap: Save Engine Latency (key: exec_id)
+```
 
 #### 4. TX Path & Userspace Aggregation (tcp_sendmsg)
-![tcp_sendmsg (TX Path) & Userspace Aggregation](assets/img/tcp_sendmsg.svg)
+```mermaid
+sequenceDiagram
+    participant Kernel as tcp_sendmsg<br/>(Kernel)
+    participant TxCtx as tx_ctx_map
+    participant ReqMap as pending_requests
+    participant EngineLat as engine_lat_map
+    participant MgrLat as manager_lat_map
+    participant RB as BPF RingBuffer
+    participant Tracer as lat-tracer<br/>(User Space)
+
+    Note over Kernel: [kprobe] tcp_sendmsg
+    Note over Kernel: Parse FlatBuffer Payload
+    Kernel->>TxCtx: Save tx_ctx with exec_ids (key: TID)
+    
+    Note over Kernel: [kretprobe] tcp_sendmsg_ret
+    Note over Kernel: Capture TX End Timestamp
+    TxCtx-->>Kernel: Read & Delete tx_ctx (key: TID)
+    ReqMap-->>Kernel: Read & Delete T0 (key: exec_id)
+    EngineLat-->>Kernel: Read & Delete Engine Latency (key: exec_id)
+    MgrLat-->>Kernel: Read & Delete CM Latency (key: exec_id)
+    
+    Kernel->>RB: Submit latency_event
+    
+    RB-->>Tracer: Poll event
+    Note over Tracer: Calculate Kernel Overhead<br/>(Total - Engine - CM)
+    Note over Tracer: Aggregate & Display Stats
+```
 
 #### Responsibilities
 
