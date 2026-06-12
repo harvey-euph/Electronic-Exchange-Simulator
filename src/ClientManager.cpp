@@ -15,7 +15,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
     std::cout << "[ClientManager] Initializing on port " << port << std::endl;
 
     auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe)
-    {    
+    {
         std::lock_guard<std::mutex> sessions_guard(sessions_mutex_);
         if (is_subscribe) {
             client_sessions_[client_id].push_back(client);
@@ -90,9 +90,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
             std::cout << "[ClientManager] Client " << client_id << " disconnected." << std::endl;
         }
     };
-
-    ws_adaptor_->set_subscribe_handler(subscribe_handler);
-
+    
     auto close_handler = [this](WSClientPtr client) {
         std::lock_guard<std::mutex> sessions_guard(sessions_mutex_);
         for (auto it = client_sessions_.begin(); it != client_sessions_.end(); ) {
@@ -103,7 +101,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
             if (sessions.size() < original_size) {
                 uint32_t client_id = it->first;
                 std::cout << "[ClientManager] Session break detected for client " << client_id 
-                          << ". Treating as automatic logout." << std::endl;
+                << ". Treating as automatic logout." << std::endl;
                 
                 if (sessions.empty()) {
                     it = client_sessions_.erase(it);
@@ -117,13 +115,13 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
             ready_sessions_.erase(client);
         }
     };
-
-    ws_adaptor_->set_close_handler(close_handler);
-
+    
     auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
         this->process_client_request(client, data, size);
     };
 
+    ws_adaptor_->set_subscribe_handler(subscribe_handler);
+    ws_adaptor_->set_close_handler(close_handler);
     ws_adaptor_->set_message_handler(message_handler);
     
     std::cout << "[ClientManager] WS Handlers registered." << std::endl;
