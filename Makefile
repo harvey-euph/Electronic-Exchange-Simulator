@@ -84,7 +84,6 @@ OBS_DIR := app/perf
 OBS_SOURCES := $(wildcard $(OBS_DIR)/*.cpp)
 OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/app/perf/%,$(OBS_SOURCES))
 EBPF_DIR := app/perf/ebpf
-EBPF_EXP_DIR := app/perf/ebpf-exp
 
 # -----------------------------------------------------------------------------
 # Test Executables
@@ -101,7 +100,7 @@ TEST_TARGETS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%,$(TEST_SOURCES
 WEB_DIR := web
 
 .PHONY: all
-all: $(FBS_GENERATED) $(SERVICE_TARGETS) $(AGENT_TARGETS) $(EXAMPLE_TARGETS) $(OBS_TARGETS) ebpf ebpf-exp web_target
+all: $(FBS_GENERATED) $(SERVICE_TARGETS) $(AGENT_TARGETS) $(EXAMPLE_TARGETS) $(OBS_TARGETS) ebpf web_target
 
 .PHONY: fbs
 fbs: $(FBS_GENERATED)
@@ -109,10 +108,6 @@ fbs: $(FBS_GENERATED)
 .PHONY: ebpf
 ebpf: $(FBS_GENERATED)
 	$(MAKE) -C $(EBPF_DIR)
-
-.PHONY: ebpf-exp
-ebpf-exp: $(FBS_GENERATED)
-	$(MAKE) -C $(EBPF_EXP_DIR)
 
 .PHONY: web_target
 web_target: $(FBS_GENERATED)
@@ -199,7 +194,6 @@ clean:
 	rm -rf $(FBS_OUT)
 	rm -rf $(FBS_TS_OUT)
 	$(MAKE) -C $(EBPF_DIR) clean
-	$(MAKE) -C $(EBPF_EXP_DIR) clean
 	$(MAKE) -C $(WEB_DIR) clean
 
 # -----------------------------------------------------------------------------

@@ -59,7 +59,7 @@ public:
 
     ~OrderBook();
 
-    void processRequest(const OrderRequest* req);
+    __attribute__((noinline)) void processRequest(const OrderRequest* req);
 
 private:
     const uint64_t symbol_id_;

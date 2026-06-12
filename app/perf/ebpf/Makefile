@@ -3,7 +3,7 @@ CLANG = clang
 BPFTOOL = bpftool
 
 CXXFLAGS = -O2 -Wall -std=c++17 -I../../../include
-BPF_CFLAGS = -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include -I/usr/include/x86_64-linux-gnu -I. -Wno-missing-declarations
+BPF_CFLAGS = -O2 -g -target bpf -D__TARGET_ARCH_x86 -I/usr/include -I/usr/include/x86_64-linux-gnu -I.
 
 LIBBPF_LD = -lbpf
 

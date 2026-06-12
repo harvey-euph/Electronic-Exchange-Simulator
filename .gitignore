@@ -6,6 +6,7 @@ cachegrind.out*
 build
 .agents
 .codex
+.vscode
 data/*
 !data/basic.csv
 .run_service.pid
@@ -23,3 +24,4 @@ web/dist
 web/dist-ssr
 web/*.local
 web/src/fbs
+web/.build_done

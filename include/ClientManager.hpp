@@ -18,14 +18,13 @@ class ClientManager : public Worker<ClientManager> {
 public:
     ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffer* response_ring, std::shared_ptr<ClientDatabase> db);
 
-    void handle_execution_response(const OrderResponseT* resp);
-    void process_client_request(WSClientPtr client, const void* data, size_t size);
+    __attribute__((noinline)) void handle_execution_response(const OrderResponseT* resp);
+    __attribute__((noinline)) void process_client_request(WSClientPtr client, const void* data, size_t size);
     
     int poll_client();
     int poll_server();
 
 private:
-    std::shared_ptr<std::mutex> get_client_lock(uint32_t client_id);
 
     std::shared_ptr<WSAdaptor> ws_adaptor_;
     SHMRingBuffer* request_ring_;

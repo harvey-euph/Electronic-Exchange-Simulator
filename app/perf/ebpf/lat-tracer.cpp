@@ -16,13 +16,13 @@
 #include "define.hpp"
 #include "TimeUtil.hpp"
 
-struct event_data {
-    uint64_t sock_ptr;
-    uint64_t timestamp_ns;
-    uint32_t len;
-    uint8_t event_type; // 0: RX (recv), 1: TX (send)
-    uint8_t padding[3];  // Explicit padding to align to 8 bytes boundary
-    uint8_t payload[512];
+struct latency_event {
+    uint64_t exec_id;
+    uint64_t latency_ns;
+    uint64_t engine_latency;
+    uint64_t manager_latency;
+    uint8_t exec_type;
+    uint8_t padding[7]; // align to 8-byte boundary
 };
 
 static volatile bool keep_running = true;
@@ -30,8 +30,6 @@ static volatile bool keep_running = true;
 static void sig_handler(int signo) {
     keep_running = false;
 }
-
-static std::unordered_map<uint64_t, uint64_t> pending_requests;
 
 struct LatencyStats {
     std::vector<uint64_t> samples;
@@ -82,25 +80,24 @@ static void print_stats_table() {
 
     int printed_lines = 0;
     
-    double tsc_factor = (tsc_hz > 0.0) ? (1.0 / tsc_hz * 1e6) : 0.0;
+    // double tsc_factor = (tsc_hz > 0.0) ? (1.0 / tsc_hz * 1e6) : 0.0;
     double ns_factor = 1.0 / 1000.0;
 
     auto format_stats = [](LatencyStats& s, double factor) -> std::string {
         if (s.total_count == 0) {
             return "   -   /   -   /   -   /   -   ";
         }
-        double p50 = 0.0, p90 = 0.0, p99 = 0.0, max_val = 0.0;
+        double p50 = 0.0, p90 = 0.0, p99 = 0.0, p999 = 0.0;
         if (!s.samples.empty()) {
             std::sort(s.samples.begin(), s.samples.end());
             size_t n = s.samples.size();
-            p50 = s.samples[n * 0.50] * factor;
-            p90 = s.samples[n * 0.90] * factor;
-            p99 = s.samples[n * 0.99] * factor;
-            max_val = s.max_val * factor;
+            p50 = s.samples[std::min(n - 1, (size_t)(n * 0.50))] * factor;
+            p90 = s.samples[std::min(n - 1, (size_t)(n * 0.90))] * factor;
+            p99 = s.samples[std::min(n - 1, (size_t)(n * 0.99))] * factor;
+            p999 = s.samples[std::min(n - 1, (size_t)(n * 0.999))] * factor;
         }
         char buf[128];
-        // Format each sub-value to 7 characters with 2 decimal places to ensure `/` align perfectly
-        std::snprintf(buf, sizeof(buf), "%7.2f/%7.2f/%7.2f/%7.2f", p50, p90, p99, max_val);
+        std::snprintf(buf, sizeof(buf), "%7.2f/%7.2f/%7.2f/%7.2f", p50, p90, p99, p999);
         return std::string(buf);
     };
 
@@ -108,9 +105,9 @@ static void print_stats_table() {
     printed_lines++;
     std::cout << std::left << std::setw(15) << "Exec Type"
               << std::right << std::setw(12) << "Total Count"
-              << std::right << std::setw(32) << "kernel - manager"
-              << std::right << std::setw(32) << "manager - engine"
-              << std::right << std::setw(32) << "engine" << "\n";
+              << std::right << std::setw(32) << "kernel - client manager"
+              << std::right << std::setw(32) << "client manager"
+              << std::right << std::setw(32) << "matching engine" << "\n";
     printed_lines++;
     std::cout << "-------------------------------------------------------------------------------------------------------------------------------\n";
     printed_lines++;
@@ -119,8 +116,8 @@ static void print_stats_table() {
         std::cout << std::left << std::setw(15) << label
                   << std::right << std::setw(12) << r.kernel.total_count
                   << std::right << std::setw(32) << format_stats(r.kernel, ns_factor)
-                  << std::right << std::setw(32) << format_stats(r.manager, tsc_factor)
-                  << std::right << std::setw(32) << format_stats(r.engine, tsc_factor) << "\n";
+                  << std::right << std::setw(32) << format_stats(r.manager, ns_factor)
+                  << std::right << std::setw(32) << format_stats(r.engine, ns_factor) << "\n";
         printed_lines++;
     };
 
@@ -146,218 +143,31 @@ static void print_stats_table() {
     last_printed_lines = printed_lines;
 }
 
-static void print_usage(const char* prog) {
-    std::cout << "Usage: " << prog << " [options]\n"
-              << "Options:\n"
-              << "  -p <port>          Specify TCP port to monitor directly (default: 9001)\n"
-              << "  -h, --help         Show this help message\n";
-}
-
-static void handle_rx_event(event_data *ev, size_t safe_len) {
-    const uint8_t* ptr = ev->payload;
-    size_t remaining = safe_len;
-    
-    while (remaining > 2) {
-        uint8_t opcode = ptr[0] & 0x0F;
-        uint8_t mask = (ptr[1] & 0x80) >> 7;
-        uint8_t payload_len_field = ptr[1] & 0x7F;
-        
-        if (opcode != 0x2) {
-            break;
-        }
-        
-        size_t header_len = 2;
-        uint64_t actual_payload_len = payload_len_field;
-        
-        if (payload_len_field == 126) {
-            if (remaining < 4) break;
-            actual_payload_len = (ptr[2] << 8) | ptr[3];
-            header_len = 4;
-        } else if (payload_len_field == 127) {
-            if (remaining < 10) break;
-            actual_payload_len = 0;
-            for (int i = 0; i < 8; ++i) {
-                actual_payload_len = (actual_payload_len << 8) | ptr[2 + i];
-            }
-            header_len = 10;
-        }
-        
-        size_t frame_total_len = header_len + (mask ? 4 : 0) + actual_payload_len;
-        size_t payload_offset = header_len + (mask ? 4 : 0);
-        
-        if (remaining <= payload_offset) {
-            if (frame_total_len == 0 || frame_total_len >= remaining) break;
-            ptr += frame_total_len;
-            remaining -= frame_total_len;
-            continue;
-        }
-        
-        size_t avail_payload_len = std::min(remaining - payload_offset, (size_t)actual_payload_len);
-        std::vector<uint8_t> decoded(avail_payload_len);
-        if (mask == 1) {
-            uint8_t masking_key[4];
-            for (int i = 0; i < 4; ++i) {
-                masking_key[i] = ptr[header_len + i];
-            }
-            for (size_t i = 0; i < avail_payload_len; ++i) {
-                decoded[i] = ptr[payload_offset + i] ^ masking_key[i % 4];
-            }
-        } else {
-            for (size_t i = 0; i < avail_payload_len; ++i) {
-                decoded[i] = ptr[payload_offset + i];
-            }
-        }
-        
-        [&]() {
-            if (decoded.size() <= sizeof(flatbuffers::uoffset_t)) return;
-            
-            flatbuffers::Verifier verifier(decoded.data(), decoded.size());
-            if (!verifier.VerifyBuffer<Exchange::ClientRequest>(nullptr)) return;
-            
-            auto req = flatbuffers::GetRoot<Exchange::ClientRequest>(decoded.data());
-            if (!req || req->data_type() != Exchange::ClientRequestData_OrderRequest) return;
-            
-            auto order_req = req->data_as_OrderRequest();
-            if (!order_req) return;
-            
-            uint64_t exec_id = order_req->exec_id();
-            pending_requests[exec_id] = ev->timestamp_ns;
-        }();
-        
-        if (frame_total_len == 0 || frame_total_len >= remaining) {
-            break;
-        }
-        ptr += frame_total_len;
-        remaining -= frame_total_len;
-    }
-}
-
-static void handle_tx_event(event_data *ev, size_t safe_len) {
-    const uint8_t* ptr = ev->payload;
-    size_t remaining = safe_len;
-    
-    while (remaining > 2) {
-        uint8_t opcode = ptr[0] & 0x0F;
-        uint8_t mask = (ptr[1] & 0x80) >> 7;
-        uint8_t payload_len_field = ptr[1] & 0x7F;
-        
-        if (opcode != 0x2) {
-            break;
-        }
-        
-        size_t header_len = 2;
-        uint64_t actual_payload_len = payload_len_field;
-        
-        if (payload_len_field == 126) {
-            if (remaining < 4) break;
-            actual_payload_len = (ptr[2] << 8) | ptr[3];
-            header_len = 4;
-        } else if (payload_len_field == 127) {
-            if (remaining < 10) break;
-            actual_payload_len = 0;
-            for (int i = 0; i < 8; ++i) {
-                actual_payload_len = (actual_payload_len << 8) | ptr[2 + i];
-            }
-            header_len = 10;
-        }
-        
-        size_t frame_total_len = header_len + (mask ? 4 : 0) + actual_payload_len;
-        size_t payload_offset = header_len + (mask ? 4 : 0);
-        
-        if (remaining <= payload_offset) {
-            if (frame_total_len == 0 || frame_total_len >= remaining) break;
-            ptr += frame_total_len;
-            remaining -= frame_total_len;
-            continue;
-        }
-        
-        size_t avail_payload_len = std::min(remaining - payload_offset, (size_t)actual_payload_len);
-        std::vector<uint8_t> decoded(avail_payload_len);
-        if (mask == 1) {
-            uint8_t masking_key[4];
-            for (int i = 0; i < 4; ++i) {
-                masking_key[i] = ptr[header_len + i];
-            }
-            for (size_t i = 0; i < avail_payload_len; ++i) {
-                decoded[i] = ptr[payload_offset + i] ^ masking_key[i % 4];
-            }
-        } else {
-            for (size_t i = 0; i < avail_payload_len; ++i) {
-                decoded[i] = ptr[payload_offset + i];
-            }
-        }
-        
-        [&]() {
-            if (decoded.size() <= sizeof(flatbuffers::uoffset_t)) return;
-            
-            flatbuffers::Verifier verifier(decoded.data(), decoded.size());
-            if (!verifier.VerifyBuffer<Exchange::ClientResponse>(nullptr)) return;
-            
-            auto resp = flatbuffers::GetRoot<Exchange::ClientResponse>(decoded.data());
-            if (!resp || resp->data_type() != Exchange::ClientResponseData_OrderResponse) return;
-            
-            auto order_resp = resp->data_as_OrderResponse();
-            if (!order_resp) return;
-            
-            Exchange::ExecType exec_type = order_resp->exec_type();
-            if ((~Exchange::EXEC_MASK_LATENCY_TRACK >> exec_type) & 1) return;
-
-            uint64_t exec_id = order_resp->exec_id();
-            
-            auto it = pending_requests.find(exec_id);
-            if (it == pending_requests.end()) return;
-            
-            uint64_t latency_ns = ev->timestamp_ns - it->second;
-            pending_requests.erase(it);
-            
-            uint64_t engine_lat = order_resp->engine_latency();
-            uint64_t manager_lat = order_resp->manager_latency();
-
-            if (manager_lat > 0 && engine_lat > 0) {
-                uint64_t engine_val = engine_lat;
-                uint64_t manager_minus_engine_val = (manager_lat > engine_lat) ? (manager_lat - engine_lat) : 0;
-                
-                uint64_t manager_ns = (tsc_hz > 0.0) ? static_cast<uint64_t>(static_cast<double>(manager_lat) / tsc_hz * 1e9) : 0;
-                uint64_t kernel_minus_manager_val = (latency_ns > manager_ns) ? (latency_ns - manager_ns) : 0;
-
-                auto& row = stats_by_type[exec_type];
-                row.kernel.add(kernel_minus_manager_val);
-                row.manager.add(manager_minus_engine_val);
-                row.engine.add(engine_val);
-
-                global_stats.kernel.add(kernel_minus_manager_val);
-                global_stats.manager.add(manager_minus_engine_val);
-                global_stats.engine.add(engine_val);
-            }
-        }();
-        
-        if (frame_total_len == 0 || frame_total_len >= remaining) {
-            break;
-        }
-        ptr += frame_total_len;
-        remaining -= frame_total_len;
-    }
-}
-
 static int handle_event(void *ctx, void *data, size_t data_sz) {
-    if (data_sz < sizeof(event_data)) {
+    if (data_sz < sizeof(latency_event)) {
         std::cout << "[eBPF Monitor] ERROR: Received event with size " << data_sz 
-                  << " which is smaller than expected " << sizeof(event_data) << std::endl;
+                  << " which is smaller than expected " << sizeof(latency_event) << std::endl;
         return 0;
     }
-    auto *ev = static_cast<event_data*>(data);
+    auto *ev = static_cast<latency_event*>(data);
 
-    if (ev->event_type != 0 && ev->event_type != 1) {
-        return 0;
-    }
+    Exchange::ExecType exec_type = static_cast<Exchange::ExecType>(ev->exec_type);
+    if ((~Exchange::EXEC_MASK_LATENCY_TRACK >> exec_type) & 1) return 0;
 
-    size_t safe_len = std::min((size_t)ev->len, sizeof(ev->payload));
+    uint64_t latency_ns = ev->latency_ns;
+    uint64_t engine_lat = ev->engine_latency;
+    uint64_t manager_lat = ev->manager_latency;
 
-    if (ev->event_type == 0) {
-        handle_rx_event(ev, safe_len);
-    } else {
-        handle_tx_event(ev, safe_len);
-    }
+    uint64_t kernel_overhead = (latency_ns > manager_lat) ? (latency_ns - manager_lat) : 0;
+
+    auto& row = stats_by_type[exec_type];
+    row.kernel.add(kernel_overhead);
+    row.manager.add(manager_lat);
+    row.engine.add(engine_lat);
+
+    global_stats.kernel.add(kernel_overhead);
+    global_stats.manager.add(manager_lat);
+    global_stats.engine.add(engine_lat);
 
     return 0;
 }
@@ -367,20 +177,6 @@ int main(int argc, char *argv[]) {
     signal(SIGTERM, sig_handler);
 
     uint16_t selected_port = 9001;
-
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-        if (arg == "-h" || arg == "--help") {
-            print_usage(argv[0]);
-            return 0;
-        } else if (arg == "-p" && i + 1 < argc) {
-            selected_port = std::stoi(argv[++i]);
-        } else {
-            std::cerr << "Unknown argument: " << arg << "\n";
-            print_usage(argv[0]);
-            return 1;
-        }
-    }
 
     // Calibrate TSC Frequency
     {
@@ -417,6 +213,36 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    DECLARE_LIBBPF_OPTS(bpf_uprobe_opts, uprobe_opts);
+    long pid = -1;
+    const char *cm_path = "/home/andy16384/exchange/build/services/client-manager";
+    const char *me_path = "/home/andy16384/exchange/build/services/matching-engine";
+
+    uprobe_opts.func_name = "_ZN8Exchange13ClientManager22process_client_requestESt10shared_ptrINS_8WSClientEEPKvm";
+    uprobe_opts.retprobe = false;
+    skel->links.process_client_request_entry = bpf_program__attach_uprobe_opts(skel->progs.process_client_request_entry, pid, cm_path, 0, &uprobe_opts);
+    if (!skel->links.process_client_request_entry) std::cerr << "Failed to attach process_client_request_entry\n";
+
+    uprobe_opts.func_name = "_ZN8Exchange13ClientManager25handle_execution_responseEPKNS_14OrderResponseTE";
+    uprobe_opts.retprobe = false;
+    skel->links.handle_execution_response_entry = bpf_program__attach_uprobe_opts(skel->progs.handle_execution_response_entry, pid, cm_path, 0, &uprobe_opts);
+    if (!skel->links.handle_execution_response_entry) std::cerr << "Failed to attach handle_execution_response_entry\n";
+
+    uprobe_opts.func_name = "_ZN8Exchange13ClientManager25handle_execution_responseEPKNS_14OrderResponseTE";
+    uprobe_opts.retprobe = true;
+    skel->links.handle_execution_response_ret = bpf_program__attach_uprobe_opts(skel->progs.handle_execution_response_ret, pid, cm_path, 0, &uprobe_opts);
+    if (!skel->links.handle_execution_response_ret) std::cerr << "Failed to attach handle_execution_response_ret\n";
+
+    uprobe_opts.func_name = "_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE";
+    uprobe_opts.retprobe = false;
+    skel->links.processRequest_entry = bpf_program__attach_uprobe_opts(skel->progs.processRequest_entry, pid, me_path, 0, &uprobe_opts);
+    if (!skel->links.processRequest_entry) std::cerr << "Failed to attach processRequest_entry\n";
+
+    uprobe_opts.func_name = "_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE";
+    uprobe_opts.retprobe = true;
+    skel->links.processRequest_ret = bpf_program__attach_uprobe_opts(skel->progs.processRequest_ret, pid, me_path, 0, &uprobe_opts);
+    if (!skel->links.processRequest_ret) std::cerr << "Failed to attach processRequest_ret\n";
+
     struct ring_buffer *ring_buf = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, nullptr, nullptr);
     if (!ring_buf) {
         std::cerr << "Failed to create ring buffer manager\n";
@@ -424,7 +250,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    std::cout << "[Latency Tracer] Started. Monitoring TCP port " << selected_port << "...\n";
+    std::cout << "[Latency Tracer (Kernel-Matched)] Started. Monitoring TCP port " << selected_port << "...\n";
     std::cout << "TSC Frequency: " << std::fixed << std::setprecision(2) << (tsc_hz / 1e9) << " GHz\n";
     std::cout << "Press Ctrl+C to exit.\n\n";
 
@@ -446,10 +272,10 @@ int main(int argc, char *argv[]) {
     ring_buffer__free(ring_buf);
     lat_tracer_bpf__destroy(skel);
     
-    std::cout << "\n[Latency Tracer] Final Latency Summary:\n";
+    std::cout << "\n[Latency Tracer (Kernel-Matched)] Final Latency Summary:\n";
     last_printed_lines = 0;
     print_stats_table();
     
-    std::cout << "[Latency Tracer] Stopped.\n";
+    std::cout << "[Latency Tracer (Kernel-Matched)] Stopped.\n";
     return 0;
 }
