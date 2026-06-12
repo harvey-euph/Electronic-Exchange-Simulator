@@ -82,6 +82,17 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
 
   const bidsRef = useRef<Map<bigint, bigint>>(new Map());
   const asksRef = useRef<Map<bigint, bigint>>(new Map());
+  const pricesRef = useRef<Map<number, bigint>>(new Map());
+
+  // Periodically flush market data refs to React state (throttle renders)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setBids(new Map(bidsRef.current));
+      setAsks(new Map(asksRef.current));
+      setPrices(new Map(pricesRef.current));
+    }, 500);
+    return () => clearInterval(timer);
+  }, []);
 
   const addMgmtLog = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -527,11 +538,6 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
 
         if (side === Side.Buy) {
           if (sId === activeSymbolId) {
-            setBids(prev => { 
-              const next = new Map(prev); 
-              if (q === BigInt(0)) next.delete(p); else next.set(p, q); 
-              return next; 
-            });
             if (q === BigInt(0)) {
               bidsRef.current.delete(p);
             } else {
@@ -540,20 +546,11 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
           }
           
           // Always update prices for total value calculation
-          setPrices(pPrev => {
-            const pNext = new Map(pPrev);
-            if (q > 0n) {
-              pNext.set(sId, p); // Simple approximation: latest bid price
-            }
-            return pNext;
-          });
+          if (q > 0n) {
+            pricesRef.current.set(sId, p);
+          }
         } else if (side === Side.Sell) {
           if (sId === activeSymbolId) {
-            setAsks(prev => { 
-              const next = new Map(prev); 
-              if (q === BigInt(0)) next.delete(p); else next.set(p, q); 
-              return next; 
-            });
             if (q === BigInt(0)) {
               asksRef.current.delete(p);
             } else {

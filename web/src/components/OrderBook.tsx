@@ -92,12 +92,12 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
             Cash has no orderbook.
           </div>
         ) : (
-          <table className="modern-table">
+          <table className="modern-table" style={{ tableLayout: 'fixed', width: '100%' }}>
             <thead>
               <tr>
                 <th style={{ width: '60px' }}>Level</th>
                 <th style={{ textAlign: 'right' }}>Price</th>
-                <th style={{ textAlign: 'right' }}>Size</th>
+                <th style={{ width: '80px', textAlign: 'right' }}>Size</th>
               </tr>
             </thead>
             <tbody>
