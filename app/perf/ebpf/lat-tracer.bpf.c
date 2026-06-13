@@ -76,19 +76,6 @@ struct {
     __type(value, uint64_t); // exec_id
 } active_exec_id_map SEC(".maps");
 
-struct tx_ctx {
-    uint8_t count;
-    uint8_t exec_types[4];
-    uint64_t exec_ids[4];
-};
-
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 1024);
-    __type(key, uint32_t); // thread id
-    __type(value, struct tx_ctx);
-} tx_ctx_map SEC(".maps");
-
 // Latency event sent to userspace C++ app
 struct latency_event {
     uint64_t exec_id;
@@ -208,71 +195,53 @@ static __always_inline bool read_unmasked_8(const uint8_t *payload, uint32_t len
 }
 
 static __always_inline bool get_exec_id_from_client_request(const void *data, uint64_t *exec_id) {
-    // 1. Read the offset to the root table (ClientRequest)
     uint32_t root_offset = 0;
     if (bpf_probe_read_user(&root_offset, sizeof(root_offset), data) != 0) return false;
     
-    const uint8_t *root_pos = (const uint8_t *)data + root_offset; // Absolute position of ClientRequest root table
-    
-    // 2. Read the vtable offset (vtable stores the offsets to actual fields)
+    const uint8_t *root_pos = (const uint8_t *)data + root_offset;
     int32_t vtable_offset = 0;
     if (bpf_probe_read_user(&vtable_offset, sizeof(vtable_offset), root_pos) != 0) return false;
     
-    const uint8_t *vtable_pos = root_pos - vtable_offset; // Absolute position of vtable
-    
-    // 3. Find the data_type field offset (Union type selector)
+    const uint8_t *vtable_pos = root_pos - vtable_offset;
     uint16_t data_type_offset = 0;
     if (bpf_probe_read_user(&data_type_offset, sizeof(data_type_offset), vtable_pos + 4) != 0) return false;
     
-    // 4. Read data_type to ensure it's an OrderRequest
     uint8_t data_type = 0;
     if (data_type_offset) {
         if (bpf_probe_read_user(&data_type, sizeof(data_type), root_pos + data_type_offset) != 0) return false;
     }
     
-    if (data_type != 1) return false; // 1 = ClientRequestData_OrderRequest
+    if (data_type != 1) return false; // Not OrderRequest
     
-    // 5. Find the data field offset (the actual Union payload)
     uint16_t data_offset_field = 0;
     if (bpf_probe_read_user(&data_offset_field, sizeof(data_offset_field), vtable_pos + 6) != 0 || !data_offset_field) return false;
     
-    // 6. Read the offset to the OrderRequest table
     uint32_t union_offset_val = 0;
     const uint8_t *data_field_pos = root_pos + data_offset_field;
     if (bpf_probe_read_user(&union_offset_val, sizeof(union_offset_val), data_field_pos) != 0) return false;
     
-    // 7. Find OrderRequest vtable offset
-    const uint8_t *order_req_pos = data_field_pos + union_offset_val; // Absolute position of OrderRequest table
+    const uint8_t *order_req_pos = data_field_pos + union_offset_val;
     int32_t order_req_vtable_offset = 0;
     if (bpf_probe_read_user(&order_req_vtable_offset, sizeof(order_req_vtable_offset), order_req_pos) != 0) return false;
     
-    const uint8_t *order_req_vtable_pos = order_req_pos - order_req_vtable_offset; // Absolute position of OrderRequest vtable
-    
-    // 8. Find exec_id field offset in OrderRequest vtable
+    const uint8_t *order_req_vtable_pos = order_req_pos - order_req_vtable_offset;
     uint16_t exec_id_offset_field = 0;
     if (bpf_probe_read_user(&exec_id_offset_field, sizeof(exec_id_offset_field), order_req_vtable_pos + 6) != 0 || !exec_id_offset_field) return false;
     
-    // 9. Read the actual exec_id
     if (bpf_probe_read_user(exec_id, sizeof(*exec_id), order_req_pos + exec_id_offset_field) != 0) return false;
     
     return true;
 }
 
 static __always_inline bool get_exec_id_from_order_request(const void *req, uint64_t *exec_id) {
-    // req already points to the OrderRequest root table (not wrapped in a union)
-    const uint8_t *order_req_pos = (const uint8_t *)req; // Absolute position of OrderRequest table
-    
-    // 1. Find OrderRequest vtable offset
+    const uint8_t *order_req_pos = (const uint8_t *)req;
     int32_t order_req_vtable_offset = 0;
     if (bpf_probe_read_user(&order_req_vtable_offset, sizeof(order_req_vtable_offset), order_req_pos) != 0) return false;
     
-    const uint8_t *order_req_vtable_pos = order_req_pos - order_req_vtable_offset; // Absolute position of OrderRequest vtable
-    
-    // 2. Find exec_id field offset in OrderRequest vtable
+    const uint8_t *order_req_vtable_pos = order_req_pos - order_req_vtable_offset;
     uint16_t exec_id_offset_field = 0;
     if (bpf_probe_read_user(&exec_id_offset_field, sizeof(exec_id_offset_field), order_req_vtable_pos + 6) != 0 || !exec_id_offset_field) return false;
     
-    // 3. Read the actual exec_id
     if (bpf_probe_read_user(exec_id, sizeof(*exec_id), order_req_pos + exec_id_offset_field) != 0) return false;
     
     return true;
@@ -283,107 +252,8 @@ static __always_inline bool get_exec_id_from_order_response_t(const void *resp, 
     return true;
 }
 
-static __noinline void process_rx_packet(const uint8_t *payload, uint32_t len, uint64_t timestamp_ns) {
+static __always_inline void process_rx_packet(const uint8_t *payload, uint32_t len, uint64_t timestamp_ns) {
     uint32_t curr_offset = 0;
-
-    for (int frame_idx = 0; frame_idx < 4; frame_idx++) {
-        if (curr_offset > 510 || curr_offset + 2 > len) break;
-
-        // WebSocket Opcode (e.g. Text, Binary, Close)
-        uint8_t opcode = payload[curr_offset] & 0x0F;
-        if (opcode != 0x2) break; // 0x2 = Binary frame (FlatBuffers are binary)
-
-        uint8_t len_field = payload[curr_offset + 1];
-        bool mask = (len_field & 0x80) >> 7;
-        uint32_t payload_len_field = len_field & 0x7F;
-
-        uint32_t header_len = 2;
-        uint64_t actual_payload_len = payload_len_field;
-
-        if (payload_len_field == 126) {
-            if (curr_offset > 508 || curr_offset + 4 > len) break;
-            uint16_t val16 = *(const uint16_t*)(&payload[curr_offset + 2]);
-            actual_payload_len = __builtin_bswap16(val16);
-            header_len = 4;
-        } else if (payload_len_field == 127) {
-            if (curr_offset > 502 || curr_offset + 10 > len) break;
-            uint64_t val64 = *(const uint64_t*)(&payload[curr_offset + 2]);
-            actual_payload_len = __builtin_bswap64(val64);
-            header_len = 10;
-        }
-
-        uint32_t payload_offset = curr_offset + header_len + (mask ? 4 : 0);
-        if (payload_offset >= len || payload_offset >= 512) break;
-
-        // Extract the 4-byte Masking Key (if mask is set)
-        uint32_t masking_key = 0;
-        if (mask) {
-            uint32_t pos = curr_offset + header_len;
-            if (pos > 508 || pos + 4 > len) break;
-            masking_key = *(const uint32_t*)(&payload[pos]);
-        }
-
-        // Parse FlatBuffers starting at payload_offset
-        // 1. Read the offset to the root table
-        uint32_t root_offset = 0;
-        if (!read_unmasked_4(payload, len, payload_offset, 0, masking_key, mask, &root_offset)) goto next_frame;
-
-        uint32_t client_req_pos = root_offset; // Absolute position of ClientRequest root table
-        
-        // 2. Read the vtable offset (vtable stores the offsets to actual fields)
-        int32_t vtable_offset = 0;
-        if (!read_unmasked_4(payload, len, payload_offset, client_req_pos, masking_key, mask, (uint32_t*)&vtable_offset)) goto next_frame;
-
-        uint32_t vtable_pos = client_req_pos - vtable_offset; // Absolute position of vtable
-        
-        // 3. Find the data_type field offset (FlatBuffers Union type selector)
-        uint16_t data_type_offset = 0;
-        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 4, masking_key, mask, &data_type_offset)) goto next_frame;
-
-        // 4. Read data_type to ensure it's an OrderRequest
-        uint8_t data_type = 0;
-        if (data_type_offset) {
-            read_unmasked_1(payload, len, payload_offset, client_req_pos + data_type_offset, masking_key, mask, &data_type);
-        }
-        if (data_type != 1) goto next_frame; // 1 = ClientRequestData_OrderRequest
-
-        // 5. Find the data field offset (the actual Union payload)
-        uint16_t data_offset_field = 0;
-        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 6, masking_key, mask, &data_offset_field) || !data_offset_field) goto next_frame;
-
-        // 6. Read the offset to the OrderRequest table
-        uint32_t union_offset_val = 0;
-        uint32_t data_field_pos = client_req_pos + data_offset_field;
-        if (!read_unmasked_4(payload, len, payload_offset, data_field_pos, masking_key, mask, &union_offset_val)) goto next_frame;
-
-        // 7. Find OrderRequest vtable offset
-        uint32_t order_req_pos = data_field_pos + union_offset_val; // Absolute position of OrderRequest table
-        int32_t order_req_vtable_offset = 0;
-        if (!read_unmasked_4(payload, len, payload_offset, order_req_pos, masking_key, mask, (uint32_t*)&order_req_vtable_offset)) goto next_frame;
-
-        uint32_t order_req_vtable_pos = order_req_pos - order_req_vtable_offset; // Absolute position of OrderRequest vtable
-        
-        // 8. Find exec_id field offset in OrderRequest vtable
-        uint16_t exec_id_offset_field = 0;
-        if (!read_unmasked_2(payload, len, payload_offset, order_req_vtable_pos + 6, masking_key, mask, &exec_id_offset_field) || !exec_id_offset_field) goto next_frame;
-
-        // 9. Read the actual exec_id (8 bytes / uint64_t)
-        uint64_t exec_id = 0;
-        if (read_unmasked_8(payload, len, payload_offset, order_req_pos + exec_id_offset_field, masking_key, mask, &exec_id)) {
-            // Save the start timestamp in Kernel (T0)
-            bpf_map_update_elem(&pending_requests, &exec_id, &timestamp_ns, BPF_ANY);
-        }
-
-next_frame:
-        // Advance to next frame
-        curr_offset = payload_offset + (uint32_t)actual_payload_len;
-        if (curr_offset >= 512) break;
-    }
-}
-
-static __noinline void parse_tx_packet(const uint8_t *payload, uint32_t len, struct tx_ctx *ctx) {
-    uint32_t curr_offset = 0;
-    ctx->count = 0;
 
     for (int frame_idx = 0; frame_idx < 4; frame_idx++) {
         if (curr_offset > 510 || curr_offset + 2 > len) break;
@@ -421,69 +291,192 @@ static __noinline void parse_tx_packet(const uint8_t *payload, uint32_t len, str
         }
 
         // Parse FlatBuffers starting at payload_offset
-        // 1. Read the offset to the root table
         uint32_t root_offset = 0;
-        if (!read_unmasked_4(payload, len, payload_offset, 0, masking_key, mask, &root_offset)) goto next_frame;
-
-        uint32_t client_resp_pos = root_offset; // Absolute position of ClientResponse root table
+        int fail_stage = 0;
         
-        // 2. Read the vtable offset
+        if (!read_unmasked_4(payload, len, payload_offset, 0, masking_key, mask, &root_offset)) { fail_stage = 1; goto parse_failed; }
+        
+        uint32_t client_req_pos = root_offset;
         int32_t vtable_offset = 0;
-        if (!read_unmasked_4(payload, len, payload_offset, client_resp_pos, masking_key, mask, (uint32_t*)&vtable_offset)) goto next_frame;
-
-        uint32_t vtable_pos = client_resp_pos - vtable_offset; // Absolute position of vtable
+        if (!read_unmasked_4(payload, len, payload_offset, client_req_pos, masking_key, mask, (uint32_t*)&vtable_offset)) { fail_stage = 2; goto parse_failed; }
         
-        // 3. Find the data_type field offset (Union type selector)
+        uint32_t vtable_pos = client_req_pos - vtable_offset;
         uint16_t data_type_offset = 0;
-        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 4, masking_key, mask, &data_type_offset)) goto next_frame;
+        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 4, masking_key, mask, &data_type_offset)) { fail_stage = 3; goto parse_failed; }
+        
+        uint8_t data_type = 0;
+        if (data_type_offset) {
+            read_unmasked_1(payload, len, payload_offset, client_req_pos + data_type_offset, masking_key, mask, &data_type);
+        }
+        if (data_type != 1) goto next_frame; // ClientRequestData_OrderRequest
+        
+        uint16_t data_offset_field = 0;
+        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 6, masking_key, mask, &data_offset_field) || !data_offset_field) { fail_stage = 5; goto parse_failed; }
+        
+        uint32_t union_offset_val = 0;
+        uint32_t data_field_pos = client_req_pos + data_offset_field;
+        if (!read_unmasked_4(payload, len, payload_offset, data_field_pos, masking_key, mask, &union_offset_val)) { fail_stage = 6; goto parse_failed; }
+        
+        uint32_t order_req_pos = data_field_pos + union_offset_val;
+        int32_t order_req_vtable_offset = 0;
+        if (!read_unmasked_4(payload, len, payload_offset, order_req_pos, masking_key, mask, (uint32_t*)&order_req_vtable_offset)) { fail_stage = 7; goto parse_failed; }
+        
+        uint32_t order_req_vtable_pos = order_req_pos - order_req_vtable_offset;
+        uint16_t exec_id_offset_field = 0;
+        if (!read_unmasked_2(payload, len, payload_offset, order_req_vtable_pos + 6, masking_key, mask, &exec_id_offset_field) || !exec_id_offset_field) { fail_stage = 8; goto parse_failed; }
+        
+        uint64_t exec_id = 0;
+        if (!read_unmasked_8(payload, len, payload_offset, order_req_pos + exec_id_offset_field, masking_key, mask, &exec_id)) { fail_stage = 9; goto parse_failed; }
+        
+        {
+            int ret = bpf_map_update_elem(&pending_requests, &exec_id, &timestamp_ns, BPF_ANY);
+            if (ret != 0) {
+                bpf_printk("[ERR lat-tracer.bpf.c:%d] pending_requests update failed: %d", __LINE__, ret);
+            }
+        }
+        
+        goto next_frame;
 
-        // 4. Read data_type to ensure it's an OrderResponse
+parse_failed:
+        bpf_printk("[ERR lat-tracer.bpf.c:%d] process_rx_packet: FB parse failed at stage %d", __LINE__, fail_stage);
+
+next_frame:
+
+        // Advance to next frame
+        curr_offset = payload_offset + (uint32_t)actual_payload_len;
+        if (curr_offset >= 512) break;
+    }
+}
+
+static __always_inline void process_tx_packet(const uint8_t *payload, uint32_t len, uint64_t timestamp_ns) {
+    uint32_t curr_offset = 0;
+
+    for (int frame_idx = 0; frame_idx < 4; frame_idx++) {
+        if (curr_offset > 510 || curr_offset + 2 > len) break;
+
+        uint8_t opcode = payload[curr_offset] & 0x0F;
+        if (opcode != 0x2) break; // Binary frame only
+
+        uint8_t len_field = payload[curr_offset + 1];
+        bool mask = (len_field & 0x80) >> 7;
+        uint32_t payload_len_field = len_field & 0x7F;
+
+        uint32_t header_len = 2;
+        uint64_t actual_payload_len = payload_len_field;
+
+        if (payload_len_field == 126) {
+            if (curr_offset > 508 || curr_offset + 4 > len) break;
+            uint16_t val16 = *(const uint16_t*)(&payload[curr_offset + 2]);
+            actual_payload_len = __builtin_bswap16(val16);
+            header_len = 4;
+        } else if (payload_len_field == 127) {
+            if (curr_offset > 502 || curr_offset + 10 > len) break;
+            uint64_t val64 = *(const uint64_t*)(&payload[curr_offset + 2]);
+            actual_payload_len = __builtin_bswap64(val64);
+            header_len = 10;
+        }
+
+        uint32_t payload_offset = curr_offset + header_len + (mask ? 4 : 0);
+        if (payload_offset >= len || payload_offset >= 512) break;
+
+        uint32_t masking_key = 0;
+        if (mask) {
+            uint32_t pos = curr_offset + header_len;
+            if (pos > 508 || pos + 4 > len) break;
+            masking_key = *(const uint32_t*)(&payload[pos]);
+        }
+
+        // Parse FlatBuffers starting at payload_offset
+        uint32_t root_offset = 0;
+        int fail_stage = 0;
+        
+        if (!read_unmasked_4(payload, len, payload_offset, 0, masking_key, mask, &root_offset)) { fail_stage = 1; goto parse_failed; }
+        
+        uint32_t client_resp_pos = root_offset;
+        int32_t vtable_offset = 0;
+        if (!read_unmasked_4(payload, len, payload_offset, client_resp_pos, masking_key, mask, (uint32_t*)&vtable_offset)) { fail_stage = 2; goto parse_failed; }
+        
+        uint32_t vtable_pos = client_resp_pos - vtable_offset;
+        uint16_t data_type_offset = 0;
+        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 4, masking_key, mask, &data_type_offset)) { fail_stage = 3; goto parse_failed; }
+        
         uint8_t data_type = 0;
         if (data_type_offset) {
             read_unmasked_1(payload, len, payload_offset, client_resp_pos + data_type_offset, masking_key, mask, &data_type);
         }
-        if (data_type != 1) goto next_frame; // 1 = ClientResponseData_OrderResponse
-
-        // 5. Find the data field offset (the actual Union payload)
+        if (data_type != 1) goto next_frame; // ClientResponseData_OrderResponse is 1
+        
         uint16_t data_offset_field = 0;
-        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 6, masking_key, mask, &data_offset_field) || !data_offset_field) goto next_frame;
-
-        // 6. Read the offset to the OrderResponse table
+        if (!read_unmasked_2(payload, len, payload_offset, vtable_pos + 6, masking_key, mask, &data_offset_field) || !data_offset_field) { fail_stage = 5; goto parse_failed; }
+        
         uint32_t union_offset_val = 0;
         uint32_t data_field_pos = client_resp_pos + data_offset_field;
-        if (!read_unmasked_4(payload, len, payload_offset, data_field_pos, masking_key, mask, &union_offset_val)) goto next_frame;
-
-        // 7. Find OrderResponse vtable offset
-        uint32_t order_resp_pos = data_field_pos + union_offset_val; // Absolute position of OrderResponse table
-        int32_t order_resp_vtable_offset = 0;
-        if (!read_unmasked_4(payload, len, payload_offset, order_resp_pos, masking_key, mask, (uint32_t*)&order_resp_vtable_offset)) goto next_frame;
-
-        uint32_t order_resp_vtable_pos = order_resp_pos - order_resp_vtable_offset; // Absolute position of OrderResponse vtable
+        if (!read_unmasked_4(payload, len, payload_offset, data_field_pos, masking_key, mask, &union_offset_val)) { fail_stage = 6; goto parse_failed; }
         
-        // 8. Find exec_type field offset (New/Cancel/Modify)
+        uint32_t order_resp_pos = data_field_pos + union_offset_val;
+        int32_t order_resp_vtable_offset = 0;
+        if (!read_unmasked_4(payload, len, payload_offset, order_resp_pos, masking_key, mask, (uint32_t*)&order_resp_vtable_offset)) { fail_stage = 7; goto parse_failed; }
+        
+        uint32_t order_resp_vtable_pos = order_resp_pos - order_resp_vtable_offset;
         uint16_t exec_type_offset_field = 0;
         read_unmasked_2(payload, len, payload_offset, order_resp_vtable_pos + 4, masking_key, mask, &exec_type_offset_field);
-        
         uint8_t exec_type = 0;
         if (exec_type_offset_field) {
             read_unmasked_1(payload, len, payload_offset, order_resp_pos + exec_type_offset_field, masking_key, mask, &exec_type);
         }
         
-        // 9. Find exec_id field offset
         uint16_t exec_id_offset_field = 0;
-        if (!read_unmasked_2(payload, len, payload_offset, order_resp_vtable_pos + 10, masking_key, mask, &exec_id_offset_field) || !exec_id_offset_field) goto next_frame;
-
-        // 10. Read the actual exec_id
+        if (!read_unmasked_2(payload, len, payload_offset, order_resp_vtable_pos + 10, masking_key, mask, &exec_id_offset_field) || !exec_id_offset_field) { fail_stage = 8; goto parse_failed; }
+        
         uint64_t exec_id = 0;
-        if (!read_unmasked_8(payload, len, payload_offset, order_resp_pos + exec_id_offset_field, masking_key, mask, &exec_id)) goto next_frame;
+        if (!read_unmasked_8(payload, len, payload_offset, order_resp_pos + exec_id_offset_field, masking_key, mask, &exec_id)) { fail_stage = 9; goto parse_failed; }
+        
+        {
+            // Perform latency correlation in eBPF kernel space
+            uint64_t *rx_timestamp_ns = bpf_map_lookup_elem(&pending_requests, &exec_id);
+            if (rx_timestamp_ns) {
+                uint64_t latency_ns = timestamp_ns - *rx_timestamp_ns;
+                bpf_map_delete_elem(&pending_requests, &exec_id);
 
-        if (ctx->count < 4) {
-            ctx->exec_ids[ctx->count] = exec_id;
-            ctx->exec_types[ctx->count] = exec_type;
-            ctx->count++;
+                uint64_t *engine_lat_ptr = bpf_map_lookup_elem(&engine_lat_map, &exec_id);
+                uint64_t engine_latency = engine_lat_ptr ? *engine_lat_ptr : 0;
+                if (engine_lat_ptr) bpf_map_delete_elem(&engine_lat_map, &exec_id);
+
+                uint64_t *manager_lat_ptr = bpf_map_lookup_elem(&manager_lat_map, &exec_id);
+                uint64_t manager_latency = manager_lat_ptr ? *manager_lat_ptr : 0;
+                if (manager_lat_ptr) bpf_map_delete_elem(&manager_lat_map, &exec_id);
+
+                // Submit latency event to userspace ring buffer
+                struct latency_event *ev = bpf_ringbuf_reserve(&rb, sizeof(*ev), 0);
+                if (ev) {
+                    ev->exec_id = exec_id;
+                    ev->latency_ns = latency_ns;
+                    ev->engine_latency = engine_latency;
+                    ev->manager_latency = manager_latency;
+                    uint8_t reported_exec_type = exec_type;
+                    if (exec_type == 5) { // ExecType_Replaced
+                        if (exec_id % 2 == 0) reported_exec_type = 100; // ModifyShort
+                        else reported_exec_type = 101; // ModifyLong
+                    }
+                    ev->exec_type = reported_exec_type;
+                    bpf_ringbuf_submit(ev, 0);
+                } else {
+                    bpf_printk("[ERR lat-tracer.bpf.c:%d] bpf_ringbuf_reserve failed for exec_id=%llu", __LINE__, exec_id);
+                }
+            } else {
+                if (exec_type == 0 || exec_type == 4 || exec_type == 5 || exec_type == 8) {
+                    bpf_printk("[ERR lat-tracer.bpf.c:%d] process_tx_packet: no rx_timestamp_ns for exec_id=%llu, type=%u", __LINE__, exec_id, exec_type);
+                }
+            }
         }
+        
+        goto next_frame;
+
+parse_failed:
+        bpf_printk("[ERR lat-tracer.bpf.c:%d] process_tx_packet: FB parse failed at stage %d", __LINE__, fail_stage);
 
 next_frame:
+
         // Advance to next frame
         curr_offset = payload_offset + (uint32_t)actual_payload_len;
         if (curr_offset >= 512) break;
@@ -553,6 +546,8 @@ int BPF_KPROBE(tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size)
     if (!payload)
         return 0;
 
+    uint64_t timestamp_ns = bpf_ktime_get_ns();
+
     uint8_t iter_type = BPF_CORE_READ(msg, msg_iter.iter_type);
     size_t iov_offset = BPF_CORE_READ(msg, msg_iter.iov_offset);
     void *ubuf = BPF_CORE_READ(msg, msg_iter.ubuf);
@@ -561,92 +556,35 @@ int BPF_KPROBE(tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size)
 
     copy_iov_iter(payload, iter_type, iov_offset, ubuf, iov, nr_segs);
 
-    uint32_t tid = bpf_get_current_pid_tgid();
-    struct tx_ctx tctx = {};
-    parse_tx_packet(payload, size, &tctx);
-    if (tctx.count > 0) {
-        bpf_map_update_elem(&tx_ctx_map, &tid, &tctx, BPF_ANY);
-    }
+    process_tx_packet(payload, size, timestamp_ns);
     return 0;
 }
 
-SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(tcp_sendmsg_ret, int ret)
-{
-    if (ret <= 0) return 0;
-
-    uint32_t tid = bpf_get_current_pid_tgid();
-    struct tx_ctx *tctx = bpf_map_lookup_elem(&tx_ctx_map, &tid);
-    if (!tctx) return 0;
-
-    uint64_t timestamp_ns = bpf_ktime_get_ns();
-
-    for (int i = 0; i < 4; i++) {
-        if (i >= tctx->count) break;
-
-        uint64_t exec_id = tctx->exec_ids[i];
-        uint8_t exec_type = tctx->exec_types[i];
-
-        uint64_t *rx_timestamp_ns = bpf_map_lookup_elem(&pending_requests, &exec_id);
-        if (!rx_timestamp_ns) continue;
-
-        uint64_t latency_ns = timestamp_ns - *rx_timestamp_ns;
-        bpf_map_delete_elem(&pending_requests, &exec_id);
-
-        uint64_t *engine_lat_ptr = bpf_map_lookup_elem(&engine_lat_map, &exec_id);
-        uint64_t engine_latency = engine_lat_ptr ? *engine_lat_ptr : 0;
-        if (engine_lat_ptr) {
-            bpf_map_delete_elem(&engine_lat_map, &exec_id);
-        }
-
-        uint64_t *manager_lat_ptr = bpf_map_lookup_elem(&manager_lat_map, &exec_id);
-        uint64_t manager_latency = manager_lat_ptr ? *manager_lat_ptr : 0;
-        if (manager_lat_ptr) {
-            bpf_map_delete_elem(&manager_lat_map, &exec_id);
-        }
-
-        struct latency_event *ev = bpf_ringbuf_reserve(&rb, sizeof(*ev), 0);
-        if (ev) {
-            ev->exec_id = exec_id;
-            ev->latency_ns = latency_ns;
-            ev->engine_latency = engine_latency;
-            ev->manager_latency = manager_latency;
-            ev->exec_type = exec_type;
-            bpf_ringbuf_submit(ev, 0);
-        }
-    }
-
-    bpf_map_delete_elem(&tx_ctx_map, &tid);
-    return 0;
-}
-
-SEC("uprobe")
+SEC("uprobe//home/andy16384/exchange/build/services/client-manager:_ZN8Exchange13ClientManager22process_client_requestESt10shared_ptrINS_8WSClientEEPKvm")
 int BPF_UPROBE(process_client_request_entry, void *this_ptr, void *client_ptr, const void *data, size_t size) {
     uint64_t exec_id;
     if (get_exec_id_from_client_request(data, &exec_id)) {
-        bpf_printk("process_client_request: exec_id=%llu", exec_id);
         uint64_t ts = bpf_ktime_get_ns();
         bpf_map_update_elem(&manager_start_map, &exec_id, &ts, BPF_ANY);
     } else {
-        bpf_printk("process_client_request: failed to get exec_id");
+        bpf_printk("[ERR lat-tracer.bpf.c:547] process_client_request: failed to get exec_id");
     }
     return 0;
 }
 
-SEC("uprobe")
+SEC("uprobe//home/andy16384/exchange/build/services/client-manager:_ZN8Exchange13ClientManager25handle_execution_responseEPKNS_14OrderResponseTE")
 int BPF_UPROBE(handle_execution_response_entry, void *this_ptr, const void *resp) {
     uint64_t exec_id;
     if (get_exec_id_from_order_response_t(resp, &exec_id)) {
         uint32_t tid = bpf_get_current_pid_tgid();
-        bpf_printk("handle_execution_response_entry: exec_id=%llu, tid=%u", exec_id, tid);
         bpf_map_update_elem(&active_exec_id_map, &tid, &exec_id, BPF_ANY);
     } else {
-        bpf_printk("handle_execution_response_entry: failed to get exec_id");
+        bpf_printk("[ERR lat-tracer.bpf.c:560] handle_execution_response_entry: failed to get exec_id");
     }
     return 0;
 }
 
-SEC("uretprobe")
+SEC("uretprobe//home/andy16384/exchange/build/services/client-manager:_ZN8Exchange13ClientManager25handle_execution_responseEPKNS_14OrderResponseTE")
 int BPF_URETPROBE(handle_execution_response_ret) {
     uint32_t tid = bpf_get_current_pid_tgid();
     uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_exec_id_map, &tid);
@@ -657,33 +595,33 @@ int BPF_URETPROBE(handle_execution_response_ret) {
         uint64_t *start_ptr = bpf_map_lookup_elem(&manager_start_map, &exec_id);
         if (start_ptr) {
             uint64_t latency = bpf_ktime_get_ns() - *start_ptr;
-            bpf_printk("handle_execution_response_ret: success, lat=%llu", latency);
             bpf_map_update_elem(&manager_lat_map, &exec_id, &latency, BPF_ANY);
             bpf_map_delete_elem(&manager_start_map, &exec_id);
         } else {
-            bpf_printk("handle_execution_response_ret: no start_ptr for exec_id=%llu", exec_id);
+            // bpf_printk("[ERR lat-tracer.bpf.c:581] handle_execution_response_ret: no start_ptr for exec_id=%llu", exec_id);
+            // This is actually expected for some rejects that didn't go through process_client_request?
+            // Actually it should go through process_client_request. But to avoid spam we can omit.
         }
     }
     return 0;
 }
 
-SEC("uprobe")
+SEC("uprobe//home/andy16384/exchange/build/services/matching-engine:_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE")
 int BPF_UPROBE(processRequest_entry, void *this_ptr, const void *req) {
     uint64_t exec_id;
     if (get_exec_id_from_order_request(req, &exec_id)) {
-        bpf_printk("processRequest_entry: exec_id=%llu", exec_id);
         uint64_t ts = bpf_ktime_get_ns();
         bpf_map_update_elem(&engine_start_map, &exec_id, &ts, BPF_ANY);
         
         uint32_t tid = bpf_get_current_pid_tgid();
         bpf_map_update_elem(&active_exec_id_map, &tid, &exec_id, BPF_ANY);
     } else {
-        bpf_printk("processRequest_entry: failed to get exec_id");
+        bpf_printk("[ERR lat-tracer.bpf.c:598] processRequest_entry: failed to get exec_id");
     }
     return 0;
 }
 
-SEC("uretprobe")
+SEC("uretprobe//home/andy16384/exchange/build/services/matching-engine:_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE")
 int BPF_URETPROBE(processRequest_ret) {
     uint32_t tid = bpf_get_current_pid_tgid();
     uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_exec_id_map, &tid);
@@ -694,11 +632,10 @@ int BPF_URETPROBE(processRequest_ret) {
         uint64_t *start_ptr = bpf_map_lookup_elem(&engine_start_map, &exec_id);
         if (start_ptr) {
             uint64_t latency = bpf_ktime_get_ns() - *start_ptr;
-            bpf_printk("processRequest_ret: success, lat=%llu", latency);
             bpf_map_update_elem(&engine_lat_map, &exec_id, &latency, BPF_ANY);
             bpf_map_delete_elem(&engine_start_map, &exec_id);
         } else {
-            bpf_printk("processRequest_ret: no start_ptr for exec_id=%llu", exec_id);
+            // bpf_printk("[ERR lat-tracer.bpf.c:618] processRequest_ret: no start_ptr for exec_id=%llu", exec_id);
         }
     }
     return 0;

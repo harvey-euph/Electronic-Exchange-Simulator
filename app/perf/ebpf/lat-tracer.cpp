@@ -60,7 +60,10 @@ static double tsc_hz = 0.0;
 static std::string get_row_label(Exchange::ExecType type) {
     if (type == Exchange::ExecType_New) return "New";
     if (type == Exchange::ExecType_Replaced) return "Modify";
+    if (static_cast<int>(type) == 100) return "Modify-Short";
+    if (static_cast<int>(type) == 101) return "Modify-Long";
     if (type == Exchange::ExecType_Cancelled) return "Cancel";
+    if (type == Exchange::ExecType_Rejected) return "Reject";
     return "Unknown";
 }
 
@@ -123,8 +126,10 @@ static void print_stats_table() {
 
     std::vector<Exchange::ExecType> types_order = {
         Exchange::ExecType_New,
-        Exchange::ExecType_Replaced,
-        Exchange::ExecType_Cancelled
+        static_cast<Exchange::ExecType>(100),
+        static_cast<Exchange::ExecType>(101),
+        Exchange::ExecType_Cancelled,
+        Exchange::ExecType_Rejected
     };
 
     for (auto type : types_order) {
@@ -152,7 +157,9 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
     auto *ev = static_cast<latency_event*>(data);
 
     Exchange::ExecType exec_type = static_cast<Exchange::ExecType>(ev->exec_type);
-    if ((~Exchange::EXEC_MASK_LATENCY_TRACK >> exec_type) & 1) return 0;
+    if (ev->exec_type != 100 && ev->exec_type != 101 && ev->exec_type != Exchange::ExecType_Rejected) {
+        if ((~Exchange::EXEC_MASK_LATENCY_TRACK >> exec_type) & 1) return 0;
+    }
 
     uint64_t latency_ns = ev->latency_ns;
     uint64_t engine_lat = ev->engine_latency;
