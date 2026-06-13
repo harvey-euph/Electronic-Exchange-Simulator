@@ -5,6 +5,7 @@
 #include <string>
 #include <thread>
 #include <functional>
+#include <atomic>
 
 namespace Exchange {
 
@@ -16,6 +17,7 @@ class WSClient {
 public:
     virtual ~WSClient() = default;
     virtual void send(const void* data, size_t size) = 0;
+    std::atomic_bool is_ready{false};
 };
 
 using WSClientPtr = std::shared_ptr<WSClient>;

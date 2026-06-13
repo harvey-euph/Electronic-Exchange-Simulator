@@ -58,10 +58,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
             }
 
             // 4. Set ready for this client session
-            {
-                std::lock_guard<std::mutex> ready_guard(ready_mutex_);
-                ready_sessions_.insert(client);
-            }
+            client->is_ready.store(true, std::memory_order_release);
 
             // 5. Send ready frame (OrderResponse with ExecType=Complete)
             flatbuffers::FlatBufferBuilder fbb(128);
@@ -83,10 +80,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
                     client_sessions_.erase(it);
                 }
             }
-            {
-                std::lock_guard<std::mutex> ready_guard(ready_mutex_);
-                ready_sessions_.erase(client);
-            }
+            client->is_ready.store(false, std::memory_order_release);
             std::cout << "[ClientManager] Client " << client_id << " disconnected." << std::endl;
         }
     };
@@ -110,10 +104,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
             }
             ++it;
         }
-        {
-            std::lock_guard<std::mutex> ready_guard(ready_mutex_);
-            ready_sessions_.erase(client);
-        }
+        client->is_ready.store(false, std::memory_order_release);
     };
     
     auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
@@ -132,12 +123,9 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
     (void) size;
 
     // Check session readiness
-    {
-        std::lock_guard<std::mutex> ready_guard(ready_mutex_);
-        if (ready_sessions_.find(client) == ready_sessions_.end()) {
-            // Optionally send an error or just ignore
-            return;
-        }
+    if (!client->is_ready.load(std::memory_order_acquire)) {
+        // Optionally send an error or just ignore
+        return;
     }
 
     auto request = flatbuffers::GetRoot<ClientRequest>(data);
