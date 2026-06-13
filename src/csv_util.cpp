@@ -407,22 +407,19 @@ void CSVDataGen::processRequest(
     uint64_t quantity)
 {
     fbb_.Clear();
-    const auto req = CreateOrderRequest(
-        fbb_,
-        action,
-        req_id_ - 1,
-        order_id,
-        client_id,
-        SYMBOL_ID,
-        side,
-        OrderType_Limit,
-        price,
-        quantity,
-        0,
-        timestamp_ - 1);
-
-    fbb_.Finish(req);
-    book_.processRequest(flatbuffers::GetRoot<OrderRequest>(fbb_.GetBufferPointer()));
+    OrderRequestT* req = book_.req_pool_.allocate();
+    req->action = action;
+    req->exec_id = req_id_ - 1;
+    req->order_id = order_id;
+    req->client_id = client_id;
+    req->symbol_id = SYMBOL_ID;
+    req->side = side;
+    req->type = OrderType_Limit;
+    req->p = price;
+    req->q = quantity;
+    req->timestamp = timestamp_ - 1;
+    
+    book_.processRequest(req);
 }
 
 void CSVDataGen::writeRow(

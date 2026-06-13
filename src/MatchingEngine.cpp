@@ -17,9 +17,10 @@ int MatchingEngine::poll_server() {
     void* data_ptr = nullptr;
     size_t data_size = 0;
     if (request_ring_->dequeue(&data_ptr, &data_size)) {
-        if (!data_ptr || !data_size) return 0;
+        if (!data_ptr || data_size != sizeof(uint32_t)) return 0;
 
-        auto req = flatbuffers::GetRoot<OrderRequest>(data_ptr);
+        uint32_t req_index = *reinterpret_cast<uint32_t*>(data_ptr);
+        auto req = book_->req_pool_.get_pointer(req_index);
         book_->processRequest(req);
 
         // g_current_request_start_tsc = 0;

@@ -8,6 +8,7 @@
 #include "L3Updater.hpp"
 #include "fbs/exchange_generated.h"
 #include "ring/SHMRingBuffer.hpp"
+#include "Mempool.hpp"
 #include "Order.hpp"
 
 #include "gtest/gtest_prod.h"
@@ -59,7 +60,12 @@ public:
 
     ~OrderBook();
 
-    __attribute__((noinline)) void processRequest(const OrderRequest* req);
+    __attribute__((noinline)) void processRequest(OrderRequestT* req);
+
+    Mempool<OrderRequestT> req_pool_;
+    Mempool<OrderResponseT> resp_pool_;
+    Mempool<Order> order_pool_;
+
 
 private:
     const uint64_t symbol_id_;
@@ -82,7 +88,7 @@ private:
         return 0;
     }
 
-    Order* createOrder(const OrderRequest* req);
+    Order* createOrder(const OrderRequestT* req);
 
     std::vector<PriceLevel> price_array_;
     std::unordered_map<uint64_t, Order*> active_orders_;
@@ -96,9 +102,9 @@ private:
                       uint64_t exec_id, Side side, int64_t p, uint64_t q,
                       RejectCode reject_code = RejectCode_None);
 
-    void handleNewOrder(const OrderRequest* req, bool report_ack = true);
-    void handleCancelOrder(const OrderRequest* req, bool report_cancelled = true);
-    void handleModifyOrder(const OrderRequest* req);
+    void handleNewOrder(const OrderRequestT* req, bool report_ack = true);
+    void handleCancelOrder(const OrderRequestT* req, bool report_cancelled = true);
+    void handleModifyOrder(const OrderRequestT* req);
 
     // Linked list 操作
     void insertOrderToLevel(PriceLevel* level, Order* order, Side side);

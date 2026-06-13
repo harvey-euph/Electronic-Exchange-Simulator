@@ -11,6 +11,8 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
     , request_ring_(request_ring)
     , response_ring_(response_ring)
     , db_(db)
+    , req_pool_("order_request_pool", ORDER_REQUEST_SIZE)
+    , resp_pool_("order_response_pool", ORDER_RESPONSE_SIZE)
 {
     std::cout << "[ClientManager] Initializing on port " << port << std::endl;
 
@@ -135,16 +137,12 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
             
-            // logOrderRequest(order_req, "[ClientManager] Received Order Request:");
-
-            flatbuffers::FlatBufferBuilder fbb(256);
-            auto or_offset = CreateOrderRequest(fbb, 
-                order_req->action(), order_req->exec_id(), order_req->order_id(), 
-                order_req->client_id(), order_req->symbol_id(), order_req->side(), 
-                order_req->type(), order_req->p(), order_req->q(), 
-                order_req->visible_qty(), order_req->timestamp());
-            fbb.Finish(or_offset);
-            request_ring_->enqueue(fbb.GetBufferPointer(), fbb.GetSize());
+            OrderRequestT* order_req_t = req_pool_.allocate();
+            if (order_req_t) {
+                order_req->UnPackTo(order_req_t);
+                uint32_t index = req_pool_.get_index(order_req_t);
+                request_ring_->enqueue(&index, sizeof(uint32_t));
+            }
             break;
         }
         case ClientRequestData_PositionRequest: {
@@ -218,9 +216,11 @@ int ClientManager::poll_server() {
     void* data_ptr = nullptr;
     size_t data_size = 0;
     if (response_ring_->dequeue(&data_ptr, &data_size)) {
-        if (data_ptr && data_size >= sizeof(OrderResponseT)) {
-            auto resp = reinterpret_cast<const OrderResponseT*>(data_ptr);
+        if (data_ptr && data_size == sizeof(uint32_t)) {
+            uint32_t index = *reinterpret_cast<uint32_t*>(data_ptr);
+            auto resp = resp_pool_.get_pointer(index);
             handle_execution_response(resp);
+            resp_pool_.deallocate(resp);
             return 1;
         }
     }

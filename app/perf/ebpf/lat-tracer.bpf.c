@@ -234,16 +234,7 @@ static __always_inline bool get_exec_id_from_client_request(const void *data, ui
 }
 
 static __always_inline bool get_exec_id_from_order_request(const void *req, uint64_t *exec_id) {
-    const uint8_t *order_req_pos = (const uint8_t *)req;
-    int32_t order_req_vtable_offset = 0;
-    if (bpf_probe_read_user(&order_req_vtable_offset, sizeof(order_req_vtable_offset), order_req_pos) != 0) return false;
-    
-    const uint8_t *order_req_vtable_pos = order_req_pos - order_req_vtable_offset;
-    uint16_t exec_id_offset_field = 0;
-    if (bpf_probe_read_user(&exec_id_offset_field, sizeof(exec_id_offset_field), order_req_vtable_pos + 6) != 0 || !exec_id_offset_field) return false;
-    
-    if (bpf_probe_read_user(exec_id, sizeof(*exec_id), order_req_pos + exec_id_offset_field) != 0) return false;
-    
+    if (bpf_probe_read_user(exec_id, sizeof(*exec_id), (const uint8_t *)req + 8) != 0) return false;
     return true;
 }
 
@@ -606,7 +597,7 @@ int BPF_URETPROBE(handle_execution_response_ret) {
     return 0;
 }
 
-SEC("uprobe//home/andy16384/exchange/build/services/matching-engine:_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE")
+SEC("uprobe//home/andy16384/exchange/build/services/matching-engine:_ZN8Exchange9OrderBook14processRequestEPNS_13OrderRequestTE")
 int BPF_UPROBE(processRequest_entry, void *this_ptr, const void *req) {
     uint64_t exec_id;
     if (get_exec_id_from_order_request(req, &exec_id)) {
@@ -621,7 +612,7 @@ int BPF_UPROBE(processRequest_entry, void *this_ptr, const void *req) {
     return 0;
 }
 
-SEC("uretprobe//home/andy16384/exchange/build/services/matching-engine:_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE")
+SEC("uretprobe//home/andy16384/exchange/build/services/matching-engine:_ZN8Exchange9OrderBook14processRequestEPNS_13OrderRequestTE")
 int BPF_URETPROBE(processRequest_ret) {
     uint32_t tid = bpf_get_current_pid_tgid();
     uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_exec_id_map, &tid);

@@ -9,6 +9,7 @@
 #include <map>
 #include <set>
 #include <mutex>
+#include "Mempool.hpp"
 #include <vector>
 #include <unordered_map>
 
@@ -34,6 +35,9 @@ private:
     std::map<uint32_t, std::shared_ptr<std::mutex>> client_locks_;
     std::mutex sessions_mutex_;
     // std::unordered_map<uint64_t, uint64_t> order_start_times_;
+    
+    Mempool<OrderRequestT> req_pool_;
+    Mempool<OrderResponseT> resp_pool_;
 };
 
 } // namespace Exchange

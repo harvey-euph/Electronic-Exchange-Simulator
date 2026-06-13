@@ -248,12 +248,12 @@ int main(int argc, char *argv[]) {
     skel->links.handle_execution_response_ret = bpf_program__attach_uprobe_opts(skel->progs.handle_execution_response_ret, pid, cm_path, 0, &uprobe_opts);
     if (!skel->links.handle_execution_response_ret) std::cerr << "Failed to attach handle_execution_response_ret\n";
 
-    uprobe_opts.func_name = "_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE";
+    uprobe_opts.func_name = "_ZN8Exchange9OrderBook14processRequestEPNS_13OrderRequestTE";
     uprobe_opts.retprobe = false;
     skel->links.processRequest_entry = bpf_program__attach_uprobe_opts(skel->progs.processRequest_entry, pid, me_path, 0, &uprobe_opts);
     if (!skel->links.processRequest_entry) std::cerr << "Failed to attach processRequest_entry\n";
 
-    uprobe_opts.func_name = "_ZN8Exchange9OrderBook14processRequestEPKNS_12OrderRequestE";
+    uprobe_opts.func_name = "_ZN8Exchange9OrderBook14processRequestEPNS_13OrderRequestTE";
     uprobe_opts.retprobe = true;
     skel->links.processRequest_ret = bpf_program__attach_uprobe_opts(skel->progs.processRequest_ret, pid, me_path, 0, &uprobe_opts);
     if (!skel->links.processRequest_ret) std::cerr << "Failed to attach processRequest_ret\n";
