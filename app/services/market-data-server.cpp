@@ -72,11 +72,9 @@ private:
                 std::lock_guard<std::mutex> lock(subs_mutex_);
                 if (md_type == MDType_L2) {
                     l2_subscribers_[symbol_id].erase(client);
-                    client->unsubscribe(symbol_id);
                     std::cout << "[MarketDataServer] Client unsubscribed L2 for symbol " << symbol_id << std::endl;
                 } else if (md_type == MDType_L3) {
                     l3_subscribers_[symbol_id].erase(client);
-                    client->unsubscribe(symbol_id);
                     std::cout << "[MarketDataServer] Client unsubscribed L3 for symbol " << symbol_id << std::endl;
                 }
                 return;
@@ -90,7 +88,6 @@ private:
                         std::lock_guard<std::mutex> lock(subs_mutex_);
                         l2_subscribers_[symbol_id].insert(client);
                     }
-                    client->subscribe(symbol_id);
                     std::cout << "[MarketDataServer] Client subscribed L2 for symbol " << symbol_id << std::endl;
 
                     // Send snapshot
@@ -127,7 +124,6 @@ private:
                         std::lock_guard<std::mutex> lock(subs_mutex_);
                         l3_subscribers_[symbol_id].insert(client);
                     }
-                    client->subscribe(symbol_id);
                     std::cout << "[MarketDataServer] Client subscribed L3 for symbol " << symbol_id << std::endl;
 
                     // Send snapshot

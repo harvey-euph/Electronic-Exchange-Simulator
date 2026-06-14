@@ -1,5 +1,6 @@
 #include "WSAdaptor.hpp"
 #include "ThreadUtil.hpp"
+#include "fbs/exchange_generated.h"
 #include <cstdlib>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -28,9 +29,6 @@ namespace Exchange {
 class WSSession : public WSClient, public std::enable_shared_from_this<WSSession> {
     websocket::stream<beast::tcp_stream> ws_;
     beast::flat_buffer buffer_;
-    std::set<uint32_t> subscriptions_;
-    bool subscribe_all_ = false;
-    std::mutex sub_mutex_;
     
     std::queue<std::string> write_queue_;
     std::mutex write_mutex_;
@@ -45,12 +43,12 @@ class WSSession : public WSClient, public std::enable_shared_from_this<WSSession
     
 public:
     explicit WSSession(tcp::socket&& socket, 
-                       WSAdaptor::SubscribeHandler sub_handler, 
+                       WSAdaptor::SubscribeHandler sub_handler,
                        WSAdaptor::MarketDataRequestHandler md_req_handler,
                        WSAdaptor::MessageHandler msg_handler,
                        WSAdaptor::CloseHandler close_handler) 
         : ws_(std::move(socket)), 
-          sub_handler_(sub_handler), 
+          sub_handler_(sub_handler),
           md_req_handler_(md_req_handler),
           msg_handler_(msg_handler),
           close_handler_(close_handler)
@@ -64,16 +62,6 @@ public:
     }
 
     bool is_closed() const { return closed_; }
-
-    void subscribe(uint32_t symbol_id) override {
-        std::lock_guard<std::mutex> lock(sub_mutex_);
-        subscriptions_.insert(symbol_id);
-    }
-
-    void unsubscribe(uint32_t symbol_id) override {
-        std::lock_guard<std::mutex> lock(sub_mutex_);
-        subscriptions_.erase(symbol_id);
-    }
 
     void on_close() {
         if (!closed_.exchange(true)) {
@@ -122,7 +110,7 @@ public:
                 std::string msg = beast::buffers_to_string(buffer_.data());
                 buffer_.consume(buffer_.size());
                 
-                bool is_fbs_sub = false;
+                bool is_fbs_req = false;
                 if (msg.size() >= 8) {
                     flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
                     if (Exchange::VerifyMarketDataRequestBuffer(verifier)) {
@@ -130,33 +118,27 @@ public:
                         if (md_req_handler_) {
                             md_req_handler_(shared_from_this(), req);
                         } else if (sub_handler_) {
-                            uint32_t sym = req->symbol_id();
-                            {
-                                std::lock_guard<std::mutex> lock(sub_mutex_);
-                                subscriptions_.insert(sym);
-                            }
-                            sub_handler_(shared_from_this(), sym, true);
+                            sub_handler_(shared_from_this(), req->symbol_id(), true);
                         }
-                        is_fbs_sub = true;
+                        is_fbs_req = true;
                     }
                 }
                 
-                if (!is_fbs_sub) {
-                    std::lock_guard<std::mutex> lock(sub_mutex_);
+                if (!is_fbs_req) {
                     if (msg.find("sub ") == 0) {
                         try {
                             uint32_t sym = std::stoul(msg.substr(4));
-                            subscriptions_.insert(sym);
                             if (sub_handler_) sub_handler_(shared_from_this(), sym, true);
                         } catch (...) {}
                     } else if (msg.find("unsub ") == 0) {
                         try {
                             uint32_t sym = std::stoul(msg.substr(6));
-                            subscriptions_.erase(sym);
                             if (sub_handler_) sub_handler_(shared_from_this(), sym, false);
                         } catch (...) {}
                     } else {
-                        if (msg_handler_) msg_handler_(shared_from_this(), msg.data(), msg.size());
+                        if (msg_handler_) {
+                            msg_handler_(shared_from_this(), msg.data(), msg.size());
+                        }
                     }
                 }
             }
@@ -168,26 +150,11 @@ public:
 
     // WSClient implementation
     void send(const void* data, size_t size) override {
-        send_internal(std::string(static_cast<const char*>(data), size), 0, true);
-    }
-
-    void send_market_data(const std::string& data, uint32_t symbol_id) {
-        send_internal(data, symbol_id, false);
-    }
-
-private:
-    void send_internal(std::string data, uint32_t symbol_id, bool bypass_sub_check) {
-        if (!bypass_sub_check) {
-            std::lock_guard<std::mutex> lock(sub_mutex_);
-            if (!subscribe_all_ && subscriptions_.find(symbol_id) == subscriptions_.end()) {
-                return;
-            }
-        }
-
-        net::post(ws_.get_executor(), [this, self = shared_from_this(), data = std::move(data)]() mutable {
+        std::string msg(static_cast<const char*>(data), size);
+        net::post(ws_.get_executor(), [this, self = shared_from_this(), msg = std::move(msg)]() mutable {
             {
                 std::lock_guard<std::mutex> lock(write_mutex_);
-                write_queue_.push(std::move(data));
+                write_queue_.push(std::move(msg));
                 if (writing_) return;
                 writing_ = true;
             }
@@ -195,6 +162,7 @@ private:
         });
     }
 
+private:
     net::awaitable<void> write_loop() {
         try {
             for (;;) {
@@ -285,20 +253,7 @@ public:
         }
     }
 
-    void broadcast_market_data(const std::string& data, uint32_t symbol_id) {
-        std::lock_guard<std::mutex> lock(session_mutex_);
-        for (auto it = sessions_.begin(); it != sessions_.end();) {
-            if ((*it)->is_closed()) {
-                it = sessions_.erase(it);
-            } else {
-                (*it)->send_market_data(data, symbol_id);
-                ++it;
-            }
-        }
-    }
-
     void broadcast_all(const void* data, size_t size) {
-        std::string msg(static_cast<const char*>(data), size);
         std::lock_guard<std::mutex> lock(session_mutex_);
         for (auto it = sessions_.begin(); it != sessions_.end();) {
             if ((*it)->is_closed()) {
@@ -339,16 +294,6 @@ WSAdaptor::~WSAdaptor() = default;
 
 size_t WSAdaptor::poll() {
     return pimpl_->poll();
-}
-
-void WSAdaptor::publish(const Exchange::L2Update* l2_update, const void* raw_data, size_t raw_size) {
-    std::string data(static_cast<const char*>(raw_data), raw_size);
-    pimpl_->listener->broadcast_market_data(data, l2_update->symbol_id());
-}
-
-void WSAdaptor::publish(const Exchange::L3Update* l3_update, const void* raw_data, size_t raw_size) {
-    std::string data(static_cast<const char*>(raw_data), raw_size);
-    pimpl_->listener->broadcast_market_data(data, l3_update->symbol_id());
 }
 
 void WSAdaptor::set_subscribe_handler(SubscribeHandler handler) {

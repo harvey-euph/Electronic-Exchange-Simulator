@@ -1,6 +1,4 @@
 #pragma once
-#include "L2OutputAdaptor.hpp"
-#include "L3OutputAdaptor.hpp"
 #include <memory>
 #include <string>
 #include <thread>
@@ -19,8 +17,6 @@ class WSClient {
 public:
     virtual ~WSClient() = default;
     virtual void send(const void* data, size_t size) = 0;
-    virtual void subscribe(uint32_t symbol_id) = 0;
-    virtual void unsubscribe(uint32_t symbol_id) = 0;
     std::atomic_bool is_ready{false};
 };
 
@@ -29,18 +25,13 @@ using WSClientPtr = std::shared_ptr<WSClient>;
 /**
  * @brief WebSocket 適配器實作
  */
-class WSAdaptor : public L2OutputAdaptor, public L3OutputAdaptor {
+class WSAdaptor {
 public:
     WSAdaptor(int port);
     virtual ~WSAdaptor();
 
     size_t poll();
 
-    // Market Data Broadcasting
-    void publish(const Exchange::L2Update* l2_update, const void* raw_data, size_t raw_size) override;
-    void publish(const Exchange::L3Update* l3_update, const void* raw_data, size_t raw_size) override;
-
-    // Subscription & Binary Message Handlers
     using SubscribeHandler = std::function<void(WSClientPtr client, uint32_t id, bool is_subscribe)>;
     void set_subscribe_handler(SubscribeHandler handler);
 
