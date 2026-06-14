@@ -7,40 +7,48 @@ L2Publisher::L2Publisher(int port, SHMRingBuffer* ring_buffer)
     : ws_adaptor_(std::make_shared<WSAdaptor>(port))
     , ring_buffer_(ring_buffer)
 {
-    auto subscribe_handler = [this](WSClientPtr client, uint32_t symbol_id, bool is_subscribe) {
-        if (!is_subscribe) return;
-
-        auto book = get_or_create_book(symbol_id);
+    auto md_req_handler = [this](WSClientPtr client, const MarketDataRequest* req) {
+        if (req->md_type() != MDType_L2) {
+            return; // ignore if not L2 request
+        }
         
-        flatbuffers::FlatBufferBuilder fbb(1024);
+        uint32_t symbol_id = req->symbol_id();
+        if (req->sub_type() == SubType_subscribe) {
+            client->subscribe(symbol_id);
+            
+            auto book = get_or_create_book(symbol_id);
+            flatbuffers::FlatBufferBuilder fbb(1024);
 
-        // 1. Send empty frame (Side=None) to clear old data
-        {
-            auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_None, 0, 0, 0);
-            fbb.Finish(l2_update);
-            client->send(fbb.GetBufferPointer(), fbb.GetSize());
-        }
-
-        // 2. Send snapshots
-        {
-            std::lock_guard<std::mutex> lock(book->mutex);
-            for (auto const& [price, qty] : book->bids) {
-                fbb.Clear();
-                auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Buy, price, qty, 0);
+            // 1. Send empty frame (Side=None) to clear old data
+            {
+                auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_None, 0, 0, 0);
                 fbb.Finish(l2_update);
                 client->send(fbb.GetBufferPointer(), fbb.GetSize());
             }
-            for (auto const& [price, qty] : book->asks) {
-                fbb.Clear();
-                auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Sell, price, qty, 0);
-                fbb.Finish(l2_update);
-                client->send(fbb.GetBufferPointer(), fbb.GetSize());
+
+            // 2. Send snapshots
+            {
+                std::lock_guard<std::mutex> lock(book->mutex);
+                for (auto const& [price, qty] : book->bids) {
+                    fbb.Clear();
+                    auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Buy, price, qty, 0);
+                    fbb.Finish(l2_update);
+                    client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                }
+                for (auto const& [price, qty] : book->asks) {
+                    fbb.Clear();
+                    auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Sell, price, qty, 0);
+                    fbb.Finish(l2_update);
+                    client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                }
             }
+            std::cout << "[L2Publisher] Sent snapshot for symbol " << symbol_id << " to new subscriber." << std::endl;
+        } else if (req->sub_type() == SubType_unsubscribe) {
+            client->unsubscribe(symbol_id);
         }
-        std::cout << "[L2Publisher] Sent snapshot for symbol " << symbol_id << " to new subscriber." << std::endl;
     };
 
-    ws_adaptor_->set_subscribe_handler(subscribe_handler);
+    ws_adaptor_->set_market_data_request_handler(md_req_handler);
 }
 
 int L2Publisher::poll_client() {

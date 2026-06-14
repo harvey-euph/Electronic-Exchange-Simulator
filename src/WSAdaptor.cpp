@@ -39,16 +39,19 @@ class WSSession : public WSClient, public std::enable_shared_from_this<WSSession
     std::string remote_info_;
 
     WSAdaptor::SubscribeHandler sub_handler_;
+    WSAdaptor::MarketDataRequestHandler md_req_handler_;
     WSAdaptor::MessageHandler msg_handler_;
     WSAdaptor::CloseHandler close_handler_;
     
 public:
     explicit WSSession(tcp::socket&& socket, 
                        WSAdaptor::SubscribeHandler sub_handler, 
+                       WSAdaptor::MarketDataRequestHandler md_req_handler,
                        WSAdaptor::MessageHandler msg_handler,
                        WSAdaptor::CloseHandler close_handler) 
         : ws_(std::move(socket)), 
           sub_handler_(sub_handler), 
+          md_req_handler_(md_req_handler),
           msg_handler_(msg_handler),
           close_handler_(close_handler)
     {
@@ -61,6 +64,16 @@ public:
     }
 
     bool is_closed() const { return closed_; }
+
+    void subscribe(uint32_t symbol_id) override {
+        std::lock_guard<std::mutex> lock(sub_mutex_);
+        subscriptions_.insert(symbol_id);
+    }
+
+    void unsubscribe(uint32_t symbol_id) override {
+        std::lock_guard<std::mutex> lock(sub_mutex_);
+        subscriptions_.erase(symbol_id);
+    }
 
     void on_close() {
         if (!closed_.exchange(true)) {
@@ -114,11 +127,15 @@ public:
                     flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
                     if (Exchange::VerifyMarketDataRequestBuffer(verifier)) {
                         auto req = Exchange::GetMarketDataRequest(msg.data());
-                        uint32_t sym = req->symbol_id();
-                        {
-                            std::lock_guard<std::mutex> lock(sub_mutex_);
-                            subscriptions_.insert(sym);
-                            if (sub_handler_) sub_handler_(shared_from_this(), sym, true);
+                        if (md_req_handler_) {
+                            md_req_handler_(shared_from_this(), req);
+                        } else if (sub_handler_) {
+                            uint32_t sym = req->symbol_id();
+                            {
+                                std::lock_guard<std::mutex> lock(sub_mutex_);
+                                subscriptions_.insert(sym);
+                            }
+                            sub_handler_(shared_from_this(), sym, true);
                         }
                         is_fbs_sub = true;
                     }
@@ -211,6 +228,7 @@ class WSListener : public std::enable_shared_from_this<WSListener> {
     std::set<std::shared_ptr<WSSession>> sessions_;
     std::mutex session_mutex_;
     WSAdaptor::SubscribeHandler sub_handler_;
+    WSAdaptor::MarketDataRequestHandler md_req_handler_;
     WSAdaptor::MessageHandler msg_handler_;
     WSAdaptor::CloseHandler close_handler_;
 
@@ -234,6 +252,10 @@ public:
         sub_handler_ = handler;
     }
 
+    void set_market_data_request_handler(WSAdaptor::MarketDataRequestHandler handler) {
+        md_req_handler_ = handler;
+    }
+
     void set_message_handler(WSAdaptor::MessageHandler handler) {
         msg_handler_ = handler;
     }
@@ -250,7 +272,7 @@ public:
                 boost::system::error_code ec_nodelay;
                 socket.set_option(tcp::no_delay(true), ec_nodelay);
                 
-                auto session = std::make_shared<WSSession>(std::move(socket), sub_handler_, msg_handler_, close_handler_);
+                auto session = std::make_shared<WSSession>(std::move(socket), sub_handler_, md_req_handler_, msg_handler_, close_handler_);
                 std::cout << "[WSListener] Accepted new connection. Starting session..." << std::endl;
                 {
                     std::lock_guard<std::mutex> lock(session_mutex_);
@@ -331,6 +353,10 @@ void WSAdaptor::publish(const Exchange::L3Update* l3_update, const void* raw_dat
 
 void WSAdaptor::set_subscribe_handler(SubscribeHandler handler) {
     pimpl_->listener->set_subscribe_handler(handler);
+}
+
+void WSAdaptor::set_market_data_request_handler(MarketDataRequestHandler handler) {
+    pimpl_->listener->set_market_data_request_handler(handler);
 }
 
 void WSAdaptor::set_message_handler(MessageHandler handler) {

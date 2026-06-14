@@ -220,11 +220,20 @@ int AlgoTradingClient::run() {
     // Subscriptions
     mgmt_client_->send_text("sub " + std::to_string(config_.client_id));
     for (auto sym : config_.symbol_ids) {
-        flatbuffers::FlatBufferBuilder fbb(128);
-        auto req = CreateMarketDataRequest(fbb, sym);
-        fbb.Finish(req);
-        l2_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
-        l3_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
+        // L2 Subscription
+        {
+            flatbuffers::FlatBufferBuilder fbb(128);
+            auto req = CreateMarketDataRequest(fbb, sym, MDType_L2, SubType_subscribe);
+            fbb.Finish(req);
+            l2_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
+        }
+        // L3 Subscription
+        {
+            flatbuffers::FlatBufferBuilder fbb(128);
+            auto req = CreateMarketDataRequest(fbb, sym, MDType_L3, SubType_subscribe);
+            fbb.Finish(req);
+            l3_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
+        }
     }
 
     while (running_) {

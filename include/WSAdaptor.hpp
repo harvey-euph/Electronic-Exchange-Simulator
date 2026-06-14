@@ -13,10 +13,14 @@ namespace Exchange {
  * @brief 抽象的 WebSocket 用戶端控制句柄 (Opaque Handle)
  * 應用層不需要知道具體的 Session 實作
  */
+struct MarketDataRequest;
+
 class WSClient {
 public:
     virtual ~WSClient() = default;
     virtual void send(const void* data, size_t size) = 0;
+    virtual void subscribe(uint32_t symbol_id) = 0;
+    virtual void unsubscribe(uint32_t symbol_id) = 0;
     std::atomic_bool is_ready{false};
 };
 
@@ -39,6 +43,9 @@ public:
     // Subscription & Binary Message Handlers
     using SubscribeHandler = std::function<void(WSClientPtr client, uint32_t id, bool is_subscribe)>;
     void set_subscribe_handler(SubscribeHandler handler);
+
+    using MarketDataRequestHandler = std::function<void(WSClientPtr client, const MarketDataRequest* req)>;
+    void set_market_data_request_handler(MarketDataRequestHandler handler);
 
     using MessageHandler = std::function<void(WSClientPtr client, const void* data, size_t size)>;
     void set_message_handler(MessageHandler handler);

@@ -7,48 +7,56 @@ L3Publisher::L3Publisher(int port, SHMRingBuffer* ring_buffer)
     : ws_adaptor_(std::make_shared<WSAdaptor>(port))
     , ring_buffer_(ring_buffer)
 {
-    auto subscribe_handler = [this](WSClientPtr client, uint32_t symbol_id, bool is_subscribe) {
-        if (!is_subscribe) return;
-
-        auto book = get_or_create_book(symbol_id);
+    auto md_req_handler = [this](WSClientPtr client, const MarketDataRequest* req) {
+        if (req->md_type() != MDType_L3) {
+            return; // ignore if not L3 request
+        }
         
-        flatbuffers::FlatBufferBuilder fbb(1024);
+        uint32_t symbol_id = req->symbol_id();
+        if (req->sub_type() == SubType_subscribe) {
+            client->subscribe(symbol_id);
+            
+            auto book = get_or_create_book(symbol_id);
+            flatbuffers::FlatBufferBuilder fbb(1024);
 
-        // 1. Send empty frame (ExecType=Complete, Side=None) to clear old data
-        {
-            auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_Complete, 0, 0, Side_None, 0, 0, 0);
-            fbb.Finish(l3_update);
-            client->send(fbb.GetBufferPointer(), fbb.GetSize());
-        }
+            // 1. Send empty frame (ExecType=Complete, Side=None) to clear old data
+            {
+                auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_Complete, 0, 0, Side_None, 0, 0, 0);
+                fbb.Finish(l3_update);
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
+            }
 
-        // 2. Send snapshots
-        {
-            std::lock_guard<std::mutex> lock(book->mutex);
-            // Bids (highest to lowest)
-            for (auto it = book->bids.rbegin(); it != book->bids.rend(); ++it) {
-                for (uint64_t order_id : it->second) {
-                    auto const& order = book->orders.at(order_id);
-                    fbb.Clear();
-                    auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
-                    fbb.Finish(l3_update);
-                    client->send(fbb.GetBufferPointer(), fbb.GetSize());
+            // 2. Send snapshots
+            {
+                std::lock_guard<std::mutex> lock(book->mutex);
+                // Bids (highest to lowest)
+                for (auto it = book->bids.rbegin(); it != book->bids.rend(); ++it) {
+                    for (uint64_t order_id : it->second.queue) {
+                        auto const& order = book->orders.at(order_id);
+                        fbb.Clear();
+                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
+                        fbb.Finish(l3_update);
+                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                    }
+                }
+                // Asks (lowest to highest)
+                for (auto const& [price, level] : book->asks) {
+                    for (uint64_t order_id : level.queue) {
+                        auto const& order = book->orders.at(order_id);
+                        fbb.Clear();
+                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
+                        fbb.Finish(l3_update);
+                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                    }
                 }
             }
-            // Asks (lowest to highest)
-            for (auto const& [price, queue] : book->asks) {
-                for (uint64_t order_id : queue) {
-                    auto const& order = book->orders.at(order_id);
-                    fbb.Clear();
-                    auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
-                    fbb.Finish(l3_update);
-                    client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                }
-            }
+            std::cout << "[L3Publisher] Sent snapshot (" << book->orders.size() << " orders) for symbol " << symbol_id << " to new subscriber." << std::endl;
+        } else if (req->sub_type() == SubType_unsubscribe) {
+            client->unsubscribe(symbol_id);
         }
-        std::cout << "[L3Publisher] Sent snapshot (" << book->orders.size() << " orders) for symbol " << symbol_id << " to new subscriber." << std::endl;
     };
 
-    ws_adaptor_->set_subscribe_handler(subscribe_handler);
+    ws_adaptor_->set_market_data_request_handler(md_req_handler);
 }
 
 int L3Publisher::poll_client() {

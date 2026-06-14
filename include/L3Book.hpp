@@ -21,13 +21,18 @@ struct L3Order {
     std::list<uint64_t>::iterator queue_pos;
 };
 
+struct L3PriceLevel {
+    uint64_t total_qty = 0;
+    std::list<uint64_t> queue; // order IDs
+};
+
 struct L3Book {
     uint32_t symbol_id = 0;
     std::unordered_map<uint64_t, L3Order> orders;
     
-    // Price levels with queue of order IDs (Price -> [order_id, ...])
-    std::map<int64_t, std::list<uint64_t>, std::greater<int64_t>> bids;
-    std::map<int64_t, std::list<uint64_t>> asks;
+    // Price levels with queue of order IDs and total quantity
+    std::map<int64_t, L3PriceLevel, std::greater<int64_t>> bids;
+    std::map<int64_t, L3PriceLevel> asks;
     
     std::mutex mutex;
 
@@ -46,9 +51,10 @@ struct L3Book {
                 if (orders.count(order_id)) {
                     remove_from_queues(order_id);
                 }
-                auto& queue = (side == Side_Buy) ? bids[price] : asks[price];
-                queue.push_back(order_id);
-                orders[order_id] = {order_id, side, price, qty, std::prev(queue.end())};
+                auto& level = (side == Side_Buy) ? bids[price] : asks[price];
+                level.queue.push_back(order_id);
+                level.total_qty += qty;
+                orders[order_id] = {order_id, side, price, qty, std::prev(level.queue.end())};
                 break;
             }
             case ExecType_Fill:
@@ -61,6 +67,25 @@ struct L3Book {
                 auto it = orders.find(order_id);
                 if (it != orders.end()) {
                     if (it->second.qty > qty) {
+                        if (it->second.side == Side_Buy) {
+                            auto level_it = bids.find(it->second.price);
+                            if (level_it != bids.end()) {
+                                if (level_it->second.total_qty >= qty) {
+                                    level_it->second.total_qty -= qty;
+                                } else {
+                                    level_it->second.total_qty = 0;
+                                }
+                            }
+                        } else {
+                            auto level_it = asks.find(it->second.price);
+                            if (level_it != asks.end()) {
+                                if (level_it->second.total_qty >= qty) {
+                                    level_it->second.total_qty -= qty;
+                                } else {
+                                    level_it->second.total_qty = 0;
+                                }
+                            }
+                        }
                         it->second.qty -= qty;
                     } else {
                         // This shouldn't happen if OrderBook is consistent, 
@@ -76,16 +101,20 @@ struct L3Book {
                 if (it != orders.end()) {
                     if (it->second.price != price || it->second.side != side) {
                         remove_from_queues(order_id);
-                        auto& queue = (side == Side_Buy) ? bids[price] : asks[price];
-                        queue.push_back(order_id);
-                        it->second = {order_id, side, price, qty, std::prev(queue.end())};
+                        auto& level = (side == Side_Buy) ? bids[price] : asks[price];
+                        level.queue.push_back(order_id);
+                        level.total_qty += qty;
+                        it->second = {order_id, side, price, qty, std::prev(level.queue.end())};
                     } else {
+                        auto& level = (side == Side_Buy) ? bids[price] : asks[price];
+                        level.total_qty = level.total_qty - it->second.qty + qty;
                         it->second.qty = qty;
                     }
                 } else {
-                    auto& queue = (side == Side_Buy) ? bids[price] : asks[price];
-                    queue.push_back(order_id);
-                    orders[order_id] = {order_id, side, price, qty, std::prev(queue.end())};
+                    auto& level = (side == Side_Buy) ? bids[price] : asks[price];
+                    level.queue.push_back(order_id);
+                    level.total_qty += qty;
+                    orders[order_id] = {order_id, side, price, qty, std::prev(level.queue.end())};
                 }
                 break;
             }
@@ -101,14 +130,24 @@ struct L3Book {
         if (it->second.side == Side_Buy) {
             auto level_it = bids.find(it->second.price);
             if (level_it != bids.end()) {
-                level_it->second.erase(it->second.queue_pos);
-                if (level_it->second.empty()) bids.erase(level_it);
+                if (level_it->second.total_qty >= it->second.qty) {
+                    level_it->second.total_qty -= it->second.qty;
+                } else {
+                    level_it->second.total_qty = 0;
+                }
+                level_it->second.queue.erase(it->second.queue_pos);
+                if (level_it->second.queue.empty()) bids.erase(level_it);
             }
         } else if (it->second.side == Side_Sell) {
             auto level_it = asks.find(it->second.price);
             if (level_it != asks.end()) {
-                level_it->second.erase(it->second.queue_pos);
-                if (level_it->second.empty()) asks.erase(level_it);
+                if (level_it->second.total_qty >= it->second.qty) {
+                    level_it->second.total_qty -= it->second.qty;
+                } else {
+                    level_it->second.total_qty = 0;
+                }
+                level_it->second.queue.erase(it->second.queue_pos);
+                if (level_it->second.queue.empty()) asks.erase(level_it);
             }
         }
     }
@@ -158,13 +197,12 @@ struct L3Book {
         } else {
             for (int i = static_cast<int>(ask_prices.size()) - 1; i >= 0; --i) {
                 int64_t p = ask_prices[i];
-                auto const& queue = asks.at(p);
-                uint64_t total_q = 0;
+                auto const& level = asks.at(p);
+                uint64_t total_q = level.total_qty;
                 std::stringstream ss;
                 int o_count = 0;
-                for (uint64_t oid : queue) {
+                for (uint64_t oid : level.queue) {
                     uint64_t oq = orders.at(oid).qty;
-                    total_q += oq;
                     if (o_count < 5) {
                         if (o_count > 0) ss << " -> ";
                         ss << oq;
@@ -191,14 +229,13 @@ struct L3Book {
             print_empty_row("(No Bids)");
         } else {
             int i = 0;
-            for (auto const& [p, queue] : bids) {
+            for (auto const& [p, level] : bids) {
                 if (++i > depth_limit) break;
-                uint64_t total_q = 0;
+                uint64_t total_q = level.total_qty;
                 std::stringstream ss;
                 int o_count = 0;
-                for (uint64_t oid : queue) {
+                for (uint64_t oid : level.queue) {
                     uint64_t oq = orders.at(oid).qty;
-                    total_q += oq;
                     if (o_count < 5) {
                         if (o_count > 0) ss << " -> ";
                         ss << oq;

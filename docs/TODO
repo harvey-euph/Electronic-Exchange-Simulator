@@ -1,8 +1,6 @@
 ## TODO
 
-- [ ] 修改資訊處理邏輯
-    - 有多個 client_manager 放在不同 port，也有多個 response_ringbuf，都是 client_id 的 (simple) hash function 決定
-    - 有多個 request ringbuf + orderbook，ringbuf 可以是 symbol_id 的 (simple) hash function 結果，但是 orderbook 是 symbol-wise 的
-    - 根據 client_id 決定連接哪個 client_manager port (多對一) 處理 client risk check
-    - 根據 symbol_id 塞到 symbol-wise (ringbuf + orderbook)，match 完畢放到 client-
-    - 一個 ringbuf 對應一條 thread/core
+- [ ] benchmark tooling & latency statistics
+    - Make a complete statistical tool to tell if a change make the latency better
+    - Check the usdt doesn't make huge impact on performance
+    : Create a ebpf only trace on tcp_recv -> tcp_send, compare between tracing usdt situation and not

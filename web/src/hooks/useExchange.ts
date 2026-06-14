@@ -18,6 +18,8 @@ import type { OrderData, ConnectedState, SymbolPosition, SymbolInfoData } from '
 import { formatPrice, parsePrice } from '../types';
 import { MarketDataRequest } from '../fbs/exchange/market-data-request';
 import { SymbolInfo } from '../fbs/exchange/symbol-info';
+import { MDType } from '../fbs/exchange/mdtype';
+import { SubType } from '../fbs/exchange/sub-type';
 
 /**
  * Simple DJB2-like hash for mapping alphanumeric strings to uint32
@@ -160,6 +162,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         const builder = new flatbuffers.Builder(128);
         MarketDataRequest.startMarketDataRequest(builder);
         MarketDataRequest.addSymbolId(builder, activeSymbolId);
+        MarketDataRequest.addMdType(builder, MDType.L2);
+        MarketDataRequest.addSubType(builder, SubType.subscribe);
         const offset = MarketDataRequest.endMarketDataRequest(builder);
         MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
         l2WsRef.current.send(builder.asUint8Array() as any);
@@ -173,6 +177,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       const builder = new flatbuffers.Builder(128);
       MarketDataRequest.startMarketDataRequest(builder);
       MarketDataRequest.addSymbolId(builder, sId);
+      MarketDataRequest.addMdType(builder, MDType.L2);
+      MarketDataRequest.addSubType(builder, SubType.subscribe);
       const offset = MarketDataRequest.endMarketDataRequest(builder);
       MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
       l2WsRef.current.send(builder.asUint8Array() as any);
@@ -492,6 +498,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         const builder = new flatbuffers.Builder(128);
         MarketDataRequest.startMarketDataRequest(builder);
         MarketDataRequest.addSymbolId(builder, sId);
+        MarketDataRequest.addMdType(builder, MDType.L2);
+        MarketDataRequest.addSubType(builder, SubType.subscribe);
         const offset = MarketDataRequest.endMarketDataRequest(builder);
         MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
         ws.send(builder.asUint8Array() as any);
@@ -500,6 +508,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         const builder = new flatbuffers.Builder(128);
         MarketDataRequest.startMarketDataRequest(builder);
         MarketDataRequest.addSymbolId(builder, 1);
+        MarketDataRequest.addMdType(builder, MDType.L2);
+        MarketDataRequest.addSubType(builder, SubType.subscribe);
         const offset = MarketDataRequest.endMarketDataRequest(builder);
         MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
         ws.send(builder.asUint8Array() as any);
