@@ -14,11 +14,12 @@ This project serves as a showcase of applying both low-level system engineering 
 ## Requires
 
 ```sh
-sudo apt install -y flatbuffers-compiler libflatbuffers-dev
-sudo apt install -y libgtest-dev libgmock-dev
-sudo apt install -y build-essential git libssl-dev zlib1g-dev libboost-all-dev
-# eBPF monitoring tools dependencies
-sudo apt install -y clang libbpf-dev bpftool
+sudo apt-get update && sudo apt-get install -y \
+  build-essential git clang \
+  libssl-dev zlib1g-dev libboost-all-dev \
+  flatbuffers-compiler libflatbuffers-dev \
+  libgtest-dev libgmock-dev \
+  libbpf-dev bpftool systemtap-sdt-dev
 ```
 
 ## Log in process
