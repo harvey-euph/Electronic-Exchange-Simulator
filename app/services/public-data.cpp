@@ -17,15 +17,14 @@
 #include "ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
 #include "DbUtil.hpp"
+#include "SymbolDatabase.hpp"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
-
-
-net::awaitable<void> do_session(tcp::socket socket)
+net::awaitable<void> do_session(tcp::socket socket, std::shared_ptr<Exchange::SymbolDatabase> db)
 {
     beast::tcp_stream stream(std::move(socket));
     beast::flat_buffer buffer;
@@ -65,45 +64,16 @@ net::awaitable<void> do_session(tcp::socket socket)
                         int64_t max_price = 0;
                         bool found = false;
 
-                        try {
-                            auto conn = Exchange::DbUtil::getDbConnection();
-                            pqxx::work w(*conn);
-                            pqxx::result r = w.exec(
-                                "SELECT name, p_exp, min_step_raw, min_price_raw, max_price_raw FROM symbols WHERE symbol_id = $1",
-                                pqxx::params{symbol_id}
-                            );
-                            if (!r.empty()) {
-                                name = r[0][0].as<std::string>();
-                                price_exp = r[0][1].as<int32_t>();
-                                min_step = r[0][2].as<int64_t>();
-                                min_price = r[0][3].as<int64_t>();
-                                max_price = r[0][4].as<int64_t>();
-                                found = true;
-                            }
-                        } catch (const std::exception& e) {
-                            // Suppress warning output but fall back gracefully
-                            struct InternalSymbolInfo {
-                                std::string name;
-                                int32_t price_exp;
-                                int64_t min_step;
-                                int64_t min_price;
-                                int64_t max_price;
-                            };
-                            static const std::unordered_map<uint32_t, InternalSymbolInfo> internal_symbols = {
-                                {1, {"BTC", -2, 25, 3000000, 12000000}},
-                                {2, {"ETH", -2, 10, 150000, 600000}},
-                                {3, {"SOL", -3, 5, 5000, 500000}}
-                            };
-                            auto it = internal_symbols.find(symbol_id);
-                            if (it != internal_symbols.end()) {
-                                name = it->second.name;
-                                price_exp = it->second.price_exp;
-                                min_step = it->second.min_step;
-                                min_price = it->second.min_price;
-                                max_price = it->second.max_price;
-                                found = true;
-                            }
+                        Exchange::DbSymbolInfo info;
+                        if (db && db->getSymbolInfo(symbol_id, info)) {
+                            name = info.name;
+                            price_exp = info.price_exp;
+                            min_step = info.min_step;
+                            min_price = info.min_price;
+                            max_price = info.max_price;
+                            found = true;
                         }
+
 
                         if (found) {
                             flatbuffers::FlatBufferBuilder builder(256);
@@ -143,13 +113,13 @@ net::awaitable<void> do_session(tcp::socket socket)
     }
 }
 
-net::awaitable<void> do_listen(tcp::endpoint endpoint) {
+net::awaitable<void> do_listen(tcp::endpoint endpoint, std::shared_ptr<Exchange::SymbolDatabase> db) {
     auto executor = co_await net::this_coro::executor;
     tcp::acceptor acceptor(executor, endpoint);
 
     for (;;) {
         tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
-        net::co_spawn(executor, do_session(std::move(socket)), net::detached);
+        net::co_spawn(executor, do_session(std::move(socket), db), net::detached);
     }
 }
 
@@ -161,7 +131,14 @@ int main() {
             Exchange::set_thread_affinity(main_core, "PublicData_Main");
         }
         
-        net::co_spawn(ioc, do_listen({net::ip::make_address("0.0.0.0"), PORT_PUBLIC_DATA}), net::detached);
+#ifdef USE_PGSQL
+        auto db = std::make_shared<Exchange::PostgresSymbolDatabase>(Exchange::DbUtil::getConnectionString());
+#else
+        auto db = std::make_shared<Exchange::InMemorySymbolDatabase>();
+#endif
+
+        net::co_spawn(ioc, do_listen({net::ip::make_address("0.0.0.0"), PORT_PUBLIC_DATA}, db), net::detached);
+
 
         std::cout << "[PublicData] Listening on 0.0.0.0:" << PORT_PUBLIC_DATA << " (Coroutine mode)" << std::endl;
         ioc.run();

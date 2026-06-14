@@ -36,8 +36,23 @@ CLIENT_PERF_DIR := app/client-perf
 TEST_DIR := tests
 FBS_DIR := fbs
 FBS_OUT := include/fbs
+# Detect if postgres is running and set USE_PGSQL accordingly, unless specified
+ifndef USE_PGSQL
+    ifeq ($(shell ./scripts/check_pgsql_running >/dev/null 2>&1; echo $$?),0)
+        USE_PGSQL := 1
+    else
+        USE_PGSQL := 0
+    endif
+endif
+
 LDLIBS := -lgtest -lgtest_main -pthread -lrt -lpqxx -lpq
+
+ifeq ($(USE_PGSQL),1)
+    CXXFLAGS += -DUSE_PGSQL
+endif
+
 TEST_LDLIBS := -lgtest -lgtest_main -pthread -lrt
+
 
 # -----------------------------------------------------------------------------
 # FlatBuffers
@@ -53,8 +68,12 @@ FBS_GENERATED := $(patsubst $(FBS_DIR)/%.fbs,$(FBS_OUT)/%_generated.h,$(FBS_SOUR
 # -----------------------------------------------------------------------------
 
 SRC_SOURCES := $(wildcard $(SRC_DIR)/*.cpp)
+ifeq ($(USE_PGSQL),0)
+    SRC_SOURCES := $(filter-out $(SRC_DIR)/PostgresClientDatabase.cpp $(SRC_DIR)/PostgresSymbolDatabase.cpp,$(SRC_SOURCES))
+endif
 SRC_OBJECTS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SRC_SOURCES))
 SRC_DEPS := $(SRC_OBJECTS:.o=.d)
+
 
 # -----------------------------------------------------------------------------
 # Service Executables
@@ -135,7 +154,7 @@ $(BUILD_DIR)/services/%: $(SERVICE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 
 $(BUILD_DIR)/client-agents/%: $(AGENT_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/client-agents
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/PostgresSymbolDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Build Examples
@@ -143,7 +162,7 @@ $(BUILD_DIR)/client-agents/%: $(AGENT_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 
 $(BUILD_DIR)/client-examples/%: $(EXAMPLE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/client-examples
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/PostgresSymbolDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Build Client Perf
@@ -151,7 +170,7 @@ $(BUILD_DIR)/client-examples/%: $(EXAMPLE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERA
 
 $(BUILD_DIR)/client-perf/%: $(CLIENT_PERF_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/client-perf
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/PostgresSymbolDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Build Observabilities
@@ -167,7 +186,7 @@ $(BUILD_DIR)/app/perf/%: $(OBS_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 
 $(BUILD_DIR)/tests/%: $(TEST_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/tests
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/ClientManager.o $(BUILD_DIR)/AlgoTradingClient.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/PostgresSymbolDatabase.o $(BUILD_DIR)/ClientManager.o $(BUILD_DIR)/AlgoTradingClient.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Run Tests

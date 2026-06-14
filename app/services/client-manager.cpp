@@ -11,8 +11,11 @@ int main()
 {
     setup_signals();
 
+#ifdef USE_PGSQL
+    auto db = std::make_shared<Exchange::PostgresClientDatabase>(Exchange::DbUtil::getConnectionString());
+#else
     auto db = std::make_shared<Exchange::InMemoryClientDatabase>();
-    // auto db = std::make_shared<Exchange::PostgresClientDatabase>(Exchange::DbUtil::getConnectionString());
+#endif
 
     Exchange::SHMRingBuffer* response_ring = nullptr;
     Exchange::SHMRingBuffer* request_ring = nullptr;

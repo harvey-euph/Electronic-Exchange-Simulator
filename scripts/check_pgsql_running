@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+# Default values
+DB_HOST="127.0.0.1"
+DB_PORT="5432"
+
+# Parse .env if it exists
+if [ -f .env ]; then
+    ENV_HOST=$(grep -E '^DB_HOST=' .env | cut -d'=' -f2-)
+    ENV_PORT=$(grep -E '^DB_PORT=' .env | cut -d'=' -f2-)
+    if [ -n "$ENV_HOST" ]; then
+        DB_HOST="$ENV_HOST"
+    fi
+    if [ -n "$ENV_PORT" ]; then
+        DB_PORT="$ENV_PORT"
+    fi
+fi
+
+# Trim whitespace/quotes if any
+DB_HOST=$(echo "$DB_HOST" | xargs)
+DB_PORT=$(echo "$DB_PORT" | xargs)
+
+# Check if PGSQL port is open using bash /dev/tcp
+if timeout 1 bash -c "cat < /dev/null > /dev/tcp/$DB_HOST/$DB_PORT" 2>/dev/null; then
+    echo "PostgreSQL is running on $DB_HOST:$DB_PORT"
+    exit 0
+else
+    echo "PostgreSQL is NOT running on $DB_HOST:$DB_PORT"
+    exit 1
+fi
