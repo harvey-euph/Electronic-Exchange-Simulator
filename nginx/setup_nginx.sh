@@ -32,7 +32,17 @@ DIST_DIR="$FRONTEND_DIR/dist"
 
 echo "=== 1. Installing System Packages (Nginx, Node.js, NPM) ==="
 apt-get update
-apt-get install -y nginx nodejs npm
+apt-get install -y nginx
+
+if ! command -v node &> /dev/null; then
+  echo "Node.js not found, installing..."
+  apt-get install -y nodejs
+fi
+
+if ! command -v npm &> /dev/null; then
+  echo "NPM not found, installing..."
+  apt-get install -y npm
+fi
 
 echo "=== 2. Building Frontend Application ==="
 # Run npm commands as the real user so files are owned by them, not root
