@@ -1,6 +1,5 @@
 #include "WSAdaptor.hpp"
 #include "ThreadUtil.hpp"
-#include "fbs/exchange_generated.h"
 #include <cstdlib>
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -36,20 +35,14 @@ class WSSession : public WSClient, public std::enable_shared_from_this<WSSession
     std::atomic<bool> closed_{false};
     std::string remote_info_;
 
-    WSAdaptor::SubscribeHandler sub_handler_;
-    WSAdaptor::MarketDataRequestHandler md_req_handler_;
     WSAdaptor::MessageHandler msg_handler_;
     WSAdaptor::CloseHandler close_handler_;
     
 public:
     explicit WSSession(tcp::socket&& socket, 
-                       WSAdaptor::SubscribeHandler sub_handler,
-                       WSAdaptor::MarketDataRequestHandler md_req_handler,
                        WSAdaptor::MessageHandler msg_handler,
                        WSAdaptor::CloseHandler close_handler) 
         : ws_(std::move(socket)), 
-          sub_handler_(sub_handler),
-          md_req_handler_(md_req_handler),
           msg_handler_(msg_handler),
           close_handler_(close_handler)
     {
@@ -107,40 +100,11 @@ public:
             for (;;) {
                 co_await ws_.async_read(buffer_, net::use_awaitable);
                 
-                std::string msg = beast::buffers_to_string(buffer_.data());
+                if (msg_handler_) {
+                    msg_handler_(shared_from_this(), buffer_.data().data(), buffer_.size());
+                }
+                
                 buffer_.consume(buffer_.size());
-                
-                bool is_fbs_req = false;
-                if (msg.size() >= 8) {
-                    flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(msg.data()), msg.size());
-                    if (Exchange::VerifyMarketDataRequestBuffer(verifier)) {
-                        auto req = Exchange::GetMarketDataRequest(msg.data());
-                        if (md_req_handler_) {
-                            md_req_handler_(shared_from_this(), req);
-                        } else if (sub_handler_) {
-                            sub_handler_(shared_from_this(), req->symbol_id(), true);
-                        }
-                        is_fbs_req = true;
-                    }
-                }
-                
-                if (!is_fbs_req) {
-                    if (msg.find("sub ") == 0) {
-                        try {
-                            uint32_t sym = std::stoul(msg.substr(4));
-                            if (sub_handler_) sub_handler_(shared_from_this(), sym, true);
-                        } catch (...) {}
-                    } else if (msg.find("unsub ") == 0) {
-                        try {
-                            uint32_t sym = std::stoul(msg.substr(6));
-                            if (sub_handler_) sub_handler_(shared_from_this(), sym, false);
-                        } catch (...) {}
-                    } else {
-                        if (msg_handler_) {
-                            msg_handler_(shared_from_this(), msg.data(), msg.size());
-                        }
-                    }
-                }
             }
         } catch (std::exception const& e) {
             std::cout << "[WSSession] Read loop ending for " << remote_info_ << " (" << e.what() << ")" << std::endl;
@@ -195,8 +159,6 @@ class WSListener : public std::enable_shared_from_this<WSListener> {
     tcp::acceptor acceptor_;
     std::set<std::shared_ptr<WSSession>> sessions_;
     std::mutex session_mutex_;
-    WSAdaptor::SubscribeHandler sub_handler_;
-    WSAdaptor::MarketDataRequestHandler md_req_handler_;
     WSAdaptor::MessageHandler msg_handler_;
     WSAdaptor::CloseHandler close_handler_;
 
@@ -216,14 +178,6 @@ public:
         }
     }
 
-    void set_subscribe_handler(WSAdaptor::SubscribeHandler handler) {
-        sub_handler_ = handler;
-    }
-
-    void set_market_data_request_handler(WSAdaptor::MarketDataRequestHandler handler) {
-        md_req_handler_ = handler;
-    }
-
     void set_message_handler(WSAdaptor::MessageHandler handler) {
         msg_handler_ = handler;
     }
@@ -240,7 +194,7 @@ public:
                 boost::system::error_code ec_nodelay;
                 socket.set_option(tcp::no_delay(true), ec_nodelay);
                 
-                auto session = std::make_shared<WSSession>(std::move(socket), sub_handler_, md_req_handler_, msg_handler_, close_handler_);
+                auto session = std::make_shared<WSSession>(std::move(socket), msg_handler_, close_handler_);
                 std::cout << "[WSListener] Accepted new connection. Starting session..." << std::endl;
                 {
                     std::lock_guard<std::mutex> lock(session_mutex_);
@@ -294,14 +248,6 @@ WSAdaptor::~WSAdaptor() = default;
 
 size_t WSAdaptor::poll() {
     return pimpl_->poll();
-}
-
-void WSAdaptor::set_subscribe_handler(SubscribeHandler handler) {
-    pimpl_->listener->set_subscribe_handler(handler);
-}
-
-void WSAdaptor::set_market_data_request_handler(MarketDataRequestHandler handler) {
-    pimpl_->listener->set_market_data_request_handler(handler);
 }
 
 void WSAdaptor::set_message_handler(MessageHandler handler) {

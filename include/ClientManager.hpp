@@ -20,6 +20,7 @@ public:
 
     __attribute__((noinline)) void handle_execution_response(const OrderResponseT* resp);
     __attribute__((noinline)) void process_client_request(WSClientPtr client, const void* data, size_t size);
+    __attribute__((noinline)) void handle_client_subscription(WSClientPtr client, uint32_t client_id, bool is_subscribe);
     
     int poll_client();
     int poll_server();
