@@ -51,7 +51,7 @@ ifeq ($(USE_PGSQL),1)
     CXXFLAGS += -DUSE_PGSQL
 endif
 
-TEST_LDLIBS := -lgtest -lgtest_main -pthread -lrt
+TEST_LDLIBS := -lgtest -lgtest_main -pthread -lrt -lssl -lcrypto
 
 
 # -----------------------------------------------------------------------------
