@@ -31,9 +31,6 @@ private:
     SHMRingBuffer* response_ring_;
     std::shared_ptr<ClientDatabase> db_;
     std::map<uint32_t, std::vector<WSClientPtr>> client_sessions_;
-    std::map<uint32_t, std::shared_ptr<std::mutex>> client_locks_;
-    std::mutex sessions_mutex_;
-    // std::unordered_map<uint64_t, uint64_t> order_start_times_;
 };
 
 } // namespace Exchange

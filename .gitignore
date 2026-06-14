@@ -14,10 +14,8 @@ data/*
 # eBPF Generated Files
 vmlinux.h
 *.skel.h
-app/perf/ebpf/ws_monitor
 app/perf/ebpf/lat-tracer
-app/perf/ebpf-exp/lat-tracer
-
+app/perf/ebpf/ebpf-msg-flow
 # Web Frontend Rules
 web/node_modules
 web/dist

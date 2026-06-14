@@ -87,6 +87,7 @@ struct msg_flow_event {
     uint64_t ts5;
     uint64_t ts6;
     uint64_t ts7;
+    uint64_t ts8;
     uint8_t exec_type;
     uint8_t padding[7];
 };
@@ -469,6 +470,7 @@ static __always_inline void process_tx_packet(const uint8_t *payload, uint32_t l
                     else reported_exec_type = 101; // ModifyLong
                 }
                 ev->exec_type = reported_exec_type;
+                ev->ts7 = timestamp_ns;
             }
         }
         
@@ -571,7 +573,7 @@ int BPF_KRETPROBE(tcp_sendmsg_ret, int ret)
 
     struct msg_flow_event *ev = bpf_map_lookup_elem(&flow_events, &exec_id);
     if (ev) {
-        ev->ts7 = bpf_ktime_get_ns();
+        ev->ts8 = bpf_ktime_get_ns();
         
         struct msg_flow_event *ring_ev = bpf_ringbuf_reserve(&rb, sizeof(*ring_ev), 0);
         if (ring_ev) {

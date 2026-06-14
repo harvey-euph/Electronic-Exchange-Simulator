@@ -17,7 +17,6 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
 
     auto subscribe_handler = [this](WSClientPtr client, uint32_t client_id, bool is_subscribe)
     {
-        std::lock_guard<std::mutex> sessions_guard(sessions_mutex_);
         if (is_subscribe) {
             client_sessions_[client_id].push_back(client);
             std::cout << "[ClientManager] Client " << client_id << " connected (sessions: " 
@@ -87,7 +86,6 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
     };
     
     auto close_handler = [this](WSClientPtr client) {
-        std::lock_guard<std::mutex> sessions_guard(sessions_mutex_);
         for (auto it = client_sessions_.begin(); it != client_sessions_.end(); ) {
             auto& sessions = it->second;
             auto original_size = sessions.size();
@@ -171,21 +169,18 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
     uint32_t client_id = resp->client_id;
     bool not_sent = true;
 
-    {
-        std::lock_guard<std::mutex> sessions_guard(sessions_mutex_);
-        auto it = client_sessions_.find(client_id);
-        if (it != client_sessions_.end() && !it->second.empty()) {
-            flatbuffers::FlatBufferBuilder fbb(256);
-            auto resp_offset = OrderResponse::Pack(fbb, resp);
-            auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
-            fbb.Finish(client_resp);
+    auto it = client_sessions_.find(client_id);
+    if (it != client_sessions_.end() && !it->second.empty()) {
+        flatbuffers::FlatBufferBuilder fbb(256);
+        auto resp_offset = OrderResponse::Pack(fbb, resp);
+        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
+        fbb.Finish(client_resp);
 
-            for (auto& session : it->second) {
-                session->send(fbb.GetBufferPointer(), fbb.GetSize());
-            }
-            not_sent = false;
+        for (auto& session : it->second) {
+            session->send(fbb.GetBufferPointer(), fbb.GetSize());
         }
-    }
+        not_sent = false;
+    }    
 
     DTRACE_PROBE1(exchange, exec_resp_before_db, resp->exec_id);
     db_->update_on_execution(resp, not_sent);
