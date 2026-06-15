@@ -72,6 +72,7 @@ sleep 1
 
 # Setup log file path
 BRANCH=$(run_git symbolic-ref --short HEAD 2>/dev/null || run_git rev-parse --short HEAD)
+BRANCH="${BRANCH//\//_}"
 COMMIT=$(run_git rev-parse --short=6 HEAD)
 DATE=$(date +%Y%m%d-%H%M%S)
 LOG_FILE="log/benchmark-${BRANCH}-${DATE}-${COMMIT}.log"

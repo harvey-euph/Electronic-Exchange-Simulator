@@ -27,7 +27,8 @@ jobs:
             libboost-all-dev \
             libflatbuffers-dev flatbuffers-compiler \
             libpq-dev libpqxx-dev \
-            systemtap-sdt-dev
+            systemtap-sdt-dev \
+            nodejs npm tmux
 
       - name: Setup Compiler
         run: |

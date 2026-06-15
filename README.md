@@ -20,7 +20,8 @@ sudo apt-get update && sudo apt-get install -y \
   libpq-dev libpqxx-dev \
   flatbuffers-compiler libflatbuffers-dev \
   libgtest-dev libgmock-dev \
-  libbpf-dev bpftool systemtap-sdt-dev
+  libbpf-dev bpftool systemtap-sdt-dev \
+  nodejs npm tmux
 ```
 
 ## LogOn process
