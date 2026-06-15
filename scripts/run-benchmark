@@ -74,7 +74,7 @@ sleep 1
 BRANCH=$(run_git symbolic-ref --short HEAD 2>/dev/null || run_git rev-parse --short HEAD)
 COMMIT=$(run_git rev-parse --short=6 HEAD)
 DATE=$(date +%Y%m%d-%H%M%S)
-LOG_FILE="log/benchmark-${BRANCH}-${COMMIT}-${DATE}.log"
+LOG_FILE="log/benchmark-${BRANCH}-${DATE}-${COMMIT}.log"
 mkdir -p log
 
 echo "Logging stdout to: $LOG_FILE"
