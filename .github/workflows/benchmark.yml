@@ -52,6 +52,25 @@ jobs:
               sleep 10
             fi
 
+            # Wait for SSH to become ready
+            echo "Waiting for SSH on vm-benchmark to become ready..."
+            SSH_READY=0
+            for i in $(seq 1 12); do
+              echo "Attempt $i: Checking SSH connection..."
+              if gcloud compute ssh vm-benchmark --zone="$ZONE" --quiet --ssh-flag="-o StrictHostKeyChecking=no" --ssh-flag="-o UserKnownHostsFile=/dev/null" --ssh-flag="-o ConnectTimeout=5" --command "echo 'SSH is ready'" >/dev/null 2>&1; then
+                echo "SSH is ready!"
+                SSH_READY=1
+                break
+              fi
+              echo "SSH not ready yet, waiting 5 seconds..."
+              sleep 5
+            done
+
+            if [ "$SSH_READY" -ne 1 ]; then
+              echo "Error: vm-benchmark SSH failed to become ready after 1 minute!"
+              exit 1
+            fi
+
             # Define the new branch
             NEW_BRANCH="${{ github.ref_name }}"
             echo "New branch is: $NEW_BRANCH"
