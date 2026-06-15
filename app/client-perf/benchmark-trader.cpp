@@ -24,7 +24,7 @@ volatile sig_atomic_t g_stop = 0;
 
 class BenchmarkTrader : public AlgoTradingClient {
 public:
-    BenchmarkTrader(const Config& config) : AlgoTradingClient(config), gen_(1337) 
+    BenchmarkTrader(const Config& config, bool silent = false) : AlgoTradingClient(config), silent_(silent), gen_(1337) 
     {
         config_.timer_interval_ms = 100;
         benchmark_thread_ = std::thread(&BenchmarkTrader::benchmark_loop, this);
@@ -167,7 +167,7 @@ private:
             }
             
             auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_print_time).count() >= 500) {
+            if (!silent_ && std::chrono::duration_cast<std::chrono::milliseconds>(now - last_print_time).count() >= 500) {
                 size_t recv_new = 0, recv_mod_short = 0, recv_mod_long = 0, recv_can = 0, recv_rej = 0;
                 std::string reject_info;
                 {
@@ -386,6 +386,7 @@ private:
     std::vector<double> rtts_all_;
     std::unordered_map<int, uint64_t> reject_codes_count_;
 
+    bool silent_{false};
     int current_mod_type_{0};
 
     std::mt19937 gen_;
@@ -396,7 +397,15 @@ private:
 
 } // namespace Exchange
 
-int main() {
+int main(int argc, char** argv) {
+    bool silent = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-s" || arg == "--silent") {
+            silent = true;
+        }
+    }
+
     std::signal(SIGINT, [](int) {
         std::cout << "\n[BenchmarkTrader] Caught SIGINT. Gracefully shutting down..." << std::endl;
         Exchange::g_stop = 1;
@@ -407,6 +416,6 @@ int main() {
     config.symbol_ids = {1};
     config.timer_interval_ms = 100;
 
-    Exchange::BenchmarkTrader trader(config);
+    Exchange::BenchmarkTrader trader(config, silent);
     return trader.run();
 }

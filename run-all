@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Enforce running with sudo/root privileges upfront
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root/sudo." >&2
+    exit 1
+fi
+
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BUILD_AGENT_DIR="$PROJECT_ROOT/build/client-agents"
 LOG_DIR="$PROJECT_ROOT/log"
@@ -57,6 +63,7 @@ fi
 echo ""
 echo "=== Starting Exchange Core Services ==="
 "$PROJECT_ROOT/run-services"
+$SUDO_CMD systemctl start nginx
 
 echo "Waiting 1 second for services to initialize..."
 sleep 1

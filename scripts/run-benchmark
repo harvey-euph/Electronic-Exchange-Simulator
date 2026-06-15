@@ -1,0 +1,104 @@
+#!/bin/bash
+
+# 1. Enforce running with sudo/root privileges upfront
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root/sudo." >&2
+    exit 1
+fi
+
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Ensure directory is project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+echo "=== Run Benchmark Script Started ==="
+
+# Resolve the original non-root user who invoked sudo
+RUNNING_USER="${SUDO_USER:-$USER}"
+
+# Source user's bashrc to ensure installed tools/paths are available in the root environment
+export HOME="/home/harvey"
+source /home/harvey/.bashrc || true
+export PATH="/home/harvey/.local/bin:$PATH"
+
+# Run git/make as the original user to keep build files owned by the user
+run_git() {
+    sudo -u "$RUNNING_USER" git "$@"
+}
+
+run_make() {
+    sudo -u "$RUNNING_USER" PATH="$PATH" make "$@"
+}
+
+# 2. Compile project (wait for completion)
+echo "Building project..."
+run_make -j$(nproc)
+
+# Global variables for cleanup
+EBPF_PID=""
+
+cleanup() {
+    echo "=== Performing cleanup ==="
+    # Kill ebpf-msg-flow if running
+    if [ -n "$EBPF_PID" ]; then
+        echo "Stopping ebpf-msg-flow (PID: $EBPF_PID)..."
+        sudo kill -SIGINT "$EBPF_PID" 2>/dev/null || true
+        sleep 0.5
+    fi
+    sudo pkill -SIGINT -f "ebpf-msg-flow" 2>/dev/null || true
+    
+    # Stop services
+    if tmux list-sessions -F '#S' 2>/dev/null | grep -q -x "exchange" || pgrep -f "build/services/" >/dev/null; then
+        echo "Stopping services..."
+        sudo ./kill-all || true
+    fi
+
+    # Fix log ownership if log file exists
+    if [ -n "$LOG_FILE" ] && [ -f "$LOG_FILE" ]; then
+        chown "$RUNNING_USER:$RUNNING_USER" "$LOG_FILE"
+    fi
+}
+trap cleanup EXIT
+
+# 3. Start services and wait 1s for stabilization
+echo "Starting services..."
+sudo ./run-services
+echo "Waiting 1 second for services to stabilize..."
+sleep 1
+
+# Setup log file path
+BRANCH=$(run_git symbolic-ref --short HEAD 2>/dev/null || run_git rev-parse --short HEAD)
+COMMIT=$(run_git rev-parse --short=6 HEAD)
+DATE=$(date +%Y%m%d-%H%M%S)
+LOG_FILE="log/benchmark-${BRANCH}-${COMMIT}-${DATE}.log"
+mkdir -p log
+
+echo "Logging stdout to: $LOG_FILE"
+
+# 4. Start ebpf-msg-flow and wait 1s for stabilization
+echo "Starting ebpf-msg-flow..."
+sudo ./app/perf/ebpf/ebpf-msg-flow --silent > "$LOG_FILE" &
+EBPF_PID=$!
+echo "Waiting 1 second for ebpf-msg-flow to stabilize..."
+sleep 1
+
+# 5. Run benchmark-trader, wait for completion, forward stderr directly
+echo "Running benchmark-trader..."
+# Redirect stdout of benchmark-trader to LOG_FILE, letting stderr pass through
+./build/client-perf/benchmark-trader --silent >> "$LOG_FILE"
+
+# 6. Stopping ebpf-msg-flow (this triggers print_stats to stdout/LOG_FILE)
+echo "Stopping ebpf-msg-flow..."
+sudo kill -SIGINT "$EBPF_PID" 2>/dev/null || true
+sleep 1
+sudo pkill -SIGINT -f "ebpf-msg-flow" 2>/dev/null || true
+EBPF_PID=""
+
+# Stop services
+echo "Stopping services..."
+sudo ./kill-all || true
+
+echo "Finished benchmark."

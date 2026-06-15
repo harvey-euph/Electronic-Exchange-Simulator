@@ -152,7 +152,15 @@ void print_stats() {
     std::cout << std::string(table_width, '=') << "\n";
 }
 
-int main(int, char **) {
+int main(int argc, char **argv) {
+    bool silent = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-s" || arg == "--silent") {
+            silent = true;
+        }
+    }
+
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
@@ -196,12 +204,14 @@ int main(int, char **) {
         return 1;
     }
 
-    std::cout << "Tracing Message Flow using BPF Skeleton... Ctrl-C to exit.\n";
+    if (!silent) {
+        std::cout << "Tracing Message Flow using BPF Skeleton... Ctrl-C to exit.\n";
+    }
     auto last_print = std::chrono::steady_clock::now();
     while (keep_running) {
         ring_buffer__poll(rb, 100);
         auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_print).count() >= 1) {
+        if (!silent && std::chrono::duration_cast<std::chrono::seconds>(now - last_print).count() >= 1) {
             std::cout << "\033[2J\033[H";
             print_stats();
             last_print = now;

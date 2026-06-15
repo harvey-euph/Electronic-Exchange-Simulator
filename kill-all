@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Enforce running with sudo/root privileges upfront
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root/sudo." >&2
+    exit 1
+fi
+
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 # Check if askpass script exists to run sudo without prompting
@@ -16,6 +22,7 @@ tmux kill-session -t "exchange_agents" 2>/dev/null || true
 echo "=== Stopping Exchange Core Services ==="
 $SUDO_CMD pkill -f "build/services/"
 tmux kill-session -t "exchange" 2>/dev/null || true
+$SUDO_CMD systemctl stop nginx 2>/dev/null || true
 
 echo "=== Cleaning up shared memory files ==="
 $SUDO_CMD rm -f /dev/shm/ORDER_REQUEST \
