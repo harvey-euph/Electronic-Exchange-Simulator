@@ -8,6 +8,7 @@ build
 .codex
 .vscode
 data/*
+*.csv
 !data/basic.csv
 .run_service.pid
 

@@ -80,15 +80,14 @@ echo "Logging stdout to: $LOG_FILE"
 
 # 4. Start ebpf-msg-flow and wait 1s for stabilization
 echo "Starting ebpf-msg-flow..."
-sudo ./app/perf/ebpf/ebpf-msg-flow --silent > "$LOG_FILE" &
+sudo ./app/perf/ebpf/ebpf-msg-flow --raw > "$LOG_FILE" &
 EBPF_PID=$!
 echo "Waiting 1 second for ebpf-msg-flow to stabilize..."
 sleep 1
 
-# 5. Run benchmark-trader, wait for completion, forward stderr directly
+# 5. Run benchmark-trader, wait for completion, ignoring output
 echo "Running benchmark-trader..."
-# Redirect stdout of benchmark-trader to LOG_FILE, letting stderr pass through
-./build/client-perf/benchmark-trader --silent >> "$LOG_FILE"
+./build/client-perf/benchmark-trader --silent > /dev/null 2>&1
 
 # 6. Stopping ebpf-msg-flow (this triggers print_stats to stdout/LOG_FILE)
 echo "Stopping ebpf-msg-flow..."

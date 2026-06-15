@@ -48,6 +48,7 @@ std::map<uint8_t, LatencyStats> stats_by_type;
 LatencyStats all_stats;
 
 static bool raw_mode = false;
+static std::vector<msg_flow_event> raw_events;
 
 std::string get_exec_type_name(uint8_t type) {
     switch (type) {
@@ -67,18 +68,7 @@ static int handle_event(void *ctx, void *data, size_t data_sz) {
     all_stats.add(ev);
 
     if (raw_mode) {
-        int64_t lat01 = (ev->ts1 >= ev->ts0) ? (int64_t)(ev->ts1 - ev->ts0) : -1;
-        int64_t lat12 = (ev->ts2 >= ev->ts1) ? (int64_t)(ev->ts2 - ev->ts1) : -1;
-        int64_t lat23 = (ev->ts3 >= ev->ts2) ? (int64_t)(ev->ts3 - ev->ts2) : -1;
-        int64_t lat34 = (ev->ts4 >= ev->ts3) ? (int64_t)(ev->ts4 - ev->ts3) : -1;
-        int64_t lat45 = (ev->ts5 >= ev->ts4) ? (int64_t)(ev->ts5 - ev->ts4) : -1;
-        int64_t lat56 = (ev->ts6 >= ev->ts5) ? (int64_t)(ev->ts6 - ev->ts5) : -1;
-        int64_t lat67 = (ev->ts7 >= ev->ts6) ? (int64_t)(ev->ts7 - ev->ts6) : -1;
-        int64_t lat78 = (ev->ts8 >= ev->ts7) ? (int64_t)(ev->ts8 - ev->ts7) : -1;
-
-        std::cout << get_exec_type_name(ev->exec_type) << ","
-                  << lat01 << "," << lat12 << "," << lat23 << "," << lat34 << ","
-                  << lat45 << "," << lat56 << "," << lat67 << "," << lat78 << "\n" << std::flush;
+        raw_events.push_back(*ev);
     }
     return 0;
 }
@@ -193,6 +183,10 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (raw_mode) {
+        raw_events.reserve(1000000);
+    }
+
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
@@ -256,6 +250,23 @@ int main(int argc, char **argv) {
     ebpf_msg_flow_bpf__destroy(skel);
     if (!raw_mode) {
         print_stats();
+    } else {
+        // Output all raw events from memory at once
+        for (const auto& ev : raw_events) {
+            int64_t lat01 = (ev.ts1 >= ev.ts0) ? (int64_t)(ev.ts1 - ev.ts0) : -1;
+            int64_t lat12 = (ev.ts2 >= ev.ts1) ? (int64_t)(ev.ts2 - ev.ts1) : -1;
+            int64_t lat23 = (ev.ts3 >= ev.ts2) ? (int64_t)(ev.ts3 - ev.ts2) : -1;
+            int64_t lat34 = (ev.ts4 >= ev.ts3) ? (int64_t)(ev.ts4 - ev.ts3) : -1;
+            int64_t lat45 = (ev.ts5 >= ev.ts4) ? (int64_t)(ev.ts5 - ev.ts4) : -1;
+            int64_t lat56 = (ev.ts6 >= ev.ts5) ? (int64_t)(ev.ts6 - ev.ts5) : -1;
+            int64_t lat67 = (ev.ts7 >= ev.ts6) ? (int64_t)(ev.ts7 - ev.ts6) : -1;
+            int64_t lat78 = (ev.ts8 >= ev.ts7) ? (int64_t)(ev.ts8 - ev.ts7) : -1;
+
+            std::cout << get_exec_type_name(ev.exec_type) << ","
+                      << lat01 << "," << lat12 << "," << lat23 << "," << lat34 << ","
+                      << lat45 << "," << lat56 << "," << lat67 << "," << lat78 << "\n";
+        }
+        std::cout << std::flush;
     }
     return 0;
 }

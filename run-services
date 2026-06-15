@@ -187,4 +187,5 @@ done
 # Select the first window by default
 tmux select-window -t "$SESSION":0
 
-echo "Services successfully started. To view them, run: tmux attach -t $SESSION"
+$SUDO_CMD systemctl start nginx
+echo "Services successfully started. To view them, run: sudo tmux attach -t $SESSION"
