@@ -47,10 +47,39 @@ struct LatencyStats {
 std::map<uint8_t, LatencyStats> stats_by_type;
 LatencyStats all_stats;
 
+static bool raw_mode = false;
+
+std::string get_exec_type_name(uint8_t type) {
+    switch (type) {
+        case 0: return "New";
+        case 100: return "Modify-Short";
+        case 101: return "Modify-Long";
+        case 4: return "Cancel";
+        case 8: return "Reject";
+        case 5: return "Replaced";
+        default: return "Unknown(" + std::to_string(type) + ")";
+    }
+}
+
 static int handle_event(void *ctx, void *data, size_t data_sz) {
     auto *ev = static_cast<const msg_flow_event *>(data);
     stats_by_type[ev->exec_type].add(ev);
     all_stats.add(ev);
+
+    if (raw_mode) {
+        int64_t lat01 = (ev->ts1 >= ev->ts0) ? (int64_t)(ev->ts1 - ev->ts0) : -1;
+        int64_t lat12 = (ev->ts2 >= ev->ts1) ? (int64_t)(ev->ts2 - ev->ts1) : -1;
+        int64_t lat23 = (ev->ts3 >= ev->ts2) ? (int64_t)(ev->ts3 - ev->ts2) : -1;
+        int64_t lat34 = (ev->ts4 >= ev->ts3) ? (int64_t)(ev->ts4 - ev->ts3) : -1;
+        int64_t lat45 = (ev->ts5 >= ev->ts4) ? (int64_t)(ev->ts5 - ev->ts4) : -1;
+        int64_t lat56 = (ev->ts6 >= ev->ts5) ? (int64_t)(ev->ts6 - ev->ts5) : -1;
+        int64_t lat67 = (ev->ts7 >= ev->ts6) ? (int64_t)(ev->ts7 - ev->ts6) : -1;
+        int64_t lat78 = (ev->ts8 >= ev->ts7) ? (int64_t)(ev->ts8 - ev->ts7) : -1;
+
+        std::cout << get_exec_type_name(ev->exec_type) << ","
+                  << lat01 << "," << lat12 << "," << lat23 << "," << lat34 << ","
+                  << lat45 << "," << lat56 << "," << lat67 << "," << lat78 << "\n" << std::flush;
+    }
     return 0;
 }
 
@@ -158,6 +187,9 @@ int main(int argc, char **argv) {
         std::string arg = argv[i];
         if (arg == "-s" || arg == "--silent") {
             silent = true;
+        } else if (arg == "--raw") {
+            raw_mode = true;
+            silent = true;
         }
     }
 
@@ -204,7 +236,9 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (!silent) {
+    if (raw_mode) {
+        std::cout << "ExecType,0-1 lat,1-2 lat,2-3 lat,3-4 lat,4-5 lat,5-6 lat,6-7 lat,7-8 lat\n" << std::flush;
+    } else if (!silent) {
         std::cout << "Tracing Message Flow using BPF Skeleton... Ctrl-C to exit.\n";
     }
     auto last_print = std::chrono::steady_clock::now();
@@ -220,6 +254,8 @@ int main(int argc, char **argv) {
 
     ring_buffer__free(rb);
     ebpf_msg_flow_bpf__destroy(skel);
-    print_stats();
+    if (!raw_mode) {
+        print_stats();
+    }
     return 0;
 }
