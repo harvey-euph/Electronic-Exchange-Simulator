@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set -x
+
+# Ensure NEW_BRANCH is provided
+NEW_BRANCH="${1:-${NEW_BRANCH:-}}"
+if [[ -z "$NEW_BRANCH" ]]; then
+  echo "Error: NEW_BRANCH must be passed as the first argument or set as an environment variable." >&2
+  exit 1
+fi
+
+# Find VM zone dynamically
+ZONE=$(gcloud compute instances list \
+  --filter="name=vm-benchmark" \
+  --format="value(zone)" | head -n 1)
+
+if [[ -z "$ZONE" ]]; then
+  echo "Error: vm-benchmark instance not found!" >&2
+  exit 1
+fi
+
+echo "Found vm-benchmark in zone: $ZONE"
+
+# Change directory to the root of the exchange repo
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+cleanup() {
+  echo "Cleaning up: Stopping vm-benchmark..."
+
+  gcloud compute instances stop \
+    vm-benchmark \
+    --zone="$ZONE" || true
+
+  rm -f main_benchmark.log new_benchmark.log || true
+}
+
+trap cleanup EXIT
+
+# Check if VM is already running
+STATUS=$(gcloud compute instances describe \
+  vm-benchmark \
+  --zone="$ZONE" \
+  --format="value(status)" | tr -d '\r\n')
+
+echo "Current status of vm-benchmark: $STATUS"
+
+if [[ "$STATUS" == "RUNNING" ]]; then
+  echo "vm-benchmark is already running. Skipping startup and stabilization wait."
+else
+  echo "Starting vm-benchmark..."
+  gcloud compute instances start vm-benchmark --zone="$ZONE"
+
+  echo "Waiting 10 seconds for VM to stabilize..."
+  sleep 10
+fi
+
+# Wait for SSH to become ready
+echo "Waiting for SSH on vm-benchmark to become ready..."
+
+SSH_READY=0
+
+for i in $(seq 1 12); do
+  echo "Attempt $i: Checking SSH connection..."
+
+  if gcloud compute ssh vm-benchmark \
+      --zone="$ZONE" \
+      --quiet \
+      --ssh-flag="-o StrictHostKeyChecking=no" \
+      --ssh-flag="-o UserKnownHostsFile=/dev/null" \
+      --ssh-flag="-o ConnectTimeout=5" \
+      --command "echo 'SSH is ready'" >/dev/null 2>&1; then
+
+    echo "SSH is ready!"
+    SSH_READY=1
+    break
+  fi
+
+  echo "SSH not ready yet, waiting 5 seconds..."
+  sleep 5
+done
+
+if [[ "$SSH_READY" -ne 1 ]]; then
+  echo "Error: vm-benchmark SSH failed to become ready after 1 minute!" >&2
+  exit 1
+fi
+
+echo "New branch is: $NEW_BRANCH"
+
+###########################################################
+# Benchmark main
+###########################################################
+
+echo "Running benchmark on main branch..."
+
+gcloud compute ssh vm-benchmark \
+  --zone="$ZONE" \
+  --quiet \
+  --ssh-flag="-o StrictHostKeyChecking=no" \
+  --ssh-flag="-o UserKnownHostsFile=/dev/null" \
+  --command "
+    set -e
+    cd ~/exchange-main
+
+    git fetch origin
+    git checkout main
+    git reset --hard origin/main
+    git clean -fd
+
+    make clean
+
+    sudo ./scripts/run-benchmark
+  " | tee main_benchmark.log
+
+###########################################################
+# Benchmark feature branch
+###########################################################
+
+echo "Running benchmark on new branch ($NEW_BRANCH)..."
+
+gcloud compute ssh vm-benchmark \
+  --zone="$ZONE" \
+  --quiet \
+  --ssh-flag="-o StrictHostKeyChecking=no" \
+  --ssh-flag="-o UserKnownHostsFile=/dev/null" \
+  --command "
+    set -e
+    cd ~/exchange-new
+
+    git fetch origin \"$NEW_BRANCH\"
+    git checkout -B \"$NEW_BRANCH\" FETCH_HEAD
+    git reset --hard FETCH_HEAD
+    git clean -fd
+
+    make clean
+
+    sudo ./scripts/run-benchmark
+  " | tee new_benchmark.log
+
+###########################################################
+# Copy benchmark logs back
+###########################################################
+
+echo "Copying logs back to managing plane VM..."
+
+MAIN_LOG_REL=$(grep -o 'log/benchmark-.*\.log' \
+  main_benchmark.log | head -n 1 || true)
+
+NEW_LOG_REL=$(grep -o 'log/benchmark-.*\.log' \
+  new_benchmark.log | head -n 1 || true)
+
+echo "Extracted main log path: $MAIN_LOG_REL"
+echo "Extracted new log path: $NEW_LOG_REL"
+
+mkdir -p "$PROJECT_ROOT/log/"
+
+if [[ -n "$MAIN_LOG_REL" ]]; then
+  gcloud compute scp \
+    --zone="$ZONE" \
+    --scp-flag="-o StrictHostKeyChecking=no" \
+    --scp-flag="-o UserKnownHostsFile=/dev/null" \
+    vm-benchmark:"~/exchange-main/$MAIN_LOG_REL" \
+    "$PROJECT_ROOT/log/"
+else
+  echo "Warning: No main log file path found in output!"
+fi
+
+if [[ -n "$NEW_LOG_REL" ]]; then
+  gcloud compute scp \
+    --zone="$ZONE" \
+    --scp-flag="-o StrictHostKeyChecking=no" \
+    --scp-flag="-o UserKnownHostsFile=/dev/null" \
+    vm-benchmark:"~/exchange-new/$NEW_LOG_REL" \
+    "$PROJECT_ROOT/log/"
+else
+  echo "Warning: No new log file path found in output!"
+fi
+
+echo "Benchmark workflow completed successfully!"
