@@ -12,13 +12,14 @@ jobs:
 
     steps:
       - name: SSH and Run Benchmark
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.GCP_VM_HOST }}
           username: ${{ secrets.GCP_VM_USER }}
           key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
           port: 22
           script_stop: true
+          command_timeout: 12h
           script: |
             set -euo pipefail
             set -x
@@ -28,12 +29,10 @@ jobs:
               --filter="name=vm-benchmark" \
               --format="value(zone)" | head -n 1)
 
-            case "${ZONE:-}" in
-              "")
-                echo "Error: vm-benchmark instance not found!"
-                exit 1
-                ;;
-            esac
+            if [[ -z "$ZONE" ]]; then
+              echo "Error: vm-benchmark instance not found!"
+              exit 1
+            fi
 
             echo "Found vm-benchmark in zone: $ZONE"
 
@@ -49,7 +48,7 @@ jobs:
 
             trap cleanup EXIT
 
-            # Check VM status
+            # Check if VM is already running
             STATUS=$(gcloud compute instances describe \
               vm-benchmark \
               --zone="$ZONE" \
@@ -57,23 +56,17 @@ jobs:
 
             echo "Current status of vm-benchmark: $STATUS"
 
-            case "$STATUS" in
-              RUNNING)
-                echo "vm-benchmark is already running. Skipping startup."
-                ;;
-              *)
-                echo "Starting vm-benchmark..."
+            if [[ "$STATUS" == "RUNNING" ]]; then
+              echo "vm-benchmark is already running. Skipping startup and stabilization wait."
+            else
+              echo "Starting vm-benchmark..."
+              gcloud compute instances start vm-benchmark --zone="$ZONE"
 
-                gcloud compute instances start \
-                  vm-benchmark \
-                  --zone="$ZONE"
+              echo "Waiting 10 seconds for VM to stabilize..."
+              sleep 10
+            fi
 
-                echo "Waiting 10 seconds for VM to stabilize..."
-                sleep 10
-                ;;
-            esac
-
-            # Wait for SSH ready
+            # Wait for SSH to become ready
             echo "Waiting for SSH on vm-benchmark to become ready..."
 
             SSH_READY=0
@@ -87,8 +80,7 @@ jobs:
                   --ssh-flag="-o StrictHostKeyChecking=no" \
                   --ssh-flag="-o UserKnownHostsFile=/dev/null" \
                   --ssh-flag="-o ConnectTimeout=5" \
-                  --command "echo 'SSH is ready'" \
-                  >/dev/null 2>&1; then
+                  --command "echo 'SSH is ready'" >/dev/null 2>&1; then
 
                 echo "SSH is ready!"
                 SSH_READY=1
@@ -99,15 +91,10 @@ jobs:
               sleep 5
             done
 
-            case "$SSH_READY" in
-              1)
-                echo "SSH check passed."
-                ;;
-              *)
-                echo "Error: vm-benchmark SSH failed to become ready after 1 minute!"
-                exit 1
-                ;;
-            esac
+            if [[ "$SSH_READY" -ne 1 ]]; then
+              echo "Error: vm-benchmark SSH failed to become ready after 1 minute!"
+              exit 1
+            fi
 
             NEW_BRANCH="${{ github.ref_name }}"
             echo "New branch is: $NEW_BRANCH"
@@ -163,54 +150,42 @@ jobs:
               " | tee new_benchmark.log
 
             ###########################################################
-            # Copy logs back
+            # Copy benchmark logs back
             ###########################################################
 
             echo "Copying logs back to managing plane VM..."
 
-            MAIN_LOG_REL=$(
-              grep -o 'log/benchmark-.*\.log' \
-              main_benchmark.log \
-              | head -n 1 || true
-            )
+            MAIN_LOG_REL=$(grep -o 'log/benchmark-.*\.log' \
+              main_benchmark.log | head -n 1 || true)
 
-            NEW_LOG_REL=$(
-              grep -o 'log/benchmark-.*\.log' \
-              new_benchmark.log \
-              | head -n 1 || true
-            )
+            NEW_LOG_REL=$(grep -o 'log/benchmark-.*\.log' \
+              new_benchmark.log | head -n 1 || true)
 
             echo "Extracted main log path: $MAIN_LOG_REL"
             echo "Extracted new log path: $NEW_LOG_REL"
 
             mkdir -p ~/exchange/log/
 
-            case "${MAIN_LOG_REL:-}" in
-              "")
-                echo "Warning: No main log file path found in output!"
-                ;;
-              *)
-                gcloud compute scp \
-                  --zone="$ZONE" \
-                  --scp-flag="-o StrictHostKeyChecking=no" \
-                  --scp-flag="-o UserKnownHostsFile=/dev/null" \
-                  vm-benchmark:"~/exchange-main/$MAIN_LOG_REL" \
-                  ~/exchange/log/
-                ;;
-            esac
+            if [[ -n "$MAIN_LOG_REL" ]]; then
+              gcloud compute scp \
+                --zone="$ZONE" \
+                --scp-flag="-o StrictHostKeyChecking=no" \
+                --scp-flag="-o UserKnownHostsFile=/dev/null" \
+                vm-benchmark:"~/exchange-main/$MAIN_LOG_REL" \
+                ~/exchange/log/
+            else
+              echo "Warning: No main log file path found in output!"
+            fi
 
-            case "${NEW_LOG_REL:-}" in
-              "")
-                echo "Warning: No new log file path found in output!"
-                ;;
-              *)
-                gcloud compute scp \
-                  --zone="$ZONE" \
-                  --scp-flag="-o StrictHostKeyChecking=no" \
-                  --scp-flag="-o UserKnownHostsFile=/dev/null" \
-                  vm-benchmark:"~/exchange-new/$NEW_LOG_REL" \
-                  ~/exchange/log/
-                ;;
-            esac
+            if [[ -n "$NEW_LOG_REL" ]]; then
+              gcloud compute scp \
+                --zone="$ZONE" \
+                --scp-flag="-o StrictHostKeyChecking=no" \
+                --scp-flag="-o UserKnownHostsFile=/dev/null" \
+                vm-benchmark:"~/exchange-new/$NEW_LOG_REL" \
+                ~/exchange/log/
+            else
+              echo "Warning: No new log file path found in output!"
+            fi
 
             echo "Benchmark workflow completed successfully!"
