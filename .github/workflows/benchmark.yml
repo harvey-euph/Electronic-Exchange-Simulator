@@ -71,7 +71,7 @@ jobs:
               git clean -fd
               make clean
               sudo ./scripts/run-benchmark
-EOF
+            EOF
 
             # Run benchmark on new branch and stream output to console while saving to new_benchmark.log
             echo "Running benchmark on new branch ($NEW_BRANCH)..."
@@ -84,7 +84,7 @@ EOF
               git clean -fd
               make clean
               sudo ./scripts/run-benchmark
-EOF
+            EOF
 
             # Find and copy logs back to managing plane VM
             echo "Copying logs back to managing plane VM..."
