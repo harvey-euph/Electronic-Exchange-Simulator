@@ -20,7 +20,8 @@ jobs:
           script_stop: true
           script: |
             # Exit immediately on error
-            set -e
+            set -euo pipefail
+            set -x
 
             # Find VM zone dynamically
             ZONE=$(gcloud compute instances list --filter="name=vm-benchmark" --format="value(zone)" | head -n 1)
