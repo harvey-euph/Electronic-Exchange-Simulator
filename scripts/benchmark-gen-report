@@ -89,10 +89,8 @@ fi
 echo "New branch is: $NEW_BRANCH"
 
 ###########################################################
-# Benchmark main
-###########################################################
-
 echo "Running benchmark on main branch..."
+###########################################################
 
 gcloud compute ssh vm-benchmark \
   --zone="$ZONE" \
@@ -114,10 +112,8 @@ gcloud compute ssh vm-benchmark \
   " | tee main_benchmark.log
 
 ###########################################################
-# Benchmark feature branch
-###########################################################
-
 echo "Running benchmark on new branch ($NEW_BRANCH)..."
+###########################################################
 
 gcloud compute ssh vm-benchmark \
   --zone="$ZONE" \
@@ -133,16 +129,15 @@ gcloud compute ssh vm-benchmark \
     git reset --hard FETCH_HEAD
     git clean -fd
 
-    # make clean
+    make clean
 
     sudo ./scripts/run-benchmark
   " | tee new_benchmark.log
 
 ###########################################################
-# Copy benchmark logs back
+echo "Copying logs back to managing plane VM..."
 ###########################################################
 
-echo "Copying logs back to managing plane VM..."
 
 MAIN_LOG_REL=$(grep -o 'log/benchmark-.*\.log' \
   main_benchmark.log | head -n 1 || true)
