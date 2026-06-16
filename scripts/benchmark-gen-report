@@ -149,7 +149,12 @@ NEW_LOG_REL=$(grep -o 'log/benchmark-.*\.log' \
 echo "Extracted main log path: $MAIN_LOG_REL"
 echo "Extracted new log path: $NEW_LOG_REL"
 
-mkdir -p "$PROJECT_ROOT/log/"
+NEW_BRANCH_CLEAN="${NEW_BRANCH//\//_}"
+COMMIT=$(git rev-parse --short=6 HEAD)
+DEST_DIR="$PROJECT_ROOT/log/${NEW_BRANCH_CLEAN}-${COMMIT}"
+
+echo "Creating directory: $DEST_DIR"
+mkdir -p "$DEST_DIR"
 
 if [[ -n "$MAIN_LOG_REL" ]]; then
   gcloud compute scp \
@@ -157,7 +162,7 @@ if [[ -n "$MAIN_LOG_REL" ]]; then
     --scp-flag="-o StrictHostKeyChecking=no" \
     --scp-flag="-o UserKnownHostsFile=/dev/null" \
     vm-benchmark:"~/exchange-main/$MAIN_LOG_REL" \
-    "$PROJECT_ROOT/log/"
+    "$DEST_DIR/"
 else
   echo "Warning: No main log file path found in output!"
 fi
@@ -168,7 +173,7 @@ if [[ -n "$NEW_LOG_REL" ]]; then
     --scp-flag="-o StrictHostKeyChecking=no" \
     --scp-flag="-o UserKnownHostsFile=/dev/null" \
     vm-benchmark:"~/exchange-new/$NEW_LOG_REL" \
-    "$PROJECT_ROOT/log/"
+    "$DEST_DIR/"
 else
   echo "Warning: No new log file path found in output!"
 fi
@@ -187,26 +192,26 @@ fi
 
 MAIN_LOG_FILE=""
 if [[ -n "$MAIN_LOG_REL" ]]; then
-  MAIN_LOG_FILE="$PROJECT_ROOT/log/$(basename "$MAIN_LOG_REL")"
+  MAIN_LOG_FILE="$DEST_DIR/$(basename "$MAIN_LOG_REL")"
 fi
 
 NEW_LOG_FILE=""
 if [[ -n "$NEW_LOG_REL" ]]; then
-  NEW_LOG_FILE="$PROJECT_ROOT/log/$(basename "$NEW_LOG_REL")"
+  NEW_LOG_FILE="$DEST_DIR/$(basename "$NEW_LOG_REL")"
 fi
 
 # Run comparison script if both files are successfully copied
 if [[ -f "$MAIN_LOG_FILE" && -f "$NEW_LOG_FILE" ]]; then
   echo "Running latency comparison..."
-  NEW_BRANCH_CLEAN="${NEW_BRANCH//\//_}"
-  COMMIT=$(git rev-parse --short=6 HEAD)
   TIME=$(date +%H%M%S)
-  REPORT_FILE="log/report-${NEW_BRANCH_CLEAN}-${COMMIT}-${TIME}.log"
+  REPORT_FILE="$DEST_DIR/report-${NEW_BRANCH_CLEAN}-${COMMIT}-${TIME}.log"
+  HEATMAP_FILE="$DEST_DIR/heatmap.png"
   
   python3 "$PROJECT_ROOT/scripts/compare_latency.py" \
     --baseline "$MAIN_LOG_FILE" \
     --candidate "$NEW_LOG_FILE" \
-    --report-out "$REPORT_FILE"
+    --report-out "$REPORT_FILE" \
+    --heatmap-out "$HEATMAP_FILE"
 else
   echo "Error: Baseline or Candidate benchmark logs were not found!" >&2
   exit 1
