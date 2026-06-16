@@ -85,6 +85,11 @@ DATE=$(date +%Y%m%d-%H%M%S)
 LOG_FILE="${BENCHMARK_LOG:-log/benchmark-${BRANCH}-${DATE}-${COMMIT}.log}"
 mkdir -p log
 
+# Ensure the log file exists and has 666 permissions before starting ebpf-msg-flow
+touch "$LOG_FILE"
+chown "$RUNNING_USER:$RUNNING_USER" "$LOG_FILE" || true
+chmod 666 "$LOG_FILE"
+
 echo "Logging stdout to: $LOG_FILE"
 
 # 4. Start ebpf-msg-flow and wait 1s for stabilization
