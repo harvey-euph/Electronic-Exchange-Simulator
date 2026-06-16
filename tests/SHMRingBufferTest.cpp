@@ -1,12 +1,67 @@
+#include <gtest/gtest.h>
 #include "ring/SHMRingBuffer.hpp"
-#include <iostream>
+#include "JsonUtil.hpp"
 #include <vector>
 #include <thread>
 #include <atomic>
-#include <cassert>
+#include <sys/mman.h>
 
 using namespace Exchange;
 
+class SHMRingBufferTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        // Cleanup potential stale SHM files
+        shm_unlink("/test_observer_ring");
+        shm_unlink("/test_mpsc_ring");
+    }
+
+    void TearDown() override {
+        // Cleanup SHM files after tests
+        shm_unlink("/test_observer_ring");
+        shm_unlink("/test_mpsc_ring");
+    }
+};
+
+TEST_F(SHMRingBufferTest, ObserverReadOnly) {
+    std::string name = "test_observer_ring";
+    size_t capacity = 1024;
+
+    // 1. Create read-write ring buffer
+    SHMRingBuffer rb_rw(name, capacity);
+    EXPECT_FALSE(rb_rw.is_read_only());
+    EXPECT_EQ(rb_rw.get_capacity(), capacity);
+    EXPECT_EQ(rb_rw.get_reserved_depth(), 0);
+    EXPECT_EQ(rb_rw.get_uncommitted_depth(), 0);
+    EXPECT_DOUBLE_EQ(rb_rw.get_occupancy_ratio(), 0.0);
+
+    // 2. Create read-only observer instance (capacity 0 because it auto-detects)
+    SHMObserver rb_ro(name, 0);
+    EXPECT_TRUE(rb_ro.is_read_only());
+    EXPECT_EQ(rb_ro.get_capacity(), capacity);
+
+    // 3. Enqueue on RW and check metrics on RO
+    int dummy = 42;
+    EXPECT_TRUE(rb_rw.enqueue(&dummy, sizeof(dummy)));
+    
+    // Check depths (each element takes sizeof(uint32_t) + payload size)
+    size_t expected_element_size = sizeof(uint32_t) + sizeof(dummy);
+    EXPECT_EQ(rb_rw.get_reserved_depth(), expected_element_size);
+    EXPECT_EQ(rb_rw.get_uncommitted_depth(), 0);
+    
+    EXPECT_EQ(rb_ro.get_reserved_depth(), expected_element_size);
+    EXPECT_EQ(rb_ro.get_uncommitted_depth(), 0);
+    EXPECT_GT(rb_ro.get_occupancy_ratio(), 0.0);
+
+    // 4. Dequeue on RW and verify metrics clear
+    void* data_ptr = nullptr;
+    size_t data_size = 0;
+    EXPECT_TRUE(rb_rw.dequeue(&data_ptr, &data_size));
+    EXPECT_EQ(rb_ro.get_reserved_depth(), 0);
+    EXPECT_EQ(rb_ro.get_uncommitted_depth(), 0);
+}
+
+// Helper for MPSC test
 void producer(SHMRingBuffer& rb, int id, int count, std::atomic<int>& success_count) {
     for (int i = 0; i < count; ++i) {
         int data = id * 1000000 + i;
@@ -17,56 +72,9 @@ void producer(SHMRingBuffer& rb, int id, int count, std::atomic<int>& success_co
     }
 }
 
-void test_observer_read_only() {
-    std::string name = "test_observer_ring";
-    size_t capacity = 1024;
-    shm_unlink(("/" + name).c_str());
-
-    // 1. Create read-write ring buffer
-    SHMRingBuffer rb_rw(name, capacity);
-    assert(!rb_rw.is_read_only());
-    assert(rb_rw.get_capacity() == capacity);
-    assert(rb_rw.get_reserved_depth() == 0);
-    assert(rb_rw.get_uncommitted_depth() == 0);
-    assert(rb_rw.get_occupancy_ratio() == 0.0);
-
-    // 2. Create read-only observer instance (capacity 0 because it auto-detects)
-    SHMObserver rb_ro(name, 0);
-    assert(rb_ro.is_read_only());
-    assert(rb_ro.get_capacity() == capacity);
-
-    // 3. Enqueue on RW and check metrics on RO
-    int dummy = 42;
-    assert(rb_rw.enqueue(&dummy, sizeof(dummy)));
-    
-    // Check depths (each element takes sizeof(uint32_t) + payload size)
-    size_t expected_element_size = sizeof(uint32_t) + sizeof(dummy);
-    assert(rb_rw.get_reserved_depth() == expected_element_size);
-    assert(rb_rw.get_uncommitted_depth() == 0);
-    
-    assert(rb_ro.get_reserved_depth() == expected_element_size);
-    assert(rb_ro.get_uncommitted_depth() == 0);
-    assert(rb_ro.get_occupancy_ratio() > 0.0);
-
-    // 4. Dequeue on RW and verify metrics clear
-    void* data_ptr = nullptr;
-    size_t data_size = 0;
-    assert(rb_rw.dequeue(&data_ptr, &data_size));
-    assert(rb_ro.get_reserved_depth() == 0);
-    assert(rb_ro.get_uncommitted_depth() == 0);
-
-    shm_unlink(("/" + name).c_str());
-    std::cout << "Read-only Observer Test Passed!" << std::endl;
-}
-
-int main() {
-    test_observer_read_only();
-
+TEST_F(SHMRingBufferTest, MPSC) {
     std::string name = "test_mpsc_ring";
     size_t capacity = 1024 * 1024; // 1MB
-    
-    // Ensure SHM is cleaned up from previous runs
-    shm_unlink(("/" + name).c_str());
 
     SHMRingBuffer rb(name, capacity);
 
@@ -86,7 +94,7 @@ int main() {
         void* data;
         size_t size;
         if (rb.dequeue(&data, &size)) {
-            assert(size == sizeof(int));
+            ASSERT_EQ(size, sizeof(int));
             received_data.push_back(*static_cast<int*>(data));
             received_count++;
         } else {
@@ -98,18 +106,21 @@ int main() {
         t.join();
     }
 
-    std::cout << "Received " << received_count << " messages successfully." << std::endl;
-    assert(received_count == num_producers * count_per_producer);
-    assert(success_count == num_producers * count_per_producer);
+    EXPECT_EQ(received_count, num_producers * count_per_producer);
+    EXPECT_EQ(success_count, num_producers * count_per_producer);
 
     // Verify all producers sent all messages
     std::vector<int> producer_counts(num_producers, 0);
     for (int val : received_data) {
         int prod_id = val / 1000000;
-        assert(prod_id >= 0 && prod_id < num_producers);
+        ASSERT_GE(prod_id, 0);
+        ASSERT_LT(prod_id, num_producers);
     }
+}
 
-    std::cout << "MPSC Test Passed!" << std::endl;
-
-    return 0;
+TEST(JsonUtilTest, GetJsonString) {
+    std::string json_str = "{\"symbol\":\"BTCUSDT\",\"price\":\"66633.56000000\"}";
+    EXPECT_EQ(Exchange::get_json_string(json_str, "price"), "66633.56000000");
+    EXPECT_EQ(Exchange::get_json_string(json_str, "symbol"), "BTCUSDT");
+    EXPECT_EQ(Exchange::get_json_string(json_str, "nonexistent"), "");
 }
