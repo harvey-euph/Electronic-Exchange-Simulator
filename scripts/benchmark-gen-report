@@ -198,9 +198,15 @@ fi
 # Run comparison script if both files are successfully copied
 if [[ -f "$MAIN_LOG_FILE" && -f "$NEW_LOG_FILE" ]]; then
   echo "Running latency comparison..."
+  NEW_BRANCH_CLEAN="${NEW_BRANCH//\//_}"
+  COMMIT=$(git rev-parse --short=6 HEAD)
+  TIME=$(date +%H%M%S)
+  REPORT_FILE="log/report-${NEW_BRANCH_CLEAN}-${COMMIT}-${TIME}.log"
+  
   python3 "$PROJECT_ROOT/scripts/compare_latency.py" \
     --baseline "$MAIN_LOG_FILE" \
-    --candidate "$NEW_LOG_FILE"
+    --candidate "$NEW_LOG_FILE" \
+    --report-out "$REPORT_FILE"
 else
   echo "Error: Baseline or Candidate benchmark logs were not found!" >&2
   exit 1

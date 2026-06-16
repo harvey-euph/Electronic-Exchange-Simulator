@@ -1,6 +1,7 @@
 *.d
 *.o
 *.log
+log/
 include/fbs
 cachegrind.out*
 build
