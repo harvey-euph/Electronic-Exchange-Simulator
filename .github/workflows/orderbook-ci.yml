@@ -1,10 +1,10 @@
-name: OrderBook CI
+name: OrderBook CI/CD
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main, master, develop ]
+    branches: [ main, dev ]
 
 jobs:
   test:
@@ -19,16 +19,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential software-properties-common pkg-config \
-            libgtest-dev googletest \
-            libboost-all-dev \
-            libflatbuffers-dev flatbuffers-compiler \
-            libpq-dev libpqxx-dev \
-            systemtap-sdt-dev \
-            nodejs npm tmux
+        run: ./scripts/install-requirements
 
       - name: Setup Compiler
         run: |
@@ -44,12 +35,29 @@ jobs:
           flatc --version
           ls -l /usr/include/flatbuffers/flatbuffers.h || echo "Header check passed via libflatbuffers-dev"
 
-      - name: Generate FlatBuffers
-        run: make fbs
-
       - name: Build and Run Tests
         run: |
-          make clean
+          make -j$(nproc)
           make test
 
-
+  deploy:
+    name: Deploy to GCP VM
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH and Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GCP_VM_HOST }}
+          username: ${{ secrets.GCP_VM_USER }}
+          key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            date >> ~/test_github_cd
+            cd /home/${{ secrets.GCP_VM_USER }}/exchange
+            git fetch origin main
+            git reset --hard origin/main
+            make -j$(nproc)
+            sudo ./kill-all
+            sudo ./run-all

@@ -52,12 +52,13 @@ else
   echo "Starting vm-benchmark..."
   gcloud compute instances start vm-benchmark --zone="$ZONE"
 
-  echo "Waiting 10 seconds for VM to stabilize..."
-  sleep 10
+  echo "Waiting 20 seconds for VM to stabilize..."
+  sleep 20
 fi
 
-# Wait for SSH to become ready
+###########################################################
 echo "Waiting for SSH on vm-benchmark to become ready..."
+###########################################################
 
 SSH_READY=0
 
