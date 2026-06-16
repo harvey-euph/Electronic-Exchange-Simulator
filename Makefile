@@ -45,7 +45,7 @@ ifndef USE_PGSQL
     endif
 endif
 
-LDLIBS := -lgtest -lgtest_main -pthread -lrt -lpqxx -lpq
+LDLIBS := -lgtest -lgtest_main -pthread -lrt -lpqxx -lpq -lssl -lcrypto
 
 ifeq ($(USE_PGSQL),1)
     CXXFLAGS += -DUSE_PGSQL
