@@ -25,13 +25,16 @@ interface OrderEntryProps {
   disabled?: boolean;
   priceExp?: number;
   priceMinStep?: bigint;
+  sortedBids?: { price: bigint; quantity: bigint }[];
+  sortedAsks?: { price: bigint; quantity: bigint }[];
 }
 
 export const OrderEntry: React.FC<OrderEntryProps> = ({
   isLoggedIn, clientId, setClientId, onLogin,
   price, quantity, side, peggedLevel, 
   setPrice, setQuantity, setSide, setPeggedLevel,
-  onSendOrder, cash, disabled, priceExp, priceMinStep
+  onSendOrder, cash, disabled, priceExp, priceMinStep,
+  sortedBids, sortedAsks
 }) => {
 
   // Convert raw mantissa step → display-unit step (e.g. step=25, exp=-2 → 0.25)
@@ -39,6 +42,17 @@ export const OrderEntry: React.FC<OrderEntryProps> = ({
     if (priceMinStep === undefined || priceMinStep <= 0n) return 1;
     if (priceExp === undefined || priceExp >= 0) return Number(priceMinStep);
     return Number(priceMinStep) / Math.pow(10, -priceExp);
+  })();
+
+  const realizedPrice = (() => {
+    if (peggedLevel === null || !sortedBids || !sortedAsks) return undefined;
+    if (side === Side.Buy) {
+      const target = sortedBids[peggedLevel - 1]?.price;
+      return target !== undefined ? formatPrice(target, priceExp) : undefined;
+    } else {
+      const target = sortedAsks[sortedAsks.length - peggedLevel]?.price;
+      return target !== undefined ? formatPrice(target, priceExp) : undefined;
+    }
   })();
 
   const handlePriceChange = (v: string) => {
@@ -140,6 +154,7 @@ export const OrderEntry: React.FC<OrderEntryProps> = ({
           <div style={{ width: '60px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>Price</div>
           <NumericInput 
             value={peggedLevel !== null ? getPegDisplay() : price} 
+            realizedValue={realizedPrice}
             onChange={handlePriceChange} 
             step={priceDisplayStep}
             style={{ 

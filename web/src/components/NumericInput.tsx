@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 
 interface NumericInputProps {
   value: string;
+  realizedValue?: string;
   onChange: (v: string) => void;
   placeholder?: string;
   className?: string;
@@ -14,13 +15,14 @@ interface NumericInputProps {
 }
 
 export const NumericInput: React.FC<NumericInputProps> = ({
-  value, onChange, placeholder, className, step = 1, style, onKeyDown, onBlur, disabled, allowDecimal
+  value, realizedValue, onChange, placeholder, className, step = 1, style, onKeyDown, onBlur, disabled, allowDecimal
 }) => {
   const updateValue = useCallback((delta: number) => {
     if (disabled) return;
     try {
+      const baseValue = realizedValue !== undefined ? realizedValue : value;
       if (allowDecimal) {
-        const current = parseFloat(value || '0');
+        const current = parseFloat(baseValue || '0');
         const next = current + delta;
         // Derive decimal places from the step so e.g. step=0.25 → always 2 d.p.
         const stepStr = step.toString();
@@ -28,14 +30,14 @@ export const NumericInput: React.FC<NumericInputProps> = ({
         const decimalPlaces = dotIdx >= 0 ? stepStr.length - dotIdx - 1 : 0;
         onChange(next >= 0 ? next.toFixed(decimalPlaces) : (0).toFixed(decimalPlaces));
       } else {
-        const current = BigInt(value || '0');
+        const current = BigInt(baseValue || '0');
         const next = current + BigInt(Math.round(delta));
         onChange(next >= 0n ? next.toString() : '0');
       }
     } catch (e) {
       onChange('0');
     }
-  }, [value, onChange, disabled, allowDecimal, step]);
+  }, [value, realizedValue, onChange, disabled, allowDecimal, step]);
 
   const handleInternalKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return;

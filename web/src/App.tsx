@@ -291,6 +291,8 @@ function App() {
                 disabled={!connected.mgmtReady}
                 priceExp={symbolInfo?.priceExp}
                 priceMinStep={symbolInfo?.priceMinStep}
+                sortedBids={sortedBids}
+                sortedAsks={sortedAsks}
               />
               <EmbeddedLog logs={mgmtLogs} onClear={clearMgmtLogs} />
             </div>
