@@ -188,11 +188,13 @@ private:
                         reject_info += ")";
                     }
                 }
+                size_t recv_total = recv_new + recv_mod_short + recv_mod_long + recv_can + recv_rej;
                 std::cout << "\rNEW: " << recv_new << "/" << sent_new_count_.load(std::memory_order_relaxed)
                           << " | MOD-S: " << recv_mod_short << "/" << sent_modify_short_count_.load(std::memory_order_relaxed)
                           << " | MOD-L: " << recv_mod_long << "/" << sent_modify_long_count_.load(std::memory_order_relaxed)
                           << " | CAN: " << recv_can << "/" << sent_cancel_count_.load(std::memory_order_relaxed)
                           << " | REJ: " << recv_rej << reject_info
+                          << " | Total: " << recv_total << "/" << TARGET_REQUESTS
                           << "        " << std::flush;
                 last_print_time = now;
             }
