@@ -89,7 +89,7 @@ sleep 3
 
 # 5. Run benchmark-trader, wait for completion, ignoring output
 echo "Running benchmark-trader..."
-./build/client-perf/benchmark-trader --silent > /dev/null 2>&1
+./build/client-perf/benchmark-trader
 
 # 6. Stopping ebpf-msg-flow (this triggers print_stats to stdout/LOG_FILE)
 echo "Stopping ebpf-msg-flow..."

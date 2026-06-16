@@ -163,11 +163,15 @@ def main():
     max_reg_desc = "N/A"
     
     print("\nAnalyzing datasets...")
+    total_combinations = len(exec_types) * len(all_stages)
+    current_idx = 0
     for et in exec_types:
         base_et = baseline[baseline["ExecType"] == et]
         cand_et = candidate[candidate["ExecType"] == et]
         
         for stage in all_stages:
+            current_idx += 1
+            print(f"[Progress] Analyzing {et} / {stage} ({current_idx}/{total_combinations})...", flush=True)
             # Get samples
             base_samples = base_et[stage].to_numpy() if len(base_et) > 0 else np.array([])
             cand_samples = cand_et[stage].to_numpy() if len(cand_et) > 0 else np.array([])
