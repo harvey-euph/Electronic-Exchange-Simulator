@@ -156,7 +156,11 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         };
         
         setSymbolInfo(infoData);
-        addMgmtLog(`Fetched SymbolInfo for ${infoData.name} (id=${infoData.symbolId}): exp=${infoData.priceExp}, step=${infoData.priceMinStep}, min=${infoData.priceMin}, max=${infoData.priceMax}`);
+        const scale = Math.pow(10, -infoData.priceExp);
+        const stepVal = Number(infoData.priceMinStep) / scale;
+        const minVal = Number(infoData.priceMin) / scale;
+        const maxVal = Number(infoData.priceMax) / scale;
+        addMgmtLog(`Fetched SymbolInfo for ${infoData.name}: step=${stepVal}, min=${minVal}, max=${maxVal}`);
       } catch (err) {
         if (!active) return;
         addMgmtLog(`Failed to fetch SymbolInfo for symbol ${activeSymbolId}: ${err}. Retrying in 2 seconds...`);
