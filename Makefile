@@ -140,6 +140,11 @@ ebpf: $(FBS_GENERATED)
 web_target: $(FBS_GENERATED)
 	$(MAKE) -C $(WEB_DIR)
 
+.PHONY: benchmark
+benchmark: $(FBS_GENERATED) $(SERVICE_TARGETS) \
+           $(BUILD_DIR)/client-perf/benchmark-trader \
+           $(OBS_TARGETS) ebpf
+
 # -----------------------------------------------------------------------------
 # Build Services
 # -----------------------------------------------------------------------------

@@ -109,7 +109,7 @@ gcloud compute ssh vm-benchmark \
     git clean -fd
 
     make clean
-    make -j\$(nproc)
+    make -j\$(nproc) benchmark
 
     # Initialize / clean previous combined log
     rm -f log/benchmark-main-combined.log
@@ -132,7 +132,7 @@ gcloud compute ssh vm-benchmark \
     git clean -fd
 
     make clean
-    make -j\$(nproc)
+    make -j\$(nproc) benchmark
 
     # Initialize / clean previous combined log
     rm -f log/benchmark-new-combined.log
