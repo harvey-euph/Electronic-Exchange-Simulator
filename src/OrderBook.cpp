@@ -252,7 +252,7 @@ void OrderBook::handleModifyOrder(const OrderRequest* req)
     sendResponse(ExecType_Replaced, req->order_id(), req->client_id(), req->exec_id(), req->side(), req->p(), req->q());
 }
 
-void OrderBook::insertOrderToLevel(PriceLevel* pl, Order* order, Side side)
+void OrderBook::insertOrderToLevel(PriceLevel* pl, Order* order, [[maybe_unused]] Side side)
 {
     order->price_level = pl;
 

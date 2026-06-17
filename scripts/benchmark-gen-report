@@ -26,12 +26,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# === 新增：確保本地 log 目錄權限正確 ===
+echo "Ensuring local log directory permissions..."
+mkdir -p log
+chown -R "$USER:$USER" log 2>/dev/null || true
+chmod -R u+rwX log 2>/dev/null || true
+
 cleanup() {
   echo "Cleaning up: Stopping vm-benchmark..."
+  gcloud compute instances stop vm-benchmark --zone="$ZONE" || true
 
-  gcloud compute instances stop \
-    vm-benchmark \
-    --zone="$ZONE" || true
+  # 本地 log 權限修復
+  echo "Fixing local log directory permissions..."
+  chown -R "$USER:$USER" "$PROJECT_ROOT/log" 2>/dev/null || true
+  chmod -R u+rwX "$PROJECT_ROOT/log" 2>/dev/null || true
 
   rm -f main_benchmark.log new_benchmark.log || true
 }
@@ -61,10 +69,8 @@ echo "Waiting for SSH on vm-benchmark to become ready..."
 ###########################################################
 
 SSH_READY=0
-
 for i in $(seq 1 12); do
   echo "Attempt $i: Checking SSH connection..."
-
   if gcloud compute ssh vm-benchmark \
       --zone="$ZONE" \
       --quiet \
@@ -72,12 +78,10 @@ for i in $(seq 1 12); do
       --ssh-flag="-o UserKnownHostsFile=/dev/null" \
       --ssh-flag="-o ConnectTimeout=5" \
       --command "echo 'SSH is ready'" >/dev/null 2>&1; then
-
     echo "SSH is ready!"
     SSH_READY=1
     break
   fi
-
   echo "SSH not ready yet, waiting 5 seconds..."
   sleep 5
 done
@@ -93,7 +97,7 @@ echo "New branch is: $NEW_BRANCH"
 echo "Initializing and compiling branches on vm-benchmark..."
 ###########################################################
 
-# 1. Compile main branch once, and reset its combined log
+# 1. Compile main branch
 gcloud compute ssh vm-benchmark \
   --zone="$ZONE" \
   --quiet \
@@ -102,7 +106,6 @@ gcloud compute ssh vm-benchmark \
   --command "
     set -e
     cd ~/exchange-main
-
     git fetch origin
     git checkout main
     git reset --hard origin/main
@@ -111,12 +114,12 @@ gcloud compute ssh vm-benchmark \
     make clean
     make -j\$(nproc) benchmark
 
-    # Initialize / clean previous combined log
+    # Clean previous combined log (no sudo)
     rm -f log/benchmark-main-combined.log
     mkdir -p log
   "
 
-# 2. Compile new branch once, and reset its combined log
+# 2. Compile new branch
 gcloud compute ssh vm-benchmark \
   --zone="$ZONE" \
   --quiet \
@@ -125,7 +128,6 @@ gcloud compute ssh vm-benchmark \
   --command "
     set -e
     cd ~/exchange-new
-
     git fetch origin \"$NEW_BRANCH\"
     git checkout -B \"$NEW_BRANCH\" FETCH_HEAD
     git reset --hard FETCH_HEAD
@@ -134,7 +136,7 @@ gcloud compute ssh vm-benchmark \
     make clean
     make -j\$(nproc) benchmark
 
-    # Initialize / clean previous combined log
+    # Clean previous combined log (no sudo)
     rm -f log/benchmark-new-combined.log
     mkdir -p log
   "
@@ -189,16 +191,17 @@ DEST_DIR="$PROJECT_ROOT/log/${NEW_BRANCH_CLEAN}-${COMMIT}"
 
 echo "Creating directory: $DEST_DIR"
 mkdir -p "$DEST_DIR"
+chown "$USER:$USER" "$DEST_DIR" 2>/dev/null || true
+chmod 755 "$DEST_DIR" 2>/dev/null || true
 
+# Copy logs
 if [[ -n "$MAIN_LOG_REL" ]]; then
   gcloud compute scp \
     --zone="$ZONE" \
     --scp-flag="-o StrictHostKeyChecking=no" \
     --scp-flag="-o UserKnownHostsFile=/dev/null" \
     vm-benchmark:"~/exchange-main/$MAIN_LOG_REL" \
-    "$DEST_DIR/"
-else
-  echo "Warning: No main log file path found in output!"
+    "$DEST_DIR/" || echo "Warning: Failed to copy main log"
 fi
 
 if [[ -n "$NEW_LOG_REL" ]]; then
@@ -207,9 +210,7 @@ if [[ -n "$NEW_LOG_REL" ]]; then
     --scp-flag="-o StrictHostKeyChecking=no" \
     --scp-flag="-o UserKnownHostsFile=/dev/null" \
     vm-benchmark:"~/exchange-new/$NEW_LOG_REL" \
-    "$DEST_DIR/"
-else
-  echo "Warning: No new log file path found in output!"
+    "$DEST_DIR/" || echo "Warning: Failed to copy new log"
 fi
 
 ###########################################################
@@ -224,17 +225,9 @@ if [ -d "$PROJECT_ROOT/.venv" ]; then
   source "$PROJECT_ROOT/.venv/bin/activate"
 fi
 
-MAIN_LOG_FILE=""
-if [[ -n "$MAIN_LOG_REL" ]]; then
-  MAIN_LOG_FILE="$DEST_DIR/$(basename "$MAIN_LOG_REL")"
-fi
+MAIN_LOG_FILE="$DEST_DIR/$(basename "$MAIN_LOG_REL")"
+NEW_LOG_FILE="$DEST_DIR/$(basename "$NEW_LOG_REL")"
 
-NEW_LOG_FILE=""
-if [[ -n "$NEW_LOG_REL" ]]; then
-  NEW_LOG_FILE="$DEST_DIR/$(basename "$NEW_LOG_REL")"
-fi
-
-# Run comparison script if both files are successfully copied
 if [[ -f "$MAIN_LOG_FILE" && -f "$NEW_LOG_FILE" ]]; then
   echo "Running latency comparison..."
   TIME=$(date +%H%M%S)
@@ -247,7 +240,7 @@ if [[ -f "$MAIN_LOG_FILE" && -f "$NEW_LOG_FILE" ]]; then
     --report-out "$REPORT_FILE" \
     --heatmap-out "$HEATMAP_FILE"
 else
-  echo "Error: Baseline or Candidate benchmark logs were not found!" >&2
+  echo "Error: Benchmark logs were not found!" >&2
   exit 1
 fi
 
