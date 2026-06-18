@@ -3,6 +3,7 @@
 #include "TimeUtil.hpp"
 #include <iostream>
 #include <algorithm>
+#include <new>
 #include <sys/sdt.h>
 
 namespace Exchange {
@@ -149,15 +150,25 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
 
-            flatbuffers::FlatBufferBuilder fbb(256);
-            auto or_offset = CreateOrderRequest(fbb, 
-                order_req->action(), order_req->exec_id(), order_req->order_id(), 
-                order_req->client_id(), order_req->symbol_id(), order_req->side(), 
-                order_req->type(), order_req->p(), order_req->q(), 
-                order_req->visible_qty(), order_req->timestamp());
-            fbb.Finish(or_offset);
             DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
-            request_ring_->enqueue(fbb.GetBufferPointer(), fbb.GetSize());
+
+            auto token = request_ring_->reserve(sizeof(OrderRequestT));
+            if (token) {
+                new (token->payload) OrderRequestT {
+                    .action      = order_req->action(),
+                    .exec_id     = order_req->exec_id(),
+                    .order_id    = order_req->order_id(),
+                    .client_id   = order_req->client_id(),
+                    .symbol_id   = order_req->symbol_id(),
+                    .side        = order_req->side(),
+                    .type        = order_req->type(),
+                    .p           = order_req->p(),
+                    .q           = order_req->q(),
+                    .visible_qty = order_req->visible_qty(),
+                    .timestamp   = order_req->timestamp(),
+                };
+                request_ring_->commit(*token);
+            }
             break;
         }
         case ClientRequestData_PositionRequest: {

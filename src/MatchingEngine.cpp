@@ -1,4 +1,6 @@
 #include "MatchingEngine.hpp"
+#include "OrderBook.hpp"
+#include "define.hpp"
 #include "TimeUtil.hpp"
 
 namespace Exchange {
@@ -17,9 +19,9 @@ int MatchingEngine::poll_server() {
     void* data_ptr = nullptr;
     size_t data_size = 0;
     if (request_ring_->dequeue(&data_ptr, &data_size)) {
-        if (!data_ptr || !data_size) return 0;
+        if (!data_ptr || data_size < sizeof(OrderRequestT)) return 0;
 
-        auto req = flatbuffers::GetRoot<OrderRequest>(data_ptr);
+        auto req = static_cast<const OrderRequestT*>(data_ptr);
         book_->processRequest(req);
 
         return 1;

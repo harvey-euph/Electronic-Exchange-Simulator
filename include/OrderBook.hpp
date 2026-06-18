@@ -10,6 +10,10 @@
 #include "Order.hpp"
 
 #include "gtest/gtest_prod.h"
+
+// Forward declaration — full specialisations live in OrderBook.cpp
+template <typename T> struct RequestView;
+
 namespace Exchange {
 
 struct PriceLevel
@@ -58,7 +62,12 @@ public:
 
     ~OrderBook();
 
+    // FlatBuffers wire-format path (legacy, used by tests and CSV tooling)
     __attribute__((noinline)) void processRequest(const OrderRequest* req);
+
+    // Zero-copy path: called by MatchingEngine when the ring carries an
+    // OrderRequestT placement-new'd directly by the Gateway.
+    __attribute__((noinline)) void processRequest(const OrderRequestT* req);
 
 private:
     const uint64_t symbol_id_;
@@ -81,8 +90,6 @@ private:
         return 0;
     }
 
-    Order* createOrder(const OrderRequest* req);
-
     std::vector<PriceLevel> price_array_;
     std::unordered_map<uint64_t, Order*> active_orders_;
 
@@ -95,9 +102,9 @@ private:
                       uint64_t exec_id, Side side, int64_t p, uint64_t q,
                       RejectCode reject_code = RejectCode_None);
 
-    void handleNewOrder(const OrderRequest* req, bool report_ack = true);
-    void handleCancelOrder(const OrderRequest* req, bool report_cancelled = true);
-    void handleModifyOrder(const OrderRequest* req);
+    template <typename T> void handleNewOrder(const RequestView<T>& req, bool report_ack = true);
+    template <typename T> void handleCancelOrder(const RequestView<T>& req, bool report_cancelled = true);
+    template <typename T> void handleModifyOrder(const RequestView<T>& req);
 
     // Linked list 操作
     void insertOrderToLevel(PriceLevel* level, Order* order, Side side);
