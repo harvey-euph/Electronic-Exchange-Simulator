@@ -53,10 +53,10 @@ TEST_F(SHMRingBufferTest, ObserverReadOnly) {
     EXPECT_EQ(rb_ro.get_uncommitted_depth(), 0);
     EXPECT_GT(rb_ro.get_occupancy_ratio(), 0.0);
 
-    // 4. Dequeue on RW and verify metrics clear
-    void* data_ptr = nullptr;
-    size_t data_size = 0;
-    EXPECT_TRUE(rb_rw.dequeue(&data_ptr, &data_size));
+    // 4. Acquire + release on RW and verify metrics clear
+    auto slot = rb_rw.acquire();
+    EXPECT_TRUE(slot.has_value());
+    rb_rw.release(*slot);
     EXPECT_EQ(rb_ro.get_reserved_depth(), 0);
     EXPECT_EQ(rb_ro.get_uncommitted_depth(), 0);
 }
@@ -91,11 +91,11 @@ TEST_F(SHMRingBufferTest, MPSC) {
     std::vector<int> received_data;
     
     while (received_count < num_producers * count_per_producer) {
-        void* data;
-        size_t size;
-        if (rb.dequeue(&data, &size)) {
-            ASSERT_EQ(size, sizeof(int));
-            received_data.push_back(*static_cast<int*>(data));
+        auto slot = rb.acquire();
+        if (slot) {
+            ASSERT_EQ(slot->size, sizeof(int));
+            received_data.push_back(*static_cast<const int*>(slot->payload));
+            rb.release(*slot);
             received_count++;
         } else {
             std::this_thread::yield();

@@ -15,19 +15,19 @@ MarketDataServer::~MarketDataServer() {
 }
 
 int MarketDataServer::poll_client() {
-    return ws_adaptor_->poll() > 0 ? 1 : 0;
+    return ws_adaptor_->poll();
 }
 
-int MarketDataServer::poll_server() {
-    void* data_ptr = nullptr;
-    size_t data_size = 0;
-    if (ring_buffer_->dequeue(&data_ptr, &data_size)) {
-        if (data_ptr != nullptr && data_size > 0) {
-            process_market_update(data_ptr, data_size);
-        }
-        return 1;
+int MarketDataServer::poll_server()
+{
+    auto slot = ring_buffer_->acquire();
+    if (!slot) return 0;
+
+    if (slot->payload != nullptr && slot->size > 0) {
+        process_market_update(slot->payload, slot->size);
     }
-    return 0;
+    ring_buffer_->release(*slot);
+    return 1;
 }
 
 std::shared_ptr<L3Book> MarketDataServer::get_or_create_book(uint32_t symbol_id) {

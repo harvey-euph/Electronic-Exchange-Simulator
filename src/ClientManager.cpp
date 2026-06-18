@@ -38,6 +38,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffe
     };
     
     auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
+        DTRACE_PROBE(exchange, req_entry);
         this->process_client_request(client, data, size);
     };
 
@@ -118,9 +119,7 @@ void ClientManager::handle_client_subscription(WSClientPtr client, uint32_t clie
 }
 
 void ClientManager::process_client_request(WSClientPtr client, const void* data, size_t size)
-{    
-    DTRACE_PROBE(exchange, req_entry);
-    
+{
     flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(data), size);
     if (!verifier.VerifyBuffer<ClientRequest>(nullptr)) {
         return;
@@ -150,8 +149,6 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
 
-            DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
-
             auto token = request_ring_->reserve(sizeof(OrderRequestT));
             if (token) {
                 new (token->payload) OrderRequestT {
@@ -168,6 +165,7 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
                     .timestamp   = order_req->timestamp(),
                 };
                 request_ring_->commit(*token);
+                DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
             }
             break;
         }
@@ -225,16 +223,15 @@ int ClientManager::poll_client() {
 }
 
 int ClientManager::poll_server() {
-    void* data_ptr = nullptr;
-    size_t data_size = 0;
-    if (response_ring_->dequeue(&data_ptr, &data_size)) {
-        if (data_ptr && data_size >= sizeof(OrderResponseT)) {
-            auto resp = reinterpret_cast<const OrderResponseT*>(data_ptr);
-            handle_execution_response(resp);
-            return 1;
-        }
+    auto slot = response_ring_->acquire();
+    if (!slot) return 0;
+
+    if (slot->size >= sizeof(OrderResponseT)) {
+        auto resp = reinterpret_cast<const OrderResponseT*>(slot->payload);
+        handle_execution_response(resp);
     }
-    return 0;
+    response_ring_->release(*slot);
+    return 1;
 }
 
 } // namespace Exchange

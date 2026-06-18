@@ -128,18 +128,19 @@ public:
     // Allocate memory and construct the object
     template <typename... Args>
     T* allocate(Args&&... args) {
-        void* data = nullptr;
-        size_t size = 0;
-        if (ring_->dequeue(&data, &size)) {
-            if (size == sizeof(uint32_t)) {
-                uint32_t index = *reinterpret_cast<uint32_t*>(data);
-                if (index < capacity_) {
-                    T* ptr = reinterpret_cast<T*>(&pool_[index]);
-                    return new (ptr) T(std::forward<Args>(args)...);
-                }
+        auto slot = ring_->acquire();
+        if (!slot) return nullptr; // Out of memory
+
+        T* ptr = nullptr;
+        if (slot->size == sizeof(uint32_t)) {
+            uint32_t index = *reinterpret_cast<const uint32_t*>(slot->payload);
+            if (index < capacity_) {
+                ptr = reinterpret_cast<T*>(&pool_[index]);
+                new (ptr) T(std::forward<Args>(args)...);
             }
         }
-        return nullptr; // Out of memory
+        ring_->release(*slot);
+        return ptr;
     }
 
     // Call destructor and return memory to the pool

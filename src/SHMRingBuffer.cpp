@@ -250,70 +250,72 @@ bool SHMRingBufferImpl<ReadOnly>::enqueue(void* data, size_t size) requires (!Re
 }
 
 template <bool ReadOnly>
-bool SHMRingBufferImpl<ReadOnly>::dequeue(void** data, size_t* size) requires (!ReadOnly)
+std::optional<AcquireToken> SHMRingBufferImpl<ReadOnly>::acquire() requires (!ReadOnly)
 {
-    if (!data || !size) return false;
-
-    // 載入當前的 cons_head 與 prod_tail (MPSC 下 cons_head 只有單個 Consumer 會改，放 relaxed 即可)
     uint64_t current_head = m_ring->cons_head.load(std::memory_order_relaxed);
-    uint64_t current_tail = m_ring->prod_tail.load(std::memory_order_acquire); // 確保看見 Producer 寫完並提交的 prod_tail
+    uint64_t current_tail = m_ring->prod_tail.load(std::memory_order_acquire);
 
-    // 如果 head 等於 tail，代表 Ring 裡面空空如也
-    if (current_head == current_tail) {
-        return false;
-    }
+    if (current_head == current_tail) return std::nullopt;
 
     uint64_t head_offset = current_head & m_ring->mask;
     uint8_t* read_ptr = static_cast<uint8_t*>(m_data) + head_offset;
 
-    // 讀取標頭中的長度
     uint32_t length = *reinterpret_cast<uint32_t*>(read_ptr);
 
     if (current_head != current_tail && (length == 0 || length > m_capacity) && length != WRAP_MARKER) {
         std::cerr << "[SHMRing] Corrupt length: " << length << " head=" << current_head << " tail=" << current_tail << " offset=" << head_offset << std::endl;
     }
 
-    // 處理繞回標記
+    // 處理繞回標記：跳過末端 padding，資料在最開頭
     if (length == WRAP_MARKER) {
-        // 遇到了末端邊界，說明真正的資料在最開頭 (Offset 0)
         uint64_t space_to_end = m_capacity - head_offset;
-        
-        // 修正 head 指標，直接跳過末端的無效 Padding 空間
         uint64_t new_head = current_head + space_to_end;
-        
-        // 再次檢查跳過後是否追上 tail，如果追上代表後面沒資料了
+
+        // 跳過 wrap padding 後如果追上 tail，代表後面沒有資料
+        // 這是純內部 bookkeeping，直接推進 cons_head 並回傳 nullopt
         if (new_head == current_tail) {
-            m_ring->cons_head.store(new_head, std::memory_order_relaxed); // 默默更新 head
-            return false;
+            m_ring->cons_head.store(new_head, std::memory_order_relaxed);
+            return std::nullopt;
         }
 
-        // 從最開頭讀取真正的資料
         read_ptr = static_cast<uint8_t*>(m_data);
         length = *reinterpret_cast<uint32_t*>(read_ptr);
-        
-        if (length == 0 || length > m_capacity) {
-            return false;
-        }
 
-        *size = length;
-        *data = read_ptr + sizeof(uint32_t); // 傳回 Payload 的記憶體指標 (零拷貝)
+        if (length == 0 || length > m_capacity) return std::nullopt;
 
-        // 更新 cons_head (使用 release 讓 Producer 知道這塊空間釋放了)
-        m_ring->cons_head.store(new_head + sizeof(uint32_t) + length, std::memory_order_release);
-        return true;
+        return AcquireToken {
+            .payload       = read_ptr + sizeof(uint32_t),
+            .size          = length,
+            .new_cons_head = new_head + sizeof(uint32_t) + length,
+        };
     }
 
-    if (length == 0 || length > m_capacity) {
-        // Corrupt memory or invalid length
-        return false;
-    }
+    if (length == 0 || length > m_capacity) return std::nullopt;
 
-    // 正常情況：資料就在當前位置
-    *size = length;
-    *data = read_ptr + sizeof(uint32_t); // 傳回 Payload 的記憶體指標
+    return AcquireToken {
+        .payload       = read_ptr + sizeof(uint32_t),
+        .size          = length,
+        .new_cons_head = current_head + sizeof(uint32_t) + length,
+    };
+}
 
-    // 推進 cons_head 指標
-    m_ring->cons_head.store(current_head + sizeof(uint32_t) + length, std::memory_order_release);
+template <bool ReadOnly>
+void SHMRingBufferImpl<ReadOnly>::release(const AcquireToken& token) requires (!ReadOnly)
+{
+    m_ring->cons_head.store(token.new_cons_head, std::memory_order_release);
+}
+
+template <bool ReadOnly>
+bool SHMRingBufferImpl<ReadOnly>::dequeue(void** data, size_t* size) requires (!ReadOnly)
+{
+    if (!data || !size) return false;
+
+    auto token = acquire();
+    if (!token) return false;
+
+    *data = const_cast<void*>(token->payload);
+    *size = token->size;
+    release(*token);
     return true;
 }
 

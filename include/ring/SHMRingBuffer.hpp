@@ -40,6 +40,17 @@ struct ReserveToken {
     uint64_t new_prod_head;  // advanced head written by reserve()
 };
 
+// Token returned by acquire().
+// - payload      : read-only pointer directly into SHM (zero-copy)
+// - size         : payload size in bytes
+// - new_cons_head: value to advance cons_head to when release() is called
+// The token must be passed unmodified to release() after processing is done.
+struct AcquireToken {
+    const void* payload;       // read-only pointer directly into SHM
+    size_t      size;          // payload size in bytes
+    uint64_t    new_cons_head; // value to write to cons_head on release()
+};
+
 template <bool ReadOnly = false>
 class SHMRingBufferImpl {
 public:
@@ -61,6 +72,19 @@ public:
     // Convenience wrapper: reserve + memcpy + commit in one call.
     bool enqueue(void* data, size_t size) requires (!ReadOnly);
 
+    // Zero-copy two-phase dequeue API ----------------------------------------
+    // Phase 1: claim the next available slot without advancing cons_head.
+    //   On success returns a token whose .payload points directly into SHM.
+    //   Read from token.payload, then call release() to free the slot.
+    //   Returns std::nullopt when the ring is empty.
+    std::optional<AcquireToken> acquire() requires (!ReadOnly);
+
+    // Phase 2: release the previously acquired slot back to producers.
+    //   Must be called exactly once per successful acquire(), with the
+    //   unmodified token that was returned.
+    void release(const AcquireToken& token) requires (!ReadOnly);
+
+    // Convenience wrapper: acquire + release in one call (legacy semantics).
     bool dequeue(void** data, size_t* size) requires (!ReadOnly);
 
     // 監控與統計指標 API

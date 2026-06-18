@@ -11,22 +11,26 @@ MatchingEngine::MatchingEngine(SHMRingBuffer* request_ring, OrderBook* book)
     : request_ring_(request_ring), book_(book)
 {}
 
-int MatchingEngine::poll_client() {
+int MatchingEngine::poll_client()
+{
     return 0; // No client network polling needed for Matching Engine
 }
 
-int MatchingEngine::poll_server() {
-    void* data_ptr = nullptr;
-    size_t data_size = 0;
-    if (request_ring_->dequeue(&data_ptr, &data_size)) {
-        if (!data_ptr || data_size < sizeof(OrderRequestT)) return 0;
+int MatchingEngine::poll_server()
+{
+    auto slot = request_ring_->acquire();
+    if (!slot) return 0;
 
-        auto req = static_cast<const OrderRequestT*>(data_ptr);
-        book_->processRequest(req);
-
-        return 1;
+    if (slot->size < sizeof(OrderRequestT)) {
+        request_ring_->release(*slot);
+        return 0;
     }
-    return 0;
+
+    auto req = static_cast<const OrderRequestT*>(slot->payload);
+    book_->processRequest(req);
+
+    request_ring_->release(*slot);
+    return 1;
 }
 
 } // namespace Exchange
