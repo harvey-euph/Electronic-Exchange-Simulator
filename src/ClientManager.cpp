@@ -7,6 +7,17 @@
 
 namespace Exchange {
 
+// Compute the exact serialised size of an OrderRequest flatbuffer once at startup.
+// All fields are scalar (POD) so the layout is fixed and this value never changes.
+static const size_t ORDER_REQUEST_FBS_SIZE = []() {
+    flatbuffers::FlatBufferBuilder fbb;
+    auto offset = CreateOrderRequest(fbb,
+        OrderAction_New, 0, 0, 0, 0,
+        Side_Buy, OrderType_Limit, 0, 0, 0, 0);
+    fbb.Finish(offset);
+    return fbb.GetSize();
+}();
+
 ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, SHMRingBuffer* response_ring, std::shared_ptr<ClientDatabase> db) 
     : ws_adaptor_(std::make_shared<WSAdaptor>(port))
     , request_ring_(request_ring)
@@ -149,15 +160,37 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
 
-            flatbuffers::FlatBufferBuilder fbb(256);
-            auto or_offset = CreateOrderRequest(fbb, 
-                order_req->action(), order_req->exec_id(), order_req->order_id(), 
-                order_req->client_id(), order_req->symbol_id(), order_req->side(), 
-                order_req->type(), order_req->p(), order_req->q(), 
+            auto res = request_ring_->reserve(ORDER_REQUEST_FBS_SIZE);
+            uint8_t* payload_ptr = res.slot_ptr + sizeof(uint32_t);
+
+            // Simple allocator that hands out memory from the reserved region.
+            struct RingAlloc : public flatbuffers::Allocator {
+                uint8_t* base;
+                size_t offset;
+                RingAlloc(uint8_t* b) : base(b), offset(0) {}
+                uint8_t* allocate(size_t size) override {
+                    uint8_t* ptr = base + offset;
+                    offset += size;
+                    return ptr;
+                }
+                void deallocate(uint8_t*, size_t) override {}
+            } allocator(payload_ptr);
+
+            // Build the flatbuffer directly in the reserved memory.
+            flatbuffers::FlatBufferBuilder fbb(0, &allocator);
+            auto or_offset = CreateOrderRequest(fbb,
+                order_req->action(), order_req->exec_id(), order_req->order_id(),
+                order_req->client_id(), order_req->symbol_id(), order_req->side(),
+                order_req->type(), order_req->p(), order_req->q(),
                 order_req->visible_qty(), order_req->timestamp());
             fbb.Finish(or_offset);
+            size_t payload_size = fbb.GetSize();
             DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
-            request_ring_->enqueue(fbb.GetBufferPointer(), fbb.GetSize());
+            // Write the actual payload length (excluding the prefix itself).
+            *reinterpret_cast<uint32_t*>(res.slot_ptr) = static_cast<uint32_t>(payload_size);
+            // No extra memcpy needed – the builder already wrote into the reserved region.
+            // Commit the reservation, publishing the data.
+            request_ring_->commit(res);
             break;
         }
         case ClientRequestData_PositionRequest: {

@@ -222,6 +222,71 @@ bool SHMRingBufferImpl<ReadOnly>::enqueue(void* data, size_t size) requires (!Re
 }
 
 template <bool ReadOnly>
+typename SHMRingBufferImpl<ReadOnly>::Reservation
+SHMRingBufferImpl<ReadOnly>::reserve(size_t payload_size) requires (!ReadOnly) {
+    if (payload_size == 0) {
+        throw std::runtime_error("reserve called with zero payload size");
+    }
+    size_t required = sizeof(uint32_t) + payload_size;
+    if (required > m_capacity) {
+        throw std::runtime_error("payload larger than ring capacity");
+    }
+    uint64_t old_head, new_head;
+    uint64_t tail_offset;
+    size_t space_to_end;
+    bool wrapped = false;
+    while (true) {
+        old_head = m_ring->prod_head.load(std::memory_order_acquire);
+        uint64_t cons_head = m_ring->cons_head.load(std::memory_order_acquire);
+        tail_offset = old_head & m_ring->mask;
+        space_to_end = m_capacity - tail_offset;
+        if (space_to_end >= required) {
+            new_head = old_head + required;
+            wrapped = false;
+        } else {
+            new_head = old_head + space_to_end + required;
+            wrapped = true;
+        }
+        if (new_head - cons_head > m_capacity) {
+            throw std::runtime_error("ring buffer full, cannot reserve");
+        }
+        if (m_ring->prod_head.compare_exchange_weak(old_head, new_head,
+                                                    std::memory_order_acquire,
+                                                    std::memory_order_relaxed)) {
+            break;
+        }
+    }
+    uint8_t* slot = wrapped ? static_cast<uint8_t*>(m_data) : static_cast<uint8_t*>(m_data) + tail_offset;
+    Reservation r{};
+    r.slot_ptr = slot;
+    r.prod_head = old_head;
+    r.prod_tail_target = new_head;
+    r.total_needed = required;
+    return r;
+}
+
+// Commit the reservation after payload has been written
+template <bool ReadOnly>
+void SHMRingBufferImpl<ReadOnly>::commit(const Reservation& res) requires (!ReadOnly)
+{
+    // If we wrapped, write WRAP_MARKER at original tail location
+    if (res.slot_ptr == static_cast<uint8_t*>(m_data) && (res.prod_head & m_ring->mask) != 0) {
+        uint64_t original_tail_offset = (res.prod_head & m_ring->mask);
+        uint8_t* wrap_ptr = static_cast<uint8_t*>(m_data) + original_tail_offset;
+        *reinterpret_cast<uint32_t*>(wrap_ptr) = WRAP_MARKER;
+    }
+    // Wait for prod_tail to catch up to old head
+    while (m_ring->prod_tail.load(std::memory_order_acquire) != res.prod_head) {
+#if defined(__x86_64__) || defined(_M_X64)
+        __builtin_ia32_pause();
+#else
+        std::this_thread::yield();
+#endif
+    }
+    m_ring->prod_tail.store(res.prod_tail_target, std::memory_order_release);
+}
+
+template <bool ReadOnly>
 bool SHMRingBufferImpl<ReadOnly>::dequeue(void** data, size_t* size) requires (!ReadOnly)
 {
     if (!data || !size) return false;

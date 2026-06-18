@@ -37,6 +37,16 @@ public:
     bool enqueue(void* data, size_t size) requires (!ReadOnly);
     bool dequeue(void** data, size_t* size) requires (!ReadOnly);
 
+    // New reservation API to avoid extra copy
+    struct Reservation {
+        uint8_t* slot_ptr;      // pointer to start of slot (including length prefix)
+        uint64_t prod_head;     // old producer head captured at reservation
+        uint64_t prod_tail_target; // new head after reservation (to be stored on commit)
+        size_t total_needed;    // total bytes reserved (header+payload)
+    };
+    Reservation reserve(size_t payload_size) requires (!ReadOnly);
+    void commit(const Reservation& res) requires (!ReadOnly);
+
     // 監控與統計指標 API
     constexpr bool is_read_only() const { return ReadOnly; }
     uint64_t get_capacity() const { return m_capacity; }
