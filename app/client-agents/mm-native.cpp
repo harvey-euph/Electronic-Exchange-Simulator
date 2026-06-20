@@ -1,5 +1,4 @@
 #include "AlgoTradingClient.hpp"
-#include "SharedMarketData.hpp"
 #include "HttpUtil.hpp"
 #include "JsonUtil.hpp"
 #include <iostream>
@@ -28,10 +27,8 @@ namespace Exchange {
 class MarketMakerNative : public AlgoTradingClient {
 public:
     MarketMakerNative(const Config& config) : AlgoTradingClient(config) {
-        setup_shm();
         std::cout << "[MM-Native] Started. ClientID=" << config_.client_id << std::endl;
         
-        // Start background thread to fetch Binance price
         price_thread_ = std::thread(&MarketMakerNative::fetch_binance_price_loop, this);
     }
 
@@ -40,64 +37,32 @@ public:
         if (price_thread_.joinable()) {
             price_thread_.join();
         }
-        if (shm_ptr_) {
-            shm_ptr_->running = false;
-            munmap(shm_ptr_, sizeof(SharedMarketData));
-        }
-        shm_unlink(SHM_NAME);
     }
 
     void on_l2_update(const L2Update*) override {}
     void on_l3_update(const L3Update*) override {}
 
     void on_timer() override {
-        if (!shm_ptr_) return;
-
-        static bool shm_initialized = false;
-        if (!shm_initialized) {
-            auto it = symbols_info_.find(1);
-            if (it != symbols_info_.end()) {
-                const auto& info = it->second;
-                double mid_price = (info->price_min + info->price_max) / 2.0;
-                shm_ptr_->curr_price = mid_price;
-                shm_ptr_->last_price = mid_price;
-                mm_mid_price_ = mid_price;
-                prev_shm_price_ = mid_price;
-                shm_initialized = true;
-            }
+        double current_mid = 0.0;
+        {
+            std::lock_guard<std::mutex> lock(mid_price_mtx_);
+            current_mid = mm_mid_price_;
         }
 
-        // Read Price from SHM (updated by background thread)
-        double current_price = shm_ptr_->curr_price;
-        
-        // If the background thread updated the base price, align our mid_price
-        if (current_price != prev_shm_price_) {
-            mm_mid_price_ = current_price;
-            prev_shm_price_ = current_price;
+        if (current_mid <= 0.0) {
+            return; // Wait until we fetch the first price
         }
 
         auto it = symbols_info_.find(1);
-        int64_t step = (it != symbols_info_.end()) ? it->second->price_min_step : 1;
+        [[maybe_unused]] int64_t step = (it != symbols_info_.end()) ? it->second->price_min_step : 1;
 
         tick_count_++;
 
-        // Every 2 ticks (200ms), add a small fluctuation to the mid_price to make it jump
-        if (tick_count_ % 2 == 0) {
-            std::uniform_real_distribution<> price_fluct(-3.0, 3.0); // +/- 3 steps fluctuation
-            mm_mid_price_ += std::round(price_fluct(gen_)) * step;
-            
-            // Clamp mm_mid_price_
-            if (it != symbols_info_.end()) {
-                const auto& info = it->second;
-                mm_mid_price_ = std::max(static_cast<double>(info->price_min), std::min(static_cast<double>(info->price_max), mm_mid_price_));
-            }
-        }
-
-        // Clamp price between info->price_min and info->price_max
-        double last_price = mm_mid_price_;
+        double last_price = current_mid;
         
         // 2. Market Simulation Logic
-        double estimation = last_price + dist_estimation_(gen_);
+        // For a stable market maker, estimation is exactly the Binance price
+        double estimation = last_price;
         if (it != symbols_info_.end()) {
             const auto& info = it->second;
             estimation = std::max(static_cast<double>(info->price_min), std::min(static_cast<double>(info->price_max), estimation));
@@ -108,42 +73,14 @@ public:
 
         static int count = 0;
         if (++count % 10 == 0) {
-            std::cout << "[MM-Native] SHM Price: " << std::fixed << std::setprecision(2) << current_price 
-                      << " | MM Mid: " << mm_mid_price_ << " | Est: " << estimation 
+            std::cout << "[MM-Native] Binance Mid: " << std::fixed << std::setprecision(2) << current_mid 
+                      << " | Est: " << estimation 
                       << " | Spread Mult: " << spread_multiplier_
                       << " | Active Orders: " << account_.get_open_orders().size() << std::endl;
         }
     }
 
 private:
-    void setup_shm() {
-        // Try to unlink first in case it was left over
-        shm_unlink(SHM_NAME);
-
-        int fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
-        if (fd == -1) {
-            perror("shm_open");
-            return;
-        }
-        if (ftruncate(fd, sizeof(SharedMarketData)) == -1) {
-            perror("ftruncate");
-            return;
-        }
-        shm_ptr_ = (SharedMarketData*)mmap(NULL, sizeof(SharedMarketData), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        if (shm_ptr_ == MAP_FAILED) {
-            perror("mmap");
-            shm_ptr_ = nullptr;
-            return;
-        }
-        
-        // Initial state (on_timer will overwrite with DB values)
-        shm_ptr_->sequence = 0;
-        shm_ptr_->curr_price = 5000.0;
-        shm_ptr_->last_price = 5000.0;
-        shm_ptr_->running = true;
-        
-        std::cout << "[MM-Native] SHM setup successful at " << SHM_NAME << std::endl;
-    }
 
     void manage_orders(double estimation) {
         auto open_orders = account_.get_open_orders();
@@ -329,8 +266,9 @@ private:
                         scale = std::pow(10, -it->second->price_exp);
                     }
                     
-                    if (shm_ptr_) {
-                        shm_ptr_->update_price(price * scale);
+                    {
+                        std::lock_guard<std::mutex> lock(mid_price_mtx_);
+                        mm_mid_price_ = price * scale;
                     }
                 }
             } catch (const std::exception& e) {
@@ -342,7 +280,6 @@ private:
         }
     }
 
-    SharedMarketData* shm_ptr_ = nullptr;
     std::mt19937 gen_{std::random_device{}()};
     std::normal_distribution<> dist_price_walk_{0, 1.5};
     std::normal_distribution<> dist_estimation_{0, 3.0};
@@ -357,7 +294,7 @@ private:
 
     int tick_count_ = 0;
     double mm_mid_price_ = 0.0;
-    double prev_shm_price_ = 0.0;
+    std::mutex mid_price_mtx_;
 };
 
 } // namespace Exchange
