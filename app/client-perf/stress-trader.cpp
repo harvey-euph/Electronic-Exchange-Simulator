@@ -99,7 +99,7 @@ public:
             uint64_t exec_id = response->exec_id();
             std::chrono::steady_clock::time_point start_time;
             bool found = false;
-            bool is_short_mod = false;
+            [[maybe_unused]] bool is_short_mod = false;
             {
                 std::lock_guard<std::mutex> lock(send_times_mtx_);
                 auto it = request_send_times_.find(exec_id);

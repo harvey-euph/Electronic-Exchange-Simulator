@@ -24,7 +24,7 @@ public:
     void on_l2_update(const L2Update*) override {}
     void on_l3_update(const L3Update*) override {}
 
-    void on_response_processed(double rtt_us) override {
+    void on_response_processed([[maybe_unused]] double rtt_us) override {
         if (running_) {
             do_trading_action();
         }

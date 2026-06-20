@@ -76,7 +76,7 @@ public:
     }
 
     // Hook for round-trip-sender to chain next request
-    virtual void on_response_processed(double rtt_us) {}
+    virtual void on_response_processed([[maybe_unused]] double rtt_us) {}
 
     void report_stats() {
         std::vector<double> rtts_new, rtts_modify, rtts_modify_short, rtts_modify_long, rtts_cancel, rtts_reject, rtts_all;
