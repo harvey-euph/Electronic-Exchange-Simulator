@@ -120,49 +120,65 @@ private:
         
         if (is_fetch_tick || bids.size() < (size_t)target_levels || asks.size() < (size_t)target_levels) {
             int64_t est_ticks = std::round(estimation / step) * step;
+            bool price_went_up = (est_ticks > last_est_ticks_);
+            last_est_ticks_ = est_ticks;
             
-            // Handle Bids
-            for (int i = 0; i < std::max((int)bids.size(), target_levels); ++i) {
-                int64_t target_p = est_ticks - (i + 1) * step;
-                if (it != symbols_info_.end()) {
-                    target_p = std::max(it->second->price_min, std::min(it->second->price_max, target_p));
-                }
-                
-                if (i < (int)bids.size()) {
-                    if (i < target_levels) {
-                        uint64_t target_q = bids[i].q;
-                        if (bids[i].p != target_p) {
-                            replace_order(bids[i].order_id, target_p, target_q, bids[i].symbol_id, bids[i].side);
+            auto handle_bids = [&]() {
+                for (int i = 0; i < std::max((int)bids.size(), target_levels); ++i) {
+                    int64_t target_p = est_ticks - (i + 1) * step;
+                    if (it != symbols_info_.end()) {
+                        target_p = std::max(it->second->price_min, std::min(it->second->price_max, target_p));
+                    }
+                    
+                    if (i < (int)bids.size()) {
+                        if (i < target_levels) {
+                            uint64_t target_q = bids[i].q;
+                            if (bids[i].p != target_p) {
+                                replace_order(bids[i].order_id, target_p, target_q, bids[i].symbol_id, bids[i].side);
+                            }
+                        } else {
+                            cancel_order(bids[i].order_id, bids[i].symbol_id, bids[i].side);
                         }
                     } else {
-                        cancel_order(bids[i].order_id, bids[i].symbol_id, bids[i].side);
+                        uint64_t q = std::uniform_int_distribution<uint64_t>(10, 50)(gen_);
+                        new_limit_order(1, Side_Buy, target_p, q);
                     }
-                } else {
-                    uint64_t q = std::uniform_int_distribution<uint64_t>(10, 50)(gen_);
-                    new_limit_order(1, Side_Buy, target_p, q);
                 }
-            }
+            };
 
-            // Handle Asks
-            for (int i = 0; i < std::max((int)asks.size(), target_levels); ++i) {
-                int64_t target_p = est_ticks + (i + 1) * step;
-                if (it != symbols_info_.end()) {
-                    target_p = std::max(it->second->price_min, std::min(it->second->price_max, target_p));
-                }
-                
-                if (i < (int)asks.size()) {
-                    if (i < target_levels) {
-                        uint64_t target_q = asks[i].q;
-                        if (asks[i].p != target_p) {
-                            replace_order(asks[i].order_id, target_p, target_q, asks[i].symbol_id, asks[i].side);
+            auto handle_asks = [&]() {
+                for (int i = 0; i < std::max((int)asks.size(), target_levels); ++i) {
+                    int64_t target_p = est_ticks + (i + 1) * step;
+                    if (it != symbols_info_.end()) {
+                        target_p = std::max(it->second->price_min, std::min(it->second->price_max, target_p));
+                    }
+                    
+                    if (i < (int)asks.size()) {
+                        if (i < target_levels) {
+                            uint64_t target_q = asks[i].q;
+                            if (asks[i].p != target_p) {
+                                replace_order(asks[i].order_id, target_p, target_q, asks[i].symbol_id, asks[i].side);
+                            }
+                        } else {
+                            cancel_order(asks[i].order_id, asks[i].symbol_id, asks[i].side);
                         }
                     } else {
-                        cancel_order(asks[i].order_id, asks[i].symbol_id, asks[i].side);
+                        uint64_t q = std::uniform_int_distribution<uint64_t>(10, 50)(gen_);
+                        new_limit_order(1, Side_Sell, target_p, q);
                     }
-                } else {
-                    uint64_t q = std::uniform_int_distribution<uint64_t>(10, 50)(gen_);
-                    new_limit_order(1, Side_Sell, target_p, q);
                 }
+            };
+
+            // Order of modification is critical to avoid self-crossing:
+            // Always retreat the eaten side first before advancing the other side.
+            if (price_went_up) {
+                // Price goes UP: Asks are eaten. Retreat Asks first, then advance Bids.
+                handle_asks();
+                handle_bids();
+            } else {
+                // Price goes DOWN (or unchanged): Bids are eaten. Retreat Bids first, then advance Asks.
+                handle_bids();
+                handle_asks();
             }
         } else {
             // Not a fetch tick: randomly jitter qty of existing orders
@@ -188,6 +204,7 @@ private:
     std::mt19937 gen_{std::random_device{}()};
     int tick_count_ = 0;
     double mm_mid_price_ = 0.0;
+    int64_t last_est_ticks_ = 0;
 };
 
 } // namespace Exchange
