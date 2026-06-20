@@ -7,7 +7,7 @@
 using namespace Exchange;
 
 int main() {
-    std::string tmp_dir = "./execution_journals";
+    std::string tmp_dir = "./log/execution-journals";
     std::cout << "[Live Reader] Starting to listen on " << tmp_dir << "...\n";
     std::cout << "[Live Reader] Press Ctrl+C to stop.\n";
     
