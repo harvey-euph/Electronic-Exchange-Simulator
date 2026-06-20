@@ -91,7 +91,7 @@ echo "Logging stdout to: $LOG_FILE"
 
 # Start ebpf-msg-flow
 echo "Starting ebpf-msg-flow..."
-sudo ./app/perf/ebpf/ebpf-msg-flow --raw >> "$LOG_FILE" &
+sudo ./performance/ebpf/ebpf-msg-flow --raw >> "$LOG_FILE" &
 EBPF_PID=$!
 echo "Waiting 3 seconds for ebpf-msg-flow to stabilize..."
 sleep 3

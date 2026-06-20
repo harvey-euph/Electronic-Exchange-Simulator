@@ -71,7 +71,7 @@ public:
     __attribute__((noinline)) void processRequest(const OrderRequestT* req);
 
 private:
-    const uint64_t symbol_id_;
+    const uint32_t symbol_id_;
     const int64_t min_step_;           // 最小價格單位 (定點數)
     const int64_t price_index_offset_; // 
     const size_t  max_price_levels_;   // price_array_ 大小

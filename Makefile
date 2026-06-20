@@ -109,10 +109,10 @@ CLIENT_PERF_TARGETS := $(patsubst $(CLIENT_PERF_DIR)/%.cpp,$(BUILD_DIR)/client-p
 # Observability Executables
 # -----------------------------------------------------------------------------
 
-OBS_DIR := app/perf
+OBS_DIR := performance
 OBS_SOURCES := $(wildcard $(OBS_DIR)/*.cpp)
-OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/app/perf/%,$(OBS_SOURCES))
-EBPF_DIR := app/perf/ebpf
+OBS_TARGETS := $(patsubst $(OBS_DIR)/%.cpp,$(BUILD_DIR)/performance/%,$(OBS_SOURCES))
+EBPF_DIR := performance/ebpf
 
 # -----------------------------------------------------------------------------
 # Test Executables
@@ -183,8 +183,8 @@ $(BUILD_DIR)/client-perf/%: $(CLIENT_PERF_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERA
 # Build Observabilities
 # -----------------------------------------------------------------------------
 
-$(BUILD_DIR)/app/perf/%: $(OBS_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
-	@mkdir -p $(BUILD_DIR)/app/perf
+$(BUILD_DIR)/performance/%: $(OBS_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/performance
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------

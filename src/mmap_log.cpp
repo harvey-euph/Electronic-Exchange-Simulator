@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <iomanip>
 #include <sstream>
+#include <filesystem>
 
 namespace mmaplog {
 
@@ -19,6 +20,7 @@ static std::string get_filename(const std::string& dir, uint32_t index) {
 MmapWriter::MmapWriter(const std::string& dir, size_t max_file_size)
     : dir_(dir), max_file_size_(max_file_size), current_file_index_(0), fd_(-1), mapped_addr_(nullptr), current_offset_(0) {
     
+    std::filesystem::create_directories(dir_);
     // For this simple implementation, we always start at file 0 and overwrite.
     // In a real system, you'd scan the directory to find the latest file.
     open_file(0);
@@ -102,6 +104,7 @@ uint64_t MmapWriter::append(const void* data, uint32_t len) {
 
 MmapReader::MmapReader(const std::string& dir)
     : dir_(dir), current_file_index_(0), fd_(-1), mapped_addr_(nullptr), current_offset_(0), file_size_(0) {
+    std::filesystem::create_directories(dir_);
     open_file(0);
 }
 

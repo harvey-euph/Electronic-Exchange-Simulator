@@ -9,7 +9,7 @@ def analyze():
     csv_path = "log/latency_attribution.csv"
     if not os.path.exists(csv_path):
         print(f"Error: CSV file not found at '{csv_path}'.")
-        print("Please run the eBPF tracer first: 'sudo ./app/perf/ebpf/lat-tracer' to collect data.")
+        print("Please run the eBPF tracer first: 'sudo ./performance/ebpf/lat-tracer' to collect data.")
         sys.exit(1)
 
     print(f"Loading '{csv_path}'...")
