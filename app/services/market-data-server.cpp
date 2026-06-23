@@ -24,7 +24,7 @@ int main() {
     }
 
     std::cout << "[MarketDataServer] Polling response ring and WebSocket events..." << std::endl;
-    MarketDataServer server(PORT_MARKET_DATA_SERVER, response_ring);
+    MarketDataServer server(PORT_MD, response_ring);
     server.run();
 
     delete response_ring;

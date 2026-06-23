@@ -231,18 +231,18 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
 {
     auto [book, pending_ptr] = get_or_create_book(resp->symbol_id);
 
-    if (check_exec(resp->exec_type, EXEC_MASK_NOT_EXECUTIONS)) {
+    if (check_exec(resp->exec_type, EXEC_NON)) {
         return;
     }
 
     uint64_t timestamp = 0; // Or whatever timestamp we have
     
     if (pending_ptr) {
-        if (check_exec(resp->exec_type, EXEC_MASK_LATENCY_TRACK)) {
+        if (check_exec(resp->exec_type, EXEC_RESP)) {
             std::cerr << "[MarketDataServer] FATAL: Received new crossing order " << resp->order_id 
                         << " while pending_order " << pending_ptr->order_id << " is still active!" << std::endl;
             throw std::runtime_error("Multiple pending orders");
-        } else if (check_exec(resp->exec_type, EXEC_MASK_REMOVE_OPEN) && resp->order_id == pending_ptr->order_id) {
+        } else if (check_exec(resp->exec_type, EXEC_ANN) && resp->order_id == pending_ptr->order_id) {
             delete pending_ptr;
             pending_ptr = nullptr;
             return;

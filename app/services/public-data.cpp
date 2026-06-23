@@ -66,13 +66,13 @@ int main() {
         };
 
         HttpServer server(
-            {boost::asio::ip::make_address("0.0.0.0"), PORT_PUBLIC_DATA},
+            {boost::asio::ip::make_address("0.0.0.0"), PORT_DT},
             "GET, OPTIONS",
             handler
         );
         server.run(ioc);
 
-        std::cout << "[PublicData] Listening on 0.0.0.0:" << PORT_PUBLIC_DATA << std::endl;
+        std::cout << "[PublicData] Listening on 0.0.0.0:" << PORT_DT << std::endl;
         ioc.run();
     } catch (const std::exception& e) {
         std::cerr << "[PublicData] Main error: " << e.what() << std::endl;

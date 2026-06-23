@@ -1,19 +1,17 @@
 #pragma once
 #include <thread>
 #include <chrono>
+#include "fbs/exchange_generated.h"
 
 #define ORDER_REQUEST  "ORDER_REQUEST"
 #define ORDER_RESPONSE "ORDER_RESPONSE"
-// #define EXCHANGE_TELEMETRY "EXCHANGE_TELEMETRY"
-
 #define ORDER_REQUEST_SIZE  65536
 #define ORDER_RESPONSE_SIZE 131072
 
-// Service Ports
-#define PORT_CLIENT_MANAGER 9001
-#define PORT_MARKET_DATA_SERVER 9002
-#define PORT_HTTP_ACCEPTER  8080
-#define PORT_PUBLIC_DATA    8081
+#define PORT_CM 9001
+#define PORT_MD 9002
+#define PORT_OE 8080
+#define PORT_DT 8081
 
 // Unified sleep duration in milliseconds for dev/test environment polling loops
 #define POLL_SLEEP_MS 1
@@ -33,31 +31,28 @@
 
 namespace Exchange {
 
-// Bitmask to identify executions that update client position (Fill & PartialFill)
-constexpr uint8_t EXEC_MASK_POSITION_UPDATE = 0b00000110;
+#define exec_mask(type) (1u << static_cast<unsigned>(type))
+#define check_exec(type, mask) (exec_mask(type) & (mask))
 
-// Bitmask to identify execution reports where the order remains active/open (New, PartialFill, & Replaced)
-constexpr uint8_t EXEC_MASK_UPSERT_OPEN = 0b00100011;
+constexpr uint32_t EXEC_NEW = exec_mask(ExecType_New);
+constexpr uint32_t EXEC_PAR = exec_mask(ExecType_PartialFill);
+constexpr uint32_t EXEC_FIL = exec_mask(ExecType_Fill);
+constexpr uint32_t EXEC_REJ = exec_mask(ExecType_Rejected);
+constexpr uint32_t EXEC_DEL = exec_mask(ExecType_Cancelled);
+constexpr uint32_t EXEC_MOD = exec_mask(ExecType_Replaced);
+constexpr uint32_t EXEC_GET = exec_mask(ExecType_OrderStatus);
+constexpr uint32_t EXEC_END = exec_mask(ExecType_Complete);
 
-// Bitmask to identify execution reports that terminate/remove the open order (Fill & Cancelled)
-constexpr uint8_t EXEC_MASK_REMOVE_OPEN = 0b00010100;
+constexpr uint32_t EXEC_NON   = EXEC_GET | EXEC_END ;
+constexpr uint32_t EXEC_TRADE = EXEC_FIL | EXEC_PAR ;
+constexpr uint32_t EXEC_PUT   = EXEC_MOD | EXEC_DEL ;
+constexpr uint32_t EXEC_ANN   = EXEC_FIL | EXEC_DEL ;
+constexpr uint32_t EXEC_ME    = EXEC_NEW | EXEC_MOD ;
 
-// Bitmask to identify immediate client request responses for E2E latency tracking (New, Replaced, & Cancelled)
-constexpr uint8_t EXEC_MASK_LATENCY_TRACK = 0b00110001;
+constexpr uint32_t EXEC_ALIVE = EXEC_ME  | EXEC_PAR ;
+constexpr uint32_t EXEC_RESP  = EXEC_ME  | EXEC_PUT | EXEC_REJ ;
 
-// Cancel & Replace
-constexpr uint8_t EXEC_MASK_CHANGE_OPEN = 0b00110001;
-
-// NEW & Replace
-constexpr uint8_t EXEC_MASK_END_UP_OPEN = 0b00100001;
-
-// Execution
-constexpr uint8_t EXEC_MASK_EXECUTIONS = 0b00111111;
-
-// Non-Execution
-constexpr uint8_t EXEC_MASK_NOT_EXECUTIONS = ~EXEC_MASK_EXECUTIONS;
-
-#define check_exec(type, mask) ((mask) >> (type)) & 1
-
+constexpr uint32_t EXEC_MD    = EXEC_ANN | EXEC_ALIVE ;
+constexpr uint32_t EXEC_EXEC  = EXEC_REJ | EXEC_MD;
 
 } // namespace Exchange

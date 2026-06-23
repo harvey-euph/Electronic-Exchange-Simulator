@@ -156,12 +156,12 @@ void PostgresClientDatabase::updatePosition(const OrderResponseT* resp) {
 
 void PostgresClientDatabase::update_on_execution(const OrderResponseT* resp, bool not_sent) {
     uint32_t client_id = resp->client_id;
-    if ((EXEC_MASK_POSITION_UPDATE >> resp->exec_type) & 1) {
+    if ((EXEC_MASK_TRADE >> resp->exec_type) & 1) {
         updatePosition(resp);
     }
-    if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type) & 1) {
+    if ((EXEC_MASK_ALIVE >> resp->exec_type) & 1) {
         addOrUpdateOpenOrder(resp);
-        } else if ((EXEC_MASK_REMOVE_OPEN >> resp->exec_type) & 1) {
+        } else if ((EXEC_MASK_TERM >> resp->exec_type) & 1) {
         removeOpenOrder(client_id, resp->order_id);
     }
     appendResponseLog(client_id, *resp);

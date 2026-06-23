@@ -148,12 +148,12 @@ public:
 
     void update_on_execution(const OrderResponseT* resp, [[maybe_unused]] bool not_sent) override {
         uint32_t client_id = resp->client_id;
-        if ((EXEC_MASK_POSITION_UPDATE >> resp->exec_type) & 1) {
+        if (check_exec(resp->exec_type, EXEC_TRADE)) {
             updatePosition(resp);
         }
-        if ((EXEC_MASK_UPSERT_OPEN >> resp->exec_type) & 1) {
+        if (check_exec(resp->exec_type, EXEC_ALIVE)) {
             addOrUpdateOpenOrder(resp);
-        } else if ((EXEC_MASK_REMOVE_OPEN >> resp->exec_type) & 1) {
+        } else if (check_exec(resp->exec_type, EXEC_ANN)) {
             removeOpenOrder(client_id, resp->order_id);
         }
         appendResponseLog(client_id, *resp);

@@ -28,7 +28,7 @@ int main()
         return -1;
     }
 
-    Exchange::ClientManager manager(PORT_CLIENT_MANAGER, request_ring, response_ring, db);
+    Exchange::ClientManager manager(PORT_CM, request_ring, response_ring, db);
 
     int main_core = CM_CORE;
     if (main_core >= 0) {
