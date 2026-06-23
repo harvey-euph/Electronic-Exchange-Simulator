@@ -62,23 +62,19 @@ sequenceDiagram
 graph TD
     Client[Client API/APP] -->|1. HTTP /order| HTTP[http_accepter]
     Client -->|1. WS OrderRequest| CM[client_manager]
+    Client -->|1. HTTP /v1/symbol| PD[public_data]
     
     HTTP -->|2. Enqueue| RB_REQ[ORDER_REQUEST SHM Ring Buffer]
     CM -->|2. Enqueue| RB_REQ
     
     RB_REQ -->|3. Dequeue| OC[Matching Engine]
-    OC -->|4. ExecutionReport| RB_RESP[ORDER_RESPONSE SHM Ring Buffer]
-    OC -->|4. L2 Update| RB_L2[L2_UPDATE_RING SHM Ring Buffer]
-    OC -->|4. L3 Update| RB_L3[L3_UPDATE_RING SHM Ring Buffer]
+    OC -->|4. ExecutionReport| MMAP_LOG[execution-journals MmapLog]
     
-    RB_RESP -->|5. Dequeue| CM
+    MMAP_LOG -->|5. Read| CM
     CM -->|6. WS ClientResponse / DB| Client
     
-    RB_L2 -->|5. Dequeue| L2P[l2_publisher]
-    L2P -->|6. WS L2Update| Client
-    
-    RB_L3 -->|5. Dequeue| L3P[l3_publisher]
-    L3P -->|6. WS L3Update| Client
+    MMAP_LOG -->|5. Read| MDS[market_data_server]
+    MDS -->|6. WS L2/L3 Update| Client
 ```
 
 ## L2/L3 Update & Subscription Phase
@@ -87,7 +83,7 @@ graph TD
 sequenceDiagram
     autonumber
     actor Client as Client API/APP
-    participant Pub as L2/L3 Publisher
+    participant Pub as Market Data Server
 
     Client->>Pub: Connect (WS Handshake)
     activate Pub
@@ -97,7 +93,7 @@ sequenceDiagram
     Pub->>Client: Send Empty Frame (Side = None)
     Note over Client: MUST clear local L2/L3 data store<br/>upon receiving Empty Frame
     
-    Note over Pub: [TODO] Send SNAPSHOT guarantees sequence:<br/>BEST BID -> BEST ASK -> OTHER LAYER
+    Note over Pub: Send SNAPSHOT from local L3Book
     
     Pub->>Client: WS L2/L3 Update (Snapshot)
     
@@ -113,108 +109,59 @@ sequenceDiagram
 
 ## eBPF Latency Tracer (lat-tracer)
 
-The `lat-tracer` eBPF program measures end-to-end latency of order requests by hooking into kernel networking functions and user-space application functions (uprobes). It breaks down the total latency into Kernel Network Overhead, Client Manager Processing, and Matching Engine Processing.
+The `lat-tracer` eBPF program measures end-to-end latency of order requests by hooking into kernel networking functions (`kprobes`) and user-space C++ functions via User Statically-Defined Tracing (`USDT`). It breaks down the total latency into 8 distinct stages, while also capturing Performance Monitoring Unit (PMU) metrics like CPU cycles, instructions, cache misses, and page faults for each stage.
 
 ### Latency Tracing Workflow
 
-#### 1. Recording starting time (tcp_recvmsg)
+The latency tracing is divided into 8 stages to isolate time spent in kernel networking, application processing, and IPC queue delays:
 
 ```mermaid
 sequenceDiagram
-    participant Kernel as tcp_recvmsg<br/>(Kernel)
-    participant CtxMap as recv_ctx_map
-    participant ReqMap as pending_requests
-
-    Note over Kernel: [kprobe] tcp_recvmsg
-    Kernel->>CtxMap: Save sock & msghdr context (key: TID)
-    
-    Note over Kernel: [kretprobe] tcp_recvmsg_ret
-    CtxMap-->>Kernel: Read & Delete context (key: TID)
-    Note over Kernel: Parse FlatBuffer Payload
-    Kernel->>ReqMap: Save Start Timestamp T0 (key: exec_id)
-```
-
-#### 2. Client Manager Processing
-
-```mermaid
-sequenceDiagram
+    autonumber
+    participant Kernel as Kernel<br/>(Network Stack)
     participant CM as Client Manager<br/>(User Space)
-    participant StartMap as manager_start_map
-    participant TidMap as active_exec_id_map
-    participant LatMap as manager_lat_map
+    participant SHM as SHM Ring Buffer
+    participant ME as Matching Engine<br/>(User Space)
+    participant MmapLog as MmapLog<br/>(Execution Journals)
 
-    Note over CM: [uprobe] process_client_request
-    CM->>StartMap: Save CM Start Time (key: exec_id)
+    Note over Kernel, MmapLog: Stage 0: Kernel Network Rx & Thread Wakeup
+    Kernel->>CM: tcp_recvmsg
     
-    Note over CM: [uprobe] handle_execution_response
-    CM->>TidMap: Save active exec_id (key: TID)
+    Note over CM: Stage 1: Request Decode & Validation
+    CM->>CM: [usdt] req_entry
     
-    Note over CM: [uretprobe] handle_execution_response_ret
-    TidMap-->>CM: Read & Delete active exec_id (key: TID)
-    StartMap-->>CM: Read & Delete CM Start Time (key: exec_id)
-    CM->>LatMap: Save CM Latency (key: exec_id)
-```
-
-#### 3. Matching Engine Processing
-
-```mermaid
-sequenceDiagram
-    participant OB as Matching Engine<br/>(User Space)
-    participant StartMap as engine_start_map
-    participant TidMap as active_exec_id_map
-    participant LatMap as engine_lat_map
-
-    Note over OB: [uprobe] processRequest
-    OB->>StartMap: Save Engine Start Time (key: exec_id)
-    OB->>TidMap: Save active exec_id (key: TID)
+    Note over CM, ME: Stage 2: SHM Queue Delay
+    CM->>SHM: [usdt] req_enqueue
     
-    Note over OB: [uretprobe] processRequest_ret
-    TidMap-->>OB: Read & Delete active exec_id (key: TID)
-    StartMap-->>OB: Read & Delete Engine Start Time (key: exec_id)
-    OB->>LatMap: Save Engine Latency (key: exec_id)
-```
-
-#### 4. TX Path & Userspace Aggregation (tcp_sendmsg)
-
-```mermaid
-sequenceDiagram
-    participant Kernel as tcp_sendmsg<br/>(Kernel)
-    participant TxCtx as tx_ctx_map
-    participant ReqMap as pending_requests
-    participant EngineLat as engine_lat_map
-    participant MgrLat as manager_lat_map
-    participant RB as BPF RingBuffer
-    participant Tracer as lat-tracer<br/>(User Space)
-
-    Note over Kernel: [kprobe] tcp_sendmsg
-    Note over Kernel: Parse FlatBuffer Payload
-    Kernel->>TxCtx: Save tx_ctx with exec_ids (key: TID)
+    Note over ME: Stage 3: Order Matching
+    SHM->>ME: [usdt] ob_req_entry
     
-    Note over Kernel: [kretprobe] tcp_sendmsg_ret
-    Note over Kernel: Capture TX End Timestamp
-    TxCtx-->>Kernel: Read & Delete tx_ctx (key: TID)
-    ReqMap-->>Kernel: Read & Delete T0 (key: exec_id)
-    EngineLat-->>Kernel: Read & Delete Engine Latency (key: exec_id)
-    MgrLat-->>Kernel: Read & Delete CM Latency (key: exec_id)
+    Note over ME, CM: Stage 4: MmapLog Queue Delay
+    ME->>MmapLog: [usdt] ob_resp_enqueue
     
-    Kernel->>RB: Submit latency_event
+    Note over CM: Stage 5: Response Encoding & Pre-DB
+    MmapLog->>CM: [usdt] exec_resp_entry
     
-    RB-->>Tracer: Poll event
-    Note over Tracer: Calculate Kernel Overhead<br/>(Total - Engine - CM)
-    Note over Tracer: Aggregate & Display Stats
+    Note over CM: Stage 6: Database & Send Prepare
+    CM->>CM: [usdt] exec_resp_before_db
+    
+    Note over CM, Kernel: Stage 7: Kernel Network Tx
+    CM->>Kernel: tcp_sendmsg
+    Kernel-->>Client: tcp_sendmsg_ret
 ```
 
 #### Responsibilities
 
 **Kernel Space (eBPF)**:
-1. **Network Hooks**: Intercepts `tcp_recvmsg` (entry/exit) to parse incoming FlatBuffer payloads for `exec_id` and records the start timestamp. Intercepts `tcp_sendmsg` to parse outgoing responses and compute total latency.
-2. **Application Hooks (Uprobes)**: Attaches to C++ functions in `ClientManager` and `OrderBook`. Computes the time spent inside the Matching Engine and the Client Manager.
-3. **Data Aggregation**: Retrieves the latency components when the response is sent out, bundles them into a `latency_event`, and pushes them to User Space.
+1. **Network Hooks (kprobes)**: Intercepts `tcp_recvmsg` to parse incoming FlatBuffer payloads and record start timestamps. Intercepts `tcp_sendmsg` to detect outbound responses and compute the final network Tx latency.
+2. **Application Hooks (USDT)**: Attaches to compiled-in USDT tracepoints in `ClientManager` and `MatchingEngine` to track the exact lifecycle of an order across threads and processes.
+3. **Hardware Performance Monitoring (PMU)**: Reads hardware perf counters (e.g., L1/LLC Cache Misses, Branch Misses, Instructions Per Cycle) and software events (context switches, page faults, runqueue delays) during each stage.
+4. **Data Aggregation**: Bundles the 8-stage metrics into a `stage_sample` and pushes them to User Space via a BPF RingBuffer.
 
 **User Space (C++)**:
-1. **Setup**: Loads the eBPF object, attaches kprobes and uprobes, and sets up the Ring Buffer.
-2. **Processing**: Polls the Ring Buffer for `latency_event` structures.
-3. **Analytics & Display**: Calculates the pure kernel networking overhead by subtracting application latencies from the total latency. Aggregates data by execution type (New, Modify, Cancel) and calculates percentiles (p50, p90, p99, p999), printing a real-time table to standard output.
+1. **Setup**: Loads the BPF skeleton, configures perf_event arrays for hardware counters, and attaches USDT links to specific binary paths (`client-manager` and `matching-engine`).
+2. **Processing**: Polls the Ring Buffer for `stage_sample` events. It aggregates all 8 stages for each `exec_id`.
+3. **Analytics & Storage**: Once a complete message flow is reconstructed, it writes the multi-dimensional attribution data (latency, IPC, cache misses, etc., for each stage) into a CSV file (`latency_attribution.csv`) for further analysis.
 
 ## License
 
