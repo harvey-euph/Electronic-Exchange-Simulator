@@ -100,6 +100,8 @@ private:
     void handleCancelOrder(const OrderRequestT* req, bool report_cancelled = true);
     void handleModifyOrder(const OrderRequestT* req);
 
+    void match(Order* taker, Side side, size_t price_idx);
+
     // Linked list 操作
     void insertOrderToLevel(PriceLevel* level, Order* order, Side side);
     void removeOrderFromLevel(Order* order);

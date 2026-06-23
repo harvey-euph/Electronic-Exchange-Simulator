@@ -61,22 +61,26 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
 
     Order* taker = createOrder(req);
 
-    const int side_int = static_cast<int>(req->side);
-    const size_t price_idx = (req->type == OrderType_Market)
-        ? (req->side == Side_Buy ? max_price_levels_ - 1 : 0)
-        : price_to_index(req->p);
+    const size_t price_idx = (req->type == OrderType_Market)? 
+        (req->side == Side_Buy ? max_price_levels_ - 1 : 0) : price_to_index(req->p);
 
     if (report_ack) {
         sendResponse(ExecType_New, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
     }
 
+    match(taker, req->side, price_idx);
+}
+
+void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
+{
+    const int side_int = static_cast<int>(taker_side);
     PriceLevel **oppo = &best_levels_[1^side_int];
 
     while (*oppo && taker->qty_remaining)
     {
         const size_t oppo_idx = (*oppo) - price_array_.data();
         const size_t p = index_to_price(oppo_idx);
-        const bool crossed = (req->side == Side_Buy) ? (price_idx >= oppo_idx) : (price_idx <= oppo_idx);
+        const bool crossed = (taker_side == Side_Buy) ? (price_idx >= oppo_idx) : (price_idx <= oppo_idx);
         if (!crossed) break;
 
         Order* maker = (*oppo)->dummy_head.next;
@@ -94,7 +98,7 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
                 const Side maker_side = static_cast<Side>(1^side_int);
                 sendResponse(
                     taker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                    taker->order_id, taker->client_id, exec_id, req->side, p, qty_fill);
+                    taker->order_id, taker->client_id, exec_id, taker_side, p, qty_fill);
                 sendResponse(
                     maker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
                     maker->order_id, maker->client_id, exec_id, maker_side, p, qty_fill);
@@ -118,12 +122,13 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
 
     if (!taker->qty_remaining)
     {
+        active_orders_.erase(taker->order_id);
         delete taker;
         return;
     }
 
-    PriceLevel* level = GetOrCreatePriceLevel(price_idx, req->side);
-    insertOrderToLevel(level, taker, req->side);
+    PriceLevel* level = GetOrCreatePriceLevel(price_idx, taker_side);
+    insertOrderToLevel(level, taker, taker_side);
 
     active_orders_[taker->order_id] = taker;
 }
@@ -166,9 +171,15 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
     Order *o = it->second;
     PriceLevel *pl = o->price_level;
     PriceLevel *target = req->p ? &price_array_[price_to_index(req->p)] : pl;
-    int64_t qty_diff = req->q
-        ? static_cast<int64_t>(req->q) - static_cast<int64_t>(o->qty_original)
-        : 0;
+    const uint64_t new_qty = req->q ? req->q : o->qty_original;
+    const uint64_t executed_qty = o->qty_original - o->qty_remaining;
+
+    if (new_qty < executed_qty) {
+        sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_InvalidModify, req->msg_seq_num);
+        return;
+    }
+
+    int64_t qty_diff = static_cast<int64_t>(new_qty) - static_cast<int64_t>(o->qty_original);
 
     if (pl == target) {
         if (!qty_diff) {
@@ -176,25 +187,32 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
             return;
         }
 
-        const uint64_t executed_qty = o->qty_original - o->qty_remaining;
-        const uint64_t new_qty = req->q;
-        if (new_qty < executed_qty) {
-            sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_InvalidModify, req->msg_seq_num);
-            return;
-        }
+        if (qty_diff > 0) { goto REQUEUE; }
 
         pl->total_qty += qty_diff;
 
         o->qty_remaining = new_qty - executed_qty;
         o->qty_original = new_qty;
+        o->exec_id = req->exec_id;
         sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
         return;
     }
-    // TODO: Use ExecType_Replaced to handle
-    // TODO: Check why making qty up still go to short path
+
+REQUEUE:
     sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
-    handleCancelOrder(req, false);
-    handleNewOrder(req, false);
+
+    removeOrderFromLevel(o);
+    pl->total_qty -= o->qty_remaining;
+    if (!pl->order_count) {
+        removePriceLevel(pl, req->side);
+    }
+
+    o->qty_remaining = new_qty - executed_qty;
+    o->qty_original = new_qty;
+    o->exec_id = req->exec_id;
+
+    const size_t price_idx = target - price_array_.data();
+    match(o, req->side, price_idx);
 }
 
 void OrderBook::processRequest(const OrderRequestT* req)
