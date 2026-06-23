@@ -205,7 +205,7 @@ void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type,
     }
 }
 
-void MarketDataServer::publish_l2_update(uint32_t symbol_id, Side side, int64_t price, uint64_t new_qty, uint64_t msg_seq_num, uint64_t timestamp) {
+void MarketDataServer::publish_l2_update(uint32_t symbol_id, const std::vector<L2UpdateT>& updates, uint64_t msg_seq_num, uint64_t timestamp) {
     bool has_l2_subs = false;
     {
         std::lock_guard<std::mutex> lock(subs_mutex_);
@@ -214,26 +214,28 @@ void MarketDataServer::publish_l2_update(uint32_t symbol_id, Side side, int64_t 
             has_l2_subs = true;
         }
     }
-    if (!has_l2_subs) return;
-
-    flatbuffers::FlatBufferBuilder fbb(512);
-    auto l2_update = CreateL2Update(fbb, symbol_id, msg_seq_num, side, price, new_qty, timestamp);
-    auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
-    fbb.Finish(md_update);
+    if (!has_l2_subs || updates.empty()) return;
 
     std::lock_guard<std::mutex> lock(subs_mutex_);
-    for (auto& client : l2_subscribers_[symbol_id]) {
-        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+    for (const auto& up : updates) {
+        flatbuffers::FlatBufferBuilder fbb(512);
+        auto l2_update = CreateL2Update(fbb, symbol_id, msg_seq_num, up.side, up.p, up.q, timestamp);
+        auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
+        fbb.Finish(md_update);
+
+        for (auto& client : l2_subscribers_[symbol_id]) {
+            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        }
     }
 }
 
 void MarketDataServer::process_market_update(const OrderResponseT* resp)
 {
-    auto [book, pending_ptr] = get_or_create_book(resp->symbol_id);
-
-    if (check_exec(resp->exec_type, EXEC_NON)) {
+    if (!check_exec(resp->exec_type, EXEC_MD)) {
         return;
     }
+
+    auto [book, pending_ptr] = get_or_create_book(resp->symbol_id);
 
     uint64_t timestamp = 0; // Or whatever timestamp we have
     
@@ -247,7 +249,7 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
             pending_ptr = nullptr;
             return;
         }
-    } else if ((resp->exec_type == ExecType_New /* TODO: Should support ExecType_Replaced here */) && crosses(resp->side, resp->p, book)) {
+    } else if (check_exec(resp->exec_type, EXEC_ME) && crosses(resp->side, resp->p, book)) {
         pending_ptr = new OrderResponseT {*resp};
         return;
     }
@@ -264,9 +266,9 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
 
 void MarketDataServer::validated_update(std::shared_ptr<L3Book> book, const OrderResponseT* resp, uint64_t timestamp)
 {
-    uint64_t qty_new = book->update(resp->exec_type, resp->order_id, resp->side, resp->p, resp->q);
+    auto updates = book->update(resp->exec_type, resp->order_id, resp->side, resp->p, resp->q);
     publish_l3_update(resp->symbol_id, resp->exec_type, resp->order_id, resp->side, resp->p, resp->q, resp->msg_seq_num, timestamp);
-    publish_l2_update(resp->symbol_id, resp->side, resp->p, qty_new, resp->msg_seq_num, timestamp);
+    publish_l2_update(resp->symbol_id, updates, resp->msg_seq_num, timestamp);
 }
 
 } // namespace Exchange

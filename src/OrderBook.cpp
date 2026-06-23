@@ -192,9 +192,9 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
     }
     // TODO: Use ExecType_Replaced to handle
     // TODO: Check why making qty up still go to short path
-    // sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
-    handleCancelOrder(req);
-    handleNewOrder(req);
+    sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
+    handleCancelOrder(req, false);
+    handleNewOrder(req, false);
 }
 
 void OrderBook::processRequest(const OrderRequestT* req)

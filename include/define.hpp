@@ -50,7 +50,7 @@ constexpr uint32_t EXEC_ANN   = EXEC_FIL | EXEC_DEL ;
 constexpr uint32_t EXEC_ME    = EXEC_NEW | EXEC_MOD ;
 
 constexpr uint32_t EXEC_ALIVE = EXEC_ME  | EXEC_PAR ;
-constexpr uint32_t EXEC_RESP  = EXEC_ME  | EXEC_PUT | EXEC_REJ ;
+constexpr uint32_t EXEC_RESP  = EXEC_ME  | EXEC_DEL | EXEC_REJ ;
 
 constexpr uint32_t EXEC_MD    = EXEC_ANN | EXEC_ALIVE ;
 constexpr uint32_t EXEC_EXEC  = EXEC_REJ | EXEC_MD;

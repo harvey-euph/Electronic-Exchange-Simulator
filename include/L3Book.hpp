@@ -36,32 +36,33 @@ struct L3Book {
     
     std::mutex mutex;
 
-    uint64_t update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty) {
-        uint64_t qty_new = 0;
+    std::vector<L2UpdateT> update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty) {
+        std::vector<L2UpdateT> updates;
         std::lock_guard<std::mutex> lock(mutex);
         
         if (side == Side_None) {
             orders.clear();
             bids.clear();
             asks.clear();
-            return 0;
+            return updates;
         }
         
         switch (type) {
             case ExecType_New: {
                 if (orders.count(order_id)) {
-                    remove_from_queues(order_id);
+                    remove_from_queues(order_id, updates);
                 }
                 auto& level = (side == Side_Buy) ? bids[price] : asks[price];
                 level.queue.push_back(order_id);
                 level.total_qty += qty;
-                qty_new = level.total_qty;
                 orders[order_id] = {order_id, side, price, qty, std::prev(level.queue.end())};
+                
+                updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
                 break;
             }
             case ExecType_Fill:
             case ExecType_Cancelled: {
-                qty_new = remove_from_queues(order_id);
+                remove_from_queues(order_id, updates);
                 orders.erase(order_id);
                 break;
             }
@@ -69,32 +70,24 @@ struct L3Book {
                 auto it = orders.find(order_id);
                 if (it != orders.end()) {
                     if (it->second.qty > qty) {
+                        uint64_t new_total = 0;
                         if (it->second.side == Side_Buy) {
                             auto level_it = bids.find(it->second.price);
                             if (level_it != bids.end()) {
-                                if (level_it->second.total_qty >= qty) {
-                                    level_it->second.total_qty -= qty;
-                                } else {
-                                    level_it->second.total_qty = 0;
-                                }
-                                qty_new = level_it->second.total_qty;
+                                level_it->second.total_qty -= qty;
+                                new_total = level_it->second.total_qty;
                             }
                         } else {
                             auto level_it = asks.find(it->second.price);
                             if (level_it != asks.end()) {
-                                if (level_it->second.total_qty >= qty) {
-                                    level_it->second.total_qty -= qty;
-                                } else {
-                                    level_it->second.total_qty = 0;
-                                }
-                                qty_new = level_it->second.total_qty;
+                                level_it->second.total_qty -= qty;
+                                new_total = level_it->second.total_qty;
                             }
                         }
                         it->second.qty -= qty;
+                        updates.emplace_back(L2UpdateT{ .side = it->second.side, .p = it->second.price, .q = new_total });
                     } else {
-                        // This shouldn't happen if OrderBook is consistent, 
-                        // but if qty_fill >= qty_remaining, it's a full fill.
-                        qty_new = remove_from_queues(order_id);
+                        remove_from_queues(order_id, updates);
                         orders.erase(it);
                     }
                 }
@@ -104,40 +97,46 @@ struct L3Book {
                 auto it = orders.find(order_id);
                 if (it != orders.end()) {
                     if (it->second.price != price || it->second.side != side) {
-                        remove_from_queues(order_id);
+                        remove_from_queues(order_id, updates);
                         auto& level = (side == Side_Buy) ? bids[price] : asks[price];
                         level.queue.push_back(order_id);
                         level.total_qty += qty;
-                        qty_new = level.total_qty;
                         it->second = {order_id, side, price, qty, std::prev(level.queue.end())};
+                        
+                        updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
                     } else {
                         auto& level = (side == Side_Buy) ? bids[price] : asks[price];
                         level.total_qty = level.total_qty - it->second.qty + qty;
-                        qty_new = level.total_qty;
                         it->second.qty = qty;
+                        
+                        updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
                     }
                 } else {
                     auto& level = (side == Side_Buy) ? bids[price] : asks[price];
                     level.queue.push_back(order_id);
                     level.total_qty += qty;
-                    qty_new = level.total_qty;
                     orders[order_id] = {order_id, side, price, qty, std::prev(level.queue.end())};
+                    
+                    updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
                 }
                 break;
             }
             default:
                 break;
         }
-        return qty_new;
+        return updates;
     }
 
-    uint64_t remove_from_queues(uint64_t order_id) {
+    void remove_from_queues(uint64_t order_id, std::vector<L2UpdateT>& updates) {
         auto it = orders.find(order_id);
-        if (it == orders.end()) return 0;
+        if (it == orders.end()) return;
 
         uint64_t new_total = 0;
-        if (it->second.side == Side_Buy) {
-            auto level_it = bids.find(it->second.price);
+        int64_t old_price = it->second.price;
+        Side old_side = it->second.side;
+
+        if (old_side == Side_Buy) {
+            auto level_it = bids.find(old_price);
             if (level_it != bids.end()) {
                 if (level_it->second.total_qty >= it->second.qty) {
                     level_it->second.total_qty -= it->second.qty;
@@ -148,8 +147,8 @@ struct L3Book {
                 level_it->second.queue.erase(it->second.queue_pos);
                 if (level_it->second.queue.empty()) bids.erase(level_it);
             }
-        } else if (it->second.side == Side_Sell) {
-            auto level_it = asks.find(it->second.price);
+        } else if (old_side == Side_Sell) {
+            auto level_it = asks.find(old_price);
             if (level_it != asks.end()) {
                 if (level_it->second.total_qty >= it->second.qty) {
                     level_it->second.total_qty -= it->second.qty;
@@ -161,7 +160,8 @@ struct L3Book {
                 if (level_it->second.queue.empty()) asks.erase(level_it);
             }
         }
-        return new_total;
+        
+        updates.emplace_back(L2UpdateT{ .side = old_side, .p = old_price, .q = new_total });
     }
 
     void display(int depth_limit = 10) {
