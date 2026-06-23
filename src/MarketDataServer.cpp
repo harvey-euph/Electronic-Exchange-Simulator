@@ -150,10 +150,18 @@ void MarketDataServer::handle_market_data_request(WSClientPtr client, const Mark
                     for (uint64_t order_id : it->second.queue) {
                         auto const& order = book->orders.at(order_id);
                         fbb.Clear();
-                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
+                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty_req, 0);
                         auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
                         fbb.Finish(md_update);
                         client->send(fbb.GetBufferPointer(), fbb.GetSize());
+
+                        if (order.qty_req > order.qty_rem) {
+                            fbb.Clear();
+                            auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
+                            auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
+                            fbb.Finish(md_fill);
+                            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                        }
                     }
                 }
                 // Asks (lowest to highest)
@@ -161,10 +169,18 @@ void MarketDataServer::handle_market_data_request(WSClientPtr client, const Mark
                     for (uint64_t order_id : level.queue) {
                         auto const& order = book->orders.at(order_id);
                         fbb.Clear();
-                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty, 0);
+                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty_req, 0);
                         auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
                         fbb.Finish(md_update);
                         client->send(fbb.GetBufferPointer(), fbb.GetSize());
+
+                        if (order.qty_req > order.qty_rem) {
+                            fbb.Clear();
+                            auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
+                            auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
+                            fbb.Finish(md_fill);
+                            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                        }
                     }
                 }
             }

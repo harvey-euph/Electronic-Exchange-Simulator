@@ -75,8 +75,8 @@ private:
     size_t price_to_index(const int64_t price) const {
         return price / min_step_ - price_index_offset_;
     }
-    size_t index_to_price(const size_t index) const {
-        return (index + price_index_offset_) * min_step_;
+    size_t pl_to_price(const PriceLevel* pl) const {
+        return ((pl - price_array_.data()) + price_index_offset_) * min_step_;
     }
     int price_invalid(const int64_t price) const {
         if (price / min_step_ < price_index_offset_) return 1;

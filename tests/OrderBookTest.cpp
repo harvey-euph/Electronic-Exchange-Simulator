@@ -195,7 +195,7 @@ TEST_F(OrderBookTest, InsertBidAsk)
 
         size_t price_index = it_bid->first;
         PriceLevel* pl = it_bid->second;
-        int64_t price = orderbook->index_to_price(price_index);
+        int64_t price = orderbook->pl_to_price(&orderbook->price_array_[price_index]);
 
         EXPECT_EQ(price, expected_bid_prices[i]) 
             << "Bid 第 " << i+1 << " 層價格錯誤，預期 " << expected_bid_prices[i] << "，實際 " << price;
@@ -232,7 +232,7 @@ TEST_F(OrderBookTest, InsertBidAsk)
 
         size_t price_index = it_ask->first;
         PriceLevel* pl = it_ask->second;
-        int64_t price = orderbook->index_to_price(price_index);
+        int64_t price = orderbook->pl_to_price(&orderbook->price_array_[price_index]);
 
         EXPECT_EQ(price, expected_ask_prices[i]) 
             << "Ask 第 " << i+1 << " 層價格錯誤，預期 " << expected_ask_prices[i] << "，實際 " << price;
@@ -254,7 +254,7 @@ TEST_F(OrderBookTest, InsertBidAsk)
     }
 
     // ==================== Best Bid & Best Ask 檢查 ====================
-    // int64_t best_bid_price = orderbook->index_to_price(orderbook->best_levels_[0]->dummy_head.next->price_level->dummy_head.next->price_level ? 
+    // int64_t best_bid_price = orderbook->pl_to_price(orderbook->best_levels_[0]->dummy_head.next->price_level->dummy_head.next->price_level ? 
     //     /* wait, better way */ 0 : 0); // 改用下面更乾淨的方式
 
     EXPECT_EQ(orderbook->best_levels_[0], orderbook->active_levels_[0].rbegin()->second)
@@ -345,7 +345,7 @@ TEST_F(OrderBookTest, CancelAndModify)
         EXPECT_EQ(modified_order->order_id, 30302ULL);
         EXPECT_EQ(modified_order->qty_remaining, 250ULL);
         EXPECT_EQ(modified_order->qty_original, 250ULL);  // 注意：依你的實作是否更新 original
-        // EXPECT_EQ(index_to_price(modified_order->price_level-> /* 價格檢查 */), 10450);
+        // EXPECT_EQ(orderbook->pl_to_price(modified_order->price_level), 10450);
     }
 
     // 檢查 active_orders_ 是否更新
@@ -508,7 +508,7 @@ TEST_F(OrderBookTest, MatchingMultiLayer)
     // 5. Best Bid 更新檢查
     {
         auto best_bid_it = orderbook->active_levels_[0].rbegin();  // 目前最高 Bid
-        int64_t new_best_bid = orderbook->index_to_price(best_bid_it->first);
+        int64_t new_best_bid = orderbook->pl_to_price(best_bid_it->second);
         EXPECT_EQ(new_best_bid, 10300) << "Best Bid 應下移至 10300（剩下 50）";
         EXPECT_EQ(orderbook->best_levels_[0]->total_qty, 50ULL);
     }

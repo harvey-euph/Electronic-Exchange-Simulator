@@ -267,7 +267,7 @@ void CSVDataGen::writeCrossingFill(std::ofstream& out)
     const uint64_t order_id = next_order_id_++;
     const uint32_t client_id = randomClient();
     const int64_t price = static_cast<int64_t>(
-        book().index_to_price(best_opposite - book().price_array_.data()));
+        book().pl_to_price(best_opposite));
     const uint64_t quantity = randomInt<uint64_t>(1, std::min<uint64_t>(best_opposite->total_qty, 500));
     const auto before = activeOrderTargets();
 
@@ -321,7 +321,7 @@ std::unordered_map<uint64_t, CSVDataGen::Target> CSVDataGen::activeOrderTargets(
             order->order_id,
             order->client_id,
             sideForLevel(level),
-            static_cast<int64_t>(book().index_to_price(level - book().price_array_.data())),
+            static_cast<int64_t>(book().pl_to_price(level)),
             order->qty_remaining
         });
     }
@@ -355,7 +355,7 @@ CSVDataGen::Target CSVDataGen::randomActiveOrder()
         order->order_id,
         order->client_id,
         sideForLevel(level),
-        static_cast<int64_t>(book().index_to_price(level - book().price_array_.data())),
+        static_cast<int64_t>(book().pl_to_price(level)),
         order->qty_remaining
     };
 }

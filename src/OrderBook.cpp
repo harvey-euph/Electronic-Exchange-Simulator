@@ -79,7 +79,7 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
     while (*oppo && taker->qty_remaining)
     {
         const size_t oppo_idx = (*oppo) - price_array_.data();
-        const size_t p = index_to_price(oppo_idx);
+        const size_t p = pl_to_price(*oppo);
         const bool crossed = (taker_side == Side_Buy) ? (price_idx >= oppo_idx) : (price_idx <= oppo_idx);
         if (!crossed) break;
 
@@ -127,8 +127,8 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
         return;
     }
 
-    PriceLevel* level = GetOrCreatePriceLevel(price_idx, taker_side);
-    insertOrderToLevel(level, taker, taker_side);
+    PriceLevel *pl = GetOrCreatePriceLevel(price_idx, taker_side);
+    insertOrderToLevel(pl, taker, taker_side);
 
     active_orders_[taker->order_id] = taker;
 }
@@ -149,7 +149,7 @@ void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelle
     PriceLevel *pl = o->price_level;
     pl->total_qty -= o->qty_remaining;
 
-    const size_t p = index_to_price(pl - price_array_.data());
+    const size_t p = pl_to_price(pl);
 
     if (!pl->order_count)
         removePriceLevel(pl, req->side);
@@ -183,7 +183,7 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
 
     if (pl == target) {
         if (!qty_diff) {
-            sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
+            sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
             return;
         }
 
@@ -194,12 +194,12 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
         o->qty_remaining = new_qty - executed_qty;
         o->qty_original = new_qty;
         o->exec_id = req->exec_id;
-        sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
+        sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
         return;
     }
 
 REQUEUE:
-    sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
+    sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
 
     removeOrderFromLevel(o);
     pl->total_qty -= o->qty_remaining;
