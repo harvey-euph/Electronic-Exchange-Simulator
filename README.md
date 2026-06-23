@@ -163,6 +163,25 @@ sequenceDiagram
 2. **Processing**: Polls the Ring Buffer for `stage_sample` events. It aggregates all 8 stages for each `exec_id`.
 3. **Analytics & Storage**: Once a complete message flow is reconstructed, it writes the multi-dimensional attribution data (latency, IPC, cache misses, etc., for each stage) into a CSV file (`latency_attribution.csv`) for further analysis.
 
+## Demonstrated Capabilities
+
+This project serves as a comprehensive showcase of my software engineering abilities, blending low-level system with high-level architecture and domain-specific financial technology knowledge.
+
+**Software Engineering & Systems Design:**
+- **Modern C++:** Extensive use of modern C++, carefully managing memory and object lifecycles to ensure stability and high performance.
+- **System Architecture:** Designed a robust, decoupled microservice ecosystem capable of running reliably on Linux cloud VMs.
+- **Lock-Free Data Structures:** Engineered lock-free shared memory (SHM) ring buffers and memory-mapped (Mmap) files for ultra-fast, zero-copy Inter-Process Communication (IPC).
+- **Latency Engineering & Observability:** Built a custom kernel-to-user-space latency tracer using eBPF and USDT. Leveraged hardware PMU metrics (cache misses, IPC, page faults) to rigorously benchmark and eliminate microsecond-level bottlenecks.
+- **Network Programming:** Developed robust server-side networking using WebSockets and HTTP to handle high-frequency data streams.
+- **Data Schema & Flow Design:** Utilized FlatBuffers for zero-allocation serialization, ensuring strict data schemas and minimizing GC/heap overhead across the pipeline.
+- **Frontend "Vibe Coding" & UI/UX Design:** Designed a premium, highly dynamic, and visually polished React/TypeScript frontend. Prioritized an exceptional user experience (UX) with intuitive layouts that cleanly throttle and render massive bursts of live orderbook updates without visual stuttering or UI freezing.
+- **Linux System Tuning:** Applied advanced OS-level optimizations, including thread CPU affinity, RT scheduling, THP disabling, and `ksoftirqd` prioritization.
+
+**Trading & Market Infrastructure:**
+- **Matching Engine Logic:** Implemented a deterministic, high-throughput matching engine supporting strict price-time priority, partial fills, rapid cancellations, and real-time execution reporting.
+- **Orderbook Reconstruction:** Managed L2/L3 market data state, gracefully handling snapshot generation and reliable incremental streaming sequences.
+- **Algorithmic Trading & Stress Testing:** Developed automated C++ trading clients (Market Makers and Chaos Stress Testers) to inject liquidity and rigorously load-test the infrastructure.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
