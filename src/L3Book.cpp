@@ -55,23 +55,32 @@ std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side sid
             auto it = orders.find(order_id);
             if (it != orders.end()) {
                 int64_t qty_diff = static_cast<int64_t>(qty) - static_cast<int64_t>(it->second.qty_req);
+                uint64_t new_rem = it->second.qty_rem + qty_diff;
+
                 if (it->second.price != price || it->second.side != side || qty > it->second.qty_req) {
                     remove_from_queues(order_id, updates);
-                    auto& level = (side == Side_Buy) ? bids[price] : asks[price];
-                    level.queue.push_back(order_id);
-                    uint64_t new_rem = it->second.qty_rem + qty_diff;
-                    level.total_qty += new_rem;
-                    it->second = {order_id, side, price, qty, new_rem, std::prev(level.queue.end())};
-                    
-                    updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
+                    if (new_rem > 0) {
+                        auto& level = (side == Side_Buy) ? bids[price] : asks[price];
+                        level.queue.push_back(order_id);
+                        level.total_qty += new_rem;
+                        it->second = {order_id, side, price, qty, new_rem, std::prev(level.queue.end())};
+                        
+                        updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
+                    } else {
+                        orders.erase(it);
+                    }
                 } else {
                     auto& level = (side == Side_Buy) ? bids[price] : asks[price];
-                    uint64_t new_rem = it->second.qty_rem + qty_diff;
                     level.total_qty = level.total_qty + qty_diff;
                     it->second.qty_req = qty;
                     it->second.qty_rem = new_rem;
                     
                     updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
+                    
+                    if (new_rem == 0) {
+                        remove_from_queues(order_id, updates);
+                        orders.erase(it);
+                    }
                 }
             }
             break;
