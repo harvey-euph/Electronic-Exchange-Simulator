@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "MatchingEngine.hpp"
 #include "DbUtil.hpp"
 #include "ThreadUtil.hpp"
@@ -7,8 +8,10 @@
 #include "mmap_log.h"
 
 
-int main()
-{
+int main() {
+    Exchange::initLogger("MatchingEngine");
+    LOG_INFO("================================================================================");
+
     setup_signals();
 
     int main_core = ME_CORE;
@@ -16,15 +19,15 @@ int main()
         Exchange::set_thread_affinity(main_core, "MatchingEngine");
     }
 
-    std::cout << "[OrderCore] Starting matching engine..." << std::endl;
+    LOG_INFO("[OrderCore] Starting matching engine...");
 
     // Query DB for symbol 1 parameters
     int64_t min_step = 25;                       // min_step_raw for BTC
     int64_t price_offset = 120000;              // min_price_raw / min_step_raw (3000000 / 25)
     size_t max_price_levels = 360001;           // (max_price_raw - min_price_raw) / min_step_raw + 1
     
-    std::cout << "[OrderCore] Using internal Symbol 1 config (BTC): min_step=" << min_step 
-              << ", price_offset=" << price_offset << ", max_price_levels=" << max_price_levels << std::endl;
+    LOG_INFO("[OrderCore] Using internal Symbol 1 config (BTC): min_step=" << min_step 
+              << ", price_offset=" << price_offset << ", max_price_levels=" << max_price_levels);
 
     /*
     try {
@@ -41,13 +44,13 @@ int main()
             min_step = min_step_raw;
             price_offset = min_price_raw / min_step_raw;
             max_price_levels = (max_price_raw - min_price_raw) / min_step_raw + 1;
-            std::cout << "[OrderCore] Loaded Symbol 1 config from DB: min_step=" << min_step 
-                      << ", price_offset=" << price_offset << ", max_price_levels=" << max_price_levels << std::endl;
+            LOG_INFO("[OrderCore] Loaded Symbol 1 config from DB: min_step=" << min_step 
+                      << ", price_offset=" << price_offset << ", max_price_levels=" << max_price_levels);
         } else {
-            std::cerr << "[OrderCore] WARNING: Symbol 1 not found in DB, using default parameters" << std::endl;
+            LOG_ERROR("[OrderCore] WARNING: Symbol 1 not found in DB, using default parameters");
         }
     } catch (const std::exception& e) {
-        std::cerr << "[OrderCore] ERROR querying DB: " << e.what() << ", using default parameters" << std::endl;
+        LOG_ERROR("[OrderCore] ERROR querying DB: " << e.what() << ", using default parameters");
     }
     */
 
@@ -56,11 +59,11 @@ int main()
 
     Exchange::SHMRingBuffer request_ring(ORDER_REQUEST, ORDER_REQUEST_SIZE);
 
-    std::cout << "[OrderCore] Listening for requests on OrderRequest ring..." << std::endl;
+    LOG_INFO("[OrderCore] Listening for requests on OrderRequest ring...");
 
     Exchange::MatchingEngine engine(&request_ring, &book);
     engine.run();
 
-    std::cout << "[OrderCore] Shutting down..." << std::endl;
+    LOG_INFO("[OrderCore] Shutting down...");
     return 0;
 }

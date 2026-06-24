@@ -14,7 +14,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
     , response_ring_(response_ring)
     , db_(db)
 {
-    std::cout << "[ClientManager] Initializing on port " << port << std::endl;
+    LOG_INFO("[ClientManager] Initializing on port " << port);
 
     auto close_handler = [this](WSClientPtr client) {
         for (auto it = client_sessions_.begin(); it != client_sessions_.end(); ) {
@@ -24,8 +24,8 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
             
             if (sessions.size() < original_size) {
                 uint32_t client_id = it->first;
-                std::cout << "[ClientManager] Session break detected for client " << client_id 
-                << ". Treating as automatic logout." << std::endl;
+                LOG_INFO("[ClientManager] Session break detected for client " << client_id 
+                << ". Treating as automatic logout.");
                 
                 if (sessions.empty()) {
                     it = client_sessions_.erase(it);
@@ -45,7 +45,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
     ws_adaptor_->set_close_handler(close_handler);
     ws_adaptor_->set_message_handler(message_handler);
     
-    std::cout << "[ClientManager] WS Handlers registered." << std::endl;
+    LOG_INFO("[ClientManager] WS Handlers registered.");
 }
 
 void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* admin_req)
@@ -58,8 +58,8 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     uint64_t client_ack_seq_num = admin_req->ack_seq_num();
 
     if (client_msg_seq_num != expected_msg_seq_num || client_ack_seq_num > expected_ack_seq_num) {
-        std::cout << "[ClientManager] Client " << client_id << " connection rejected. Expected msg: " 
-                  << expected_msg_seq_num << ", ack: " << expected_ack_seq_num << std::endl;
+        LOG_INFO("[ClientManager] Client " << client_id << " connection rejected. Expected msg: " 
+                  << expected_msg_seq_num << ", ack: " << expected_ack_seq_num);
         
         flatbuffers::FlatBufferBuilder fbb(128);
         auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client_id, expected_msg_seq_num, expected_ack_seq_num, RejectCode_InvalidSequenceNumber, db_->incrementAndGetClientOSeqNum(client_id));
@@ -74,12 +74,12 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     db_->acknowledgeResponses(client_id, client_ack_seq_num);
 
     client_sessions_[client_id].push_back(client);
-    std::cout << "[ClientManager] Client " << client_id << " connected (sessions: " 
-              << client_sessions_[client_id].size() << ")." << std::endl;
+    LOG_INFO("[ClientManager] Client " << client_id << " connected (sessions: " 
+              << client_sessions_[client_id].size() << ").");
     
     // Send missed executions (OrderResponse)
     auto missed_responses = db_->getResponsesSince(client_id, client_ack_seq_num);
-    std::cout << "[ClientManager] Sending " << missed_responses.size() << " missed responses." << std::endl;
+    LOG_INFO("[ClientManager] Sending " << missed_responses.size() << " missed responses.");
     for (auto& resp : missed_responses) {
         flatbuffers::FlatBufferBuilder fbb(256);
         auto resp_offset = OrderResponse::Pack(fbb, &resp);
@@ -99,7 +99,7 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     fbb.Finish(client_resp);
     client->send(fbb.GetBufferPointer(), fbb.GetSize());
     
-    std::cout << "[ClientManager] Client " << client_id << " session ready." << std::endl;
+    LOG_INFO("[ClientManager] Client " << client_id << " session ready.");
 }
 
 void ClientManager::handle_client_logout(WSClientPtr client, const AdminRequest* admin_req) {
@@ -113,13 +113,14 @@ void ClientManager::handle_client_logout(WSClientPtr client, const AdminRequest*
         }
     }
     client->is_ready.store(false, std::memory_order_release);
-    std::cout << "[ClientManager] Client " << client_id << " disconnected." << std::endl;
+    LOG_INFO("[ClientManager] Client " << client_id << " disconnected.");
 }
 
 void ClientManager::process_client_request(WSClientPtr client, const void* data, size_t size)
 {
     flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(data), size);
     if (!verifier.VerifyBuffer<ClientRequest>(nullptr)) {
+        LOG_WARN("[ClientManager] Received invalid data from a client (failed flatbuffer verification).");
         return;
     }
 
@@ -186,7 +187,7 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
             uint32_t client_id = open_req->client_id();
 
             auto open_orders = db_->getOpenOrders(client_id);
-            std::cout << "[ClientManager] Sending " << open_orders.size() << " open orders on request." << std::endl;
+            LOG_INFO("[ClientManager] Sending " << open_orders.size() << " open orders on request.");
             for (auto& order_data : open_orders) {
                 client->send(order_data.data(), order_data.size());
             }

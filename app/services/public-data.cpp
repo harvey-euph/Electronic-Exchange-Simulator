@@ -14,6 +14,9 @@
 using namespace Exchange;
 
 int main() {
+    Exchange::initLogger("PublicData");
+    LOG_INFO("================================================================================");
+
     try {
         boost::asio::io_context ioc{1};
         int main_core = PD_CORE;
@@ -72,10 +75,10 @@ int main() {
         );
         server.run(ioc);
 
-        std::cout << "[PublicData] Listening on 0.0.0.0:" << PORT_DT << std::endl;
+        LOG_INFO("[PublicData] Listening on 0.0.0.0:" << PORT_DT);
         ioc.run();
     } catch (const std::exception& e) {
-        std::cerr << "[PublicData] Main error: " << e.what() << std::endl;
+        LOG_ERROR("[PublicData] Main error: " << e.what());
     }
     return 0;
 }

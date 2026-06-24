@@ -51,7 +51,7 @@ cleanup() {
     fi
     sudo pkill -SIGINT -f "ebpf-msg-flow" 2>/dev/null || true
 
-    if tmux list-sessions -F '#S' 2>/dev/null | grep -q -x "exchange" || pgrep -f "build/services/" >/dev/null; then
+    if pgrep -f "build/services/" >/dev/null; then
         echo "Stopping services..."
         sudo ./kill-all || true
     fi

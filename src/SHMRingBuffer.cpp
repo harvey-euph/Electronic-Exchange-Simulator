@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 // SHMRing.cpp
 #include "ring/SHMRingBuffer.hpp"
 #include <sys/stat.h>
@@ -59,8 +60,8 @@ SHMRingBufferImpl<ReadOnly>::SHMRingBufferImpl(const std::string& name, size_t c
         m_ring = reinterpret_cast<SHMRing*>(m_mmap);
         m_data = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(m_mmap) + sizeof(SHMRing));
         
-        std::cout << "[SHMRing] Connected to SHM in read-only mode. Name=" << m_name 
-                  << " Capacity=" << m_capacity << std::endl;
+        LOG_INFO("[SHMRing] Connected to SHM in read-only mode. Name=" << m_name 
+                  << " Capacity=" << m_capacity);
     } else {
         // 一般讀寫 Creator/Attacher 模式
         m_total_size = sizeof(SHMRing) + m_capacity + sizeof(uint32_t); 
@@ -100,7 +101,7 @@ SHMRingBufferImpl<ReadOnly>::SHMRingBufferImpl(const std::string& name, size_t c
 
         // 根據身份執行「初始化」或「自旋等待」
         if (is_creator) {
-            std::cout << "[SHMRing] " << m_name << " not found. Creating and initializing SHM..." << std::endl;
+            LOG_INFO("[SHMRing] " << m_name << " not found. Creating and initializing SHM...");
             
             std::memset(m_mmap, 0, m_total_size);
 
@@ -115,7 +116,7 @@ SHMRingBufferImpl<ReadOnly>::SHMRingBufferImpl(const std::string& name, size_t c
             
             m_ring->ready.store(1, std::memory_order_release);
         } else {
-            std::cout << "[SHMRing] " << m_name << " already exists. Waiting for initialization..." << std::endl;
+            LOG_INFO("[SHMRing] " << m_name << " already exists. Waiting for initialization...");
             
             while (m_ring->ready.load(std::memory_order_acquire) != 1) {
                 #if defined(__x86_64__) || defined(_M_X64)
@@ -129,7 +130,7 @@ SHMRingBufferImpl<ReadOnly>::SHMRingBufferImpl(const std::string& name, size_t c
                 throw std::runtime_error("SHM Magic number mismatch! Corrupted or unexpected memory segment.");
             }
             
-            std::cout << "[SHMRing] SHM is ready and verified." << std::endl;
+            LOG_INFO("[SHMRing] SHM is ready and verified.");
         }
     }
 }
@@ -258,7 +259,7 @@ std::optional<AcquireToken> SHMRingBufferImpl<ReadOnly>::acquire() requires (!Re
     uint32_t length = *reinterpret_cast<uint32_t*>(read_ptr);
 
     if (current_head != current_tail && (length == 0 || length > m_capacity) && length != WRAP_MARKER) {
-        std::cerr << "[SHMRing] Corrupt length: " << length << " head=" << current_head << " tail=" << current_tail << " offset=" << head_offset << std::endl;
+        LOG_ERROR("[SHMRing] Corrupt length: " << length << " head=" << current_head << " tail=" << current_tail << " offset=" << head_offset);
     }
 
     // 處理繞回標記：跳過末端 padding，資料在最開頭

@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "SimpleWSClient.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
@@ -49,7 +50,7 @@ public:
             ws_.handshake(host_, "/");
             return true;
         } catch (std::exception const& e) {
-            std::cerr << "[SimpleWSClient] Connect error: " << e.what() << std::endl;
+            LOG_ERROR("[SimpleWSClient] Connect error: " << e.what());
             return false;
         }
     }

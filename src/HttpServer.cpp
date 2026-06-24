@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "HttpServer.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -61,7 +62,7 @@ net::awaitable<void> HttpServer::do_session(tcp::socket socket) {
         }
     } catch (const boost::system::system_error& e) {
         if (e.code() != beast::error::timeout && e.code() != http::error::end_of_stream) {
-            std::cerr << "[HttpServer] Session error: " << e.what() << std::endl;
+            LOG_ERROR("[HttpServer] Session error: " << e.what());
         }
     }
 }

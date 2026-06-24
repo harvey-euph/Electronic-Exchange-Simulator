@@ -12,6 +12,9 @@
 using namespace Exchange;
 
 int main() {
+    Exchange::initLogger("HttpAccepter");
+    LOG_INFO("================================================================================");
+
     try {
         boost::asio::io_context ioc{1};
         int main_core = OH_CORE;
@@ -31,13 +34,13 @@ int main() {
                 logOrderRequest(order_req, "[Accepter] Received Request:");
 
                 if (request_ring.enqueue(const_cast<char*>(req.body().data()), req.body().size())) {
-                    std::cout << "[Accepter] Enqueued Request exec_id=" << exec_id << " size=" << req.body().size() << std::endl;
+                    LOG_INFO("[Accepter] Enqueued Request exec_id=" << exec_id << " size=" << req.body().size());
                     http::response<http::string_body> res{http::status::ok, version};
                     res.set(http::field::content_type, "text/plain");
                     res.body() = "Order received: exec_id=" + std::to_string(exec_id);
                     return res;
                 } else {
-                    std::cerr << "[Accepter] Failed to enqueue request for exec_id=" << exec_id << std::endl;
+                    LOG_ERROR("[Accepter] Failed to enqueue request for exec_id=" << exec_id);
                     http::response<http::string_body> res{http::status::internal_server_error, version};
                     res.body() = "Internal Server Error: Queue Full";
                     return res;
@@ -56,10 +59,10 @@ int main() {
         );
         server.run(ioc);
 
-        std::cout << "[Accepter] Listening on 0.0.0.0:" << PORT_OE << " (Coroutine mode via HttpServer)" << std::endl;
+        LOG_INFO("[Accepter] Listening on 0.0.0.0:" << PORT_OE << " (Coroutine mode via HttpServer)");
         ioc.run();
     } catch (const std::exception& e) {
-        std::cerr << "[Accepter] Main error: " << e.what() << std::endl;
+        LOG_ERROR("[Accepter] Main error: " << e.what());
     }
     return 0;
 }

@@ -76,33 +76,14 @@ mkdir -p "$JOURNAL_DIR"
 rm -f "$JOURNAL_DIR"/*
 apply_system_tuning
 
-# Check if any service is running (either tmux session exists or processes are active)
-if tmux list-sessions -F '#S' 2>/dev/null | grep -q -x "$SESSION" || pgrep -f "build/services/" >/dev/null; then
+# Check if any service is running (processes are active)
+if pgrep -f "build/services/" >/dev/null; then
     echo "One or more core services are already running. Stopping services and cleaning up shared memory..."
     sudo "$PROJECT_ROOT/kill-all"
 fi
 
-# Check CPU count and set the appropriate Tier
-NUM_CORES=$(nproc)
-if [ "$NUM_CORES" -lt 3 ]; then
-    TIER=1
-    TIER_NAME="Low Power (Cores: $NUM_CORES)"
-elif [ "$NUM_CORES" -eq 3 ]; then
-    TIER=2
-    TIER_NAME="3-Core Aggressive (Cores: $NUM_CORES)"
-elif [ "$NUM_CORES" -eq 4 ]; then
-    TIER=3
-    TIER_NAME="4-Core Aggressive (Cores: $NUM_CORES)"
-else
-    TIER=4
-    TIER_NAME="Full Isolation (Cores: $NUM_CORES)"
-fi
-
-echo "Detected CPU cores: $NUM_CORES. Applying Tier $TIER: $TIER_NAME configuration."
-
 # We don't need sudo askpass since EUID=0 is enforced.
 SUDO_CMD=""
-
 
 # Find all executable services dynamically, verifying they correspond to source files
 SERVICES=()
@@ -128,90 +109,18 @@ fi
 
 get_run_cmd() {
     local exe_path="$1"
-    local service_name="$2"
-    if [ "$TIER" -eq 1 ]; then
-        echo "$exe_path"
-    elif [ "$TIER" -eq 2 ]; then
-        # Tier 2 (3 Cores): ME=1, CM=2. Others shared.
-        local main_core=""
-        case "$service_name" in
-            "matching-engine")    main_core="1" ;;
-            "client-manager")     main_core="2" ;;
-        esac
-        if [ -n "$main_core" ]; then
-            echo "$SUDO_CMD MAIN_CORE=$main_core chrt -f 99 $exe_path"
-        else
-            echo "$exe_path"
-        fi
-    elif [ "$TIER" -eq 3 ]; then
-        # Tier 3 (4 Cores): ME=1, CM=2, MD=3. Others shared.
-        local main_core=""
-        case "$service_name" in
-            "matching-engine")    main_core="1" ;;
-            "client-manager")     main_core="2" ;;
-            "market-data-server") main_core="3" ;;
-        esac
-        if [ -n "$main_core" ]; then
-            echo "$SUDO_CMD MAIN_CORE=$main_core chrt -f 99 $exe_path"
-        else
-            echo "$exe_path"
-        fi
-    else
-        # Tier 4 (>= 5 Cores): Full Isolation.
-        local main_core=""
-        local bg_core=""
-        case "$service_name" in
-            "matching-engine")    main_core="1" ;;
-            "client-manager")     main_core="2" ;;
-            "market-data-server") main_core="3" ;;
-            "http-accepter")      main_core="4" ;;
-            "public-data")        main_core="4" ;;
-        esac
-        
-        local env_vars=""
-        if [ -n "$main_core" ]; then
-            env_vars="MAIN_CORE=$main_core"
-        fi
-        
-        if [ -n "$env_vars" ]; then
-            echo "$SUDO_CMD $env_vars chrt -f 99 $exe_path"
-        else
-            echo "$exe_path"
-        fi
-    fi
+    echo "chrt -f 99 $exe_path"
 }
 
-echo "Starting $SESSION services in the background (detached tmux session)..."
+echo "Starting $SESSION services in the background..."
 
-# Start a new detached session with the first service
-first_exe="${SERVICES[0]}"
-first_name=$(basename "$first_exe")
-log="$LOG_DIR/${first_name}.log"
-first_run_cmd=$(get_run_cmd "$first_exe" "$first_name")
-
-tmux new-session -d -s "$SESSION" -n "$first_name" "SUDO_ASKPASS='$SUDO_ASKPASS' bash -c 'while true; do echo \"--- Starting $first_name ---\"; $first_run_cmd 2>&1 | tee -a $log; echo \"--- $first_name crashed, restarting in 2s ---\"; sleep 2; done'"
-
-# Configure status bar for help
-tmux set-option -t "$SESSION" status-bg black
-tmux set-option -t "$SESSION" status-fg white
-
-# Bind Ctrl+B + Arrows to switch windows easily
-tmux bind-key -r Left select-window -t :-
-tmux bind-key -r Right select-window -t :+
-
-# Create windows for the remaining services
-for ((i=1; i<${#SERVICES[@]}; i++)); do
-    exe="${SERVICES[$i]}"
+for exe in "${SERVICES[@]}"; do
     name=$(basename "$exe")
-    log="$LOG_DIR/${name}.log"
     run_cmd=$(get_run_cmd "$exe" "$name")
     
-    # Run the service in a loop for health check/auto-restart
-    tmux new-window -t "$SESSION" -n "$name" "SUDO_ASKPASS='$SUDO_ASKPASS' bash -c 'while true; do echo \"--- Starting $name ---\"; $run_cmd 2>&1 | tee -a $log; echo \"--- $name crashed, restarting in 2s ---\"; sleep 2; done'"
+    # Run the service in a loop for health check/auto-restart in the background
+    bash -c "while true; do $run_cmd >/dev/null 2>&1; sleep 2; done" "exchange_core_service_$name" &
 done
 
-# Select the first window by default
-tmux select-window -t "$SESSION":0
-
 $SUDO_CMD systemctl start nginx
-echo "Services successfully started. To view them, run: sudo tmux attach -t $SESSION"
+echo "Services successfully started in the background."

@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "WSAdaptor.hpp"
 #include "ThreadUtil.hpp"
 #include <cstdlib>
@@ -85,12 +86,12 @@ public:
             ws_.binary(true);
 
             co_await ws_.async_accept(net::use_awaitable);
-            std::cout << "[WSSession] WebSocket Handshake successful for " << remote_info_ << std::endl;
+            LOG_INFO("[WSSession] WebSocket Handshake successful for " << remote_info_);
 
             // Spawn read loop
             net::co_spawn(ws_.get_executor(), read_loop(), net::detached);
         } catch (std::exception const& e) {
-            std::cerr << "[WSSession] Handshake error for " << remote_info_ << ": " << e.what() << std::endl;
+            LOG_ERROR("[WSSession] Handshake error for " << remote_info_ << ": " << e.what());
             on_close();
         }
     }
@@ -107,7 +108,7 @@ public:
                 buffer_.consume(buffer_.size());
             }
         } catch (std::exception const& e) {
-            std::cout << "[WSSession] Read loop ending for " << remote_info_ << " (" << e.what() << ")" << std::endl;
+            LOG_WARN("[WSSession] Client disconnected: " << remote_info_ << " (" << e.what() << ")");
             on_close();
         }
     }
@@ -144,7 +145,7 @@ private:
                 co_await ws_.async_write(net::buffer(msg), net::use_awaitable);
             }
         } catch (std::exception const& e) {
-            std::cerr << "[WSSession] Write error for " << remote_info_ << ": " << e.what() << std::endl;
+            LOG_ERROR("[WSSession] Write error for " << remote_info_ << ": " << e.what());
             {
                 std::lock_guard<std::mutex> lock(write_mutex_);
                 writing_ = false;
@@ -172,9 +173,9 @@ public:
         acceptor_.bind(endpoint, ec);
         acceptor_.listen(net::socket_base::max_listen_connections, ec);
         if (ec) {
-            std::cerr << "[WSListener] Failed to listen on " << endpoint << ": " << ec.message() << std::endl;
+            LOG_ERROR("[WSListener] Failed to listen on " << endpoint << ": " << ec.message());
         } else {
-            std::cout << "[WSListener] Listening on " << endpoint << std::endl;
+            LOG_INFO("[WSListener] Listening on " << endpoint);
         }
     }
 
@@ -195,7 +196,7 @@ public:
                 socket.set_option(tcp::no_delay(true), ec_nodelay);
                 
                 auto session = std::make_shared<WSSession>(std::move(socket), msg_handler_, close_handler_);
-                std::cout << "[WSListener] Accepted new connection. Starting session..." << std::endl;
+                LOG_INFO("[WSListener] Accepted new connection. Starting session...");
                 {
                     std::lock_guard<std::mutex> lock(session_mutex_);
                     sessions_.insert(session);
@@ -203,7 +204,7 @@ public:
                 net::co_spawn(ioc_, session->start(), net::detached);
             }
         } catch (std::exception const& e) {
-            std::cerr << "[WSListener] Accept loop error: " << e.what() << std::endl;
+            LOG_ERROR("[WSListener] Accept loop error: " << e.what());
         }
     }
 

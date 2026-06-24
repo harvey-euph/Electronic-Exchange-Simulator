@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "SymbolDatabase.hpp"
 #include <pqxx/pqxx>
 #include <iostream>
@@ -10,7 +11,7 @@ PostgresSymbolDatabase::PostgresSymbolDatabase(const std::string& conn_str)
     try {
         conn_ = std::make_unique<pqxx::connection>(conn_str_);
     } catch (const std::exception& e) {
-        std::cerr << "[PostgresSymbolDatabase] Connection failed: " << e.what() << std::endl;
+        LOG_ERROR("[PostgresSymbolDatabase] Connection failed: " << e.what());
         throw;
     }
 }
@@ -37,7 +38,7 @@ bool PostgresSymbolDatabase::getSymbolInfo(uint32_t symbol_id, DbSymbolInfo& inf
             return true;
         }
     } catch (const std::exception& e) {
-        std::cerr << "[PostgresSymbolDatabase] Query failed: " << e.what() << std::endl;
+        LOG_ERROR("[PostgresSymbolDatabase] Query failed: " << e.what());
         conn_.reset(); // Force reconnect next time
     }
     return false;

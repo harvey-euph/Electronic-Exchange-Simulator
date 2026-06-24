@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "ClientManager.hpp"
 #include "ring/SHMRingBuffer.hpp"
 #include "ClientDatabase.hpp"
@@ -8,8 +9,10 @@
 #include <iostream>
 #include "mmap_log.h"
 
-int main() 
-{
+int main() {
+    Exchange::initLogger("ClientManager");
+    LOG_INFO("================================================================================");
+
     setup_signals();
 
 #ifdef USE_PGSQL
@@ -24,7 +27,7 @@ int main()
         response_ring = new mmaplog::MmapReader("./log/execution-journals");
         request_ring = new Exchange::SHMRingBuffer(ORDER_REQUEST, ORDER_REQUEST_SIZE);
     } catch (const std::exception& e) {
-        std::cerr << "[ClientManager] FATAL: " << e.what() << std::endl;
+        LOG_ERROR("[ClientManager] FATAL: " << e.what());
         return -1;
     }
 

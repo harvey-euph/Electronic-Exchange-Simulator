@@ -47,13 +47,13 @@ ifndef USE_PGSQL
     endif
 endif
 
-LDLIBS := -lgtest -lgtest_main -pthread -lrt -lpqxx -lpq -lssl -lcrypto
+LDLIBS := -lgtest -lgtest_main -pthread -lrt -lpqxx -lpq -lssl -lcrypto -lspdlog -lfmt
 
 ifeq ($(USE_PGSQL),1)
     CXXFLAGS += -DUSE_PGSQL
 endif
 
-TEST_LDLIBS := -lgtest -lgtest_main -pthread -lrt -lssl -lcrypto
+TEST_LDLIBS := -lgtest -lgtest_main -pthread -lrt -lssl -lcrypto -lspdlog -lfmt
 
 
 # -----------------------------------------------------------------------------

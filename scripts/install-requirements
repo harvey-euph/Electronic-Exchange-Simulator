@@ -25,6 +25,8 @@ sudo apt-get install -y \
   libbpf-dev \
   bpftool \
   systemtap-sdt-dev \
+  libspdlog-dev \
+  libfmt-dev \
   nodejs \
   npm \
   tmux

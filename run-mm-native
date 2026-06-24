@@ -9,22 +9,7 @@ if [ ! -x "$EXE_PATH" ]; then
     exit 1
 fi
 
-SESSION="exchange_agents"
+echo "Starting mm-native in the background..."
+nohup bash -c 'while true; do "$1" "${@:2}" >/dev/null 2>&1; sleep 2; done' "exchange_agent_service_mm_native" "$EXE_PATH" "$@" >/dev/null 2>&1 &
 
-# Create log directory if it doesn't exist
-LOG_DIR="$PROJECT_ROOT/log"
-mkdir -p "$LOG_DIR"
-LOG_FILE="$LOG_DIR/mm-native.log"
-
-# Check if session exists
-tmux has-session -t "$SESSION" 2>/dev/null
-if [ $? -eq 0 ]; then
-    echo "Session $SESSION already exists. Adding a new window for mm-native..."
-    tmux new-window -t "$SESSION" -n "mm-native" "bash -c 'while true; do echo \"--- Starting mm-native ---\"; $EXE_PATH \"\$@\" 2>&1 | tee -a $LOG_FILE; echo \"--- mm-native crashed, restarting in 2s ---\"; sleep 2; done'"
-else
-    echo "Starting mm-native in a new detached tmux session ($SESSION)..."
-    tmux new-session -d -s "$SESSION" -n "mm-native" "bash -c 'while true; do echo \"--- Starting mm-native ---\"; $EXE_PATH \"\$@\" 2>&1 | tee -a $LOG_FILE; echo \"--- mm-native crashed, restarting in 2s ---\"; sleep 2; done'"
-fi
-
-echo "mm-native successfully started."
-echo "To view it, run: tmux attach -t $SESSION"
+echo "mm-native successfully started in the background."

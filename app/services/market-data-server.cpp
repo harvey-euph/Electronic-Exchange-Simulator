@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "MarketDataServer.hpp"
 #include "SignalHandler.hpp"
 #include "ThreadUtil.hpp"
@@ -7,6 +8,8 @@
 using namespace Exchange;
 
 int main() {
+    Exchange::initLogger("MarketDataServer");
+
     setup_signals();
     
     int main_core = MD_CORE;
@@ -14,16 +17,16 @@ int main() {
         set_thread_affinity(main_core, "MarketDataServer");
     }
 
-    std::cout << "[MarketDataServer] Connecting to Response Ring..." << std::endl;
+    LOG_INFO("[MarketDataServer] Connecting to Response Ring...");
     mmaplog::MmapReader* response_ring = nullptr;
     try {
         response_ring = new mmaplog::MmapReader("./log/execution-journals");
     } catch (const std::exception& e) {
-        std::cerr << "[MarketDataServer] FATAL: " << e.what() << std::endl;
+        LOG_ERROR("[MarketDataServer] FATAL: " << e.what());
         return -1;
     }
 
-    std::cout << "[MarketDataServer] Polling response ring and WebSocket events..." << std::endl;
+    LOG_INFO("[MarketDataServer] Polling response ring and WebSocket events...");
     MarketDataServer server(PORT_MD, response_ring);
     server.run();
 

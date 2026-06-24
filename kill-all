@@ -49,10 +49,12 @@ if [ -f "$ASKPASS_PATH" ]; then
 fi
 
 echo "=== Stopping Exchange Client Agents ==="
+pkill -f "exchange_agent_service"
 pkill -f "build/client-agents/"
 tmux kill-session -t "exchange_agents" 2>/dev/null || true
 
 echo "=== Stopping Exchange Core Services ==="
+$SUDO_CMD pkill -f "exchange_core_service"
 $SUDO_CMD pkill -f "build/services/"
 tmux kill-session -t "exchange" 2>/dev/null || true
 $SUDO_CMD systemctl stop nginx 2>/dev/null || true

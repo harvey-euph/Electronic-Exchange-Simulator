@@ -1,3 +1,4 @@
+#include "LogUtil.hpp"
 #include "ClientDatabase.hpp"
 #include "define.hpp"
 #include <iostream>
@@ -11,7 +12,7 @@ PostgresClientDatabase::PostgresClientDatabase(const std::string& conn_str)
     try {
         conn_ = std::make_unique<pqxx::connection>(conn_str_);
     } catch (const std::exception& e) {
-        std::cerr << "[PostgresClientDatabase] Connection failed: " << e.what() << std::endl;
+        LOG_ERROR("[PostgresClientDatabase] Connection failed: " << e.what());
         throw;
     }
 }
