@@ -11,7 +11,7 @@ namespace Exchange {
 
 inline void initLogger(const std::string& logger_name) {
     try {
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("log/exchange-all.log", false);
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("log/services.log", false);
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         
         std::vector<spdlog::sink_ptr> sinks {console_sink, file_sink};
