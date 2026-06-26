@@ -75,10 +75,10 @@ int main() {
         );
         server.run(ioc);
 
-        LOG_INFO("[PublicData] Listening on 0.0.0.0:" << PORT_DT);
+        LOG_INFO("[PublicData] Listening on 0.0.0.0:%d", PORT_DT);
         ioc.run();
     } catch (const std::exception& e) {
-        LOG_ERROR("[PublicData] Main error: " << e.what());
+        LOG_ERROR("[PublicData] Main error: %d", e.what());
     }
     return 0;
 }

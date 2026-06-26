@@ -34,13 +34,13 @@ int main() {
                 logOrderRequest(order_req, "[Accepter] Received Request:");
 
                 if (request_ring.enqueue(const_cast<char*>(req.body().data()), req.body().size())) {
-                    LOG_INFO("[Accepter] Enqueued Request exec_id=" << exec_id << " size=" << req.body().size());
+                    LOG_INFO("[Accepter] Enqueued Request exec_id=%d size=%d", exec_id, req.body().size());
                     http::response<http::string_body> res{http::status::ok, version};
                     res.set(http::field::content_type, "text/plain");
                     res.body() = "Order received: exec_id=" + std::to_string(exec_id);
                     return res;
                 } else {
-                    LOG_ERROR("[Accepter] Failed to enqueue request for exec_id=" << exec_id);
+                    LOG_ERROR("[Accepter] Failed to enqueue request for exec_id=%d", exec_id);
                     http::response<http::string_body> res{http::status::internal_server_error, version};
                     res.body() = "Internal Server Error: Queue Full";
                     return res;
@@ -59,10 +59,10 @@ int main() {
         );
         server.run(ioc);
 
-        LOG_INFO("[Accepter] Listening on 0.0.0.0:" << PORT_OE << " (Coroutine mode via HttpServer)");
+        LOG_INFO("[Accepter] Listening on 0.0.0.0:%d (Coroutine mode via HttpServer)", PORT_OE);
         ioc.run();
     } catch (const std::exception& e) {
-        LOG_ERROR("[Accepter] Main error: " << e.what());
+        LOG_ERROR("[Accepter] Main error: %d", e.what());
     }
     return 0;
 }

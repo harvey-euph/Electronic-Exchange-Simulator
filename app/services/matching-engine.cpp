@@ -26,8 +26,7 @@ int main() {
     int64_t price_offset = 120000;              // min_price_raw / min_step_raw (3000000 / 25)
     size_t max_price_levels = 360001;           // (max_price_raw - min_price_raw) / min_step_raw + 1
     
-    LOG_INFO("[OrderCore] Using internal Symbol 1 config (BTC): min_step=" << min_step 
-              << ", price_offset=" << price_offset << ", max_price_levels=" << max_price_levels);
+    LOG_INFO("[OrderCore] Using internal Symbol 1 config (BTC): min_step=%d, price_offset=%d, max_price_levels=%d", min_step, price_offset, max_price_levels);
 
     /*
     try {
@@ -44,13 +43,12 @@ int main() {
             min_step = min_step_raw;
             price_offset = min_price_raw / min_step_raw;
             max_price_levels = (max_price_raw - min_price_raw) / min_step_raw + 1;
-            LOG_INFO("[OrderCore] Loaded Symbol 1 config from DB: min_step=" << min_step 
-                      << ", price_offset=" << price_offset << ", max_price_levels=" << max_price_levels);
+            LOG_INFO("[OrderCore] Loaded Symbol 1 config from DB: min_step=%d, price_offset=%d, max_price_levels=%d", min_step, price_offset, max_price_levels);
         } else {
             LOG_ERROR("[OrderCore] WARNING: Symbol 1 not found in DB, using default parameters");
         }
     } catch (const std::exception& e) {
-        LOG_ERROR("[OrderCore] ERROR querying DB: " << e.what() << ", using default parameters");
+        LOG_ERROR("[OrderCore] ERROR querying DB: %d, using default parameters", e.what());
     }
     */
 

@@ -5,6 +5,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+#include <fmt/printf.h>
 
 namespace Exchange {
 
@@ -24,9 +25,9 @@ inline void initLogger(const std::string& logger_name) {
     }
 }
 
-#define LOG_INFO(...) do { std::ostringstream _oss; _oss << __VA_ARGS__; std::string _s = _oss.str(); if(!_s.empty() && _s.back()=='\n') _s.pop_back(); spdlog::info(_s); } while(0)
-#define LOG_WARN(...) do { std::ostringstream _oss; _oss << __VA_ARGS__; std::string _s = _oss.str(); if(!_s.empty() && _s.back()=='\n') _s.pop_back(); spdlog::warn(_s); } while(0)
-#define LOG_ERROR(...) do { std::ostringstream _oss; _oss << __VA_ARGS__; std::string _s = _oss.str(); if(!_s.empty() && _s.back()=='\n') _s.pop_back(); spdlog::error(_s); } while(0)
+#define LOG_INFO(fmt_str, ...) do { spdlog::info(fmt::sprintf(fmt_str, ##__VA_ARGS__)); } while(0)
+#define LOG_WARN(fmt_str, ...) do { spdlog::warn(fmt::sprintf(fmt_str, ##__VA_ARGS__)); } while(0)
+#define LOG_ERROR(fmt_str, ...) do { spdlog::error(fmt::sprintf(fmt_str, ##__VA_ARGS__)); } while(0)
 
 
 
@@ -35,106 +36,45 @@ inline void initLogger(const std::string& logger_name) {
 
 inline void logOrderRequest(const OrderRequest* req, const char* prefix = "[OrderRequest]") {
     if (!req) return;
-    LOG_INFO(prefix << " "
-              << "action=" << EnumNameOrderAction(req->action())
-              << ", exec_id=" << req->exec_id()
-              << ", order_id=" << req->order_id()
-              << ", client=" << req->client_id()
-              << ", sym=" << req->symbol_id()
-              << ", side=" << EnumNameSide(req->side())
-              << ", type=" << EnumNameOrderType(req->type())
-              << ", price=" << req->p()
-              << ", qty=" << req->q()
-              << ", visible=" << req->visible_qty()
-              << ", ts=" << req->timestamp()
-              );
+    LOG_INFO("%s action=%s, exec_id=%d, order_id=%d, client=%d, sym=%d, side=%s, type=%s, price=%d, qty=%d, visible=%d, ts=%d", prefix, EnumNameOrderAction(req->action()), req->exec_id(), req->order_id(), req->client_id(), req->symbol_id(), EnumNameSide(req->side()), EnumNameOrderType(req->type()), req->p(), req->q(), req->visible_qty(), req->timestamp());
 }
 
 inline void logOrderResponse(const OrderResponse* resp, const char* prefix = "[OrderResponse]") {
     if (!resp) return;
-    LOG_INFO(prefix << " "
-              << "exec_type=" << EnumNameExecType(resp->exec_type())
-              << ", order_id=" << resp->order_id()
-              << ", client=" << resp->client_id()
-              << ", exec_id=" << resp->exec_id()
-              << ", symbol=" << resp->symbol_id()
-              << ", side=" << EnumNameSide(resp->side())
-              << ", p=" << resp->p()
-              << ", q=" << resp->q()
-              << ", reject=" << EnumNameRejectCode(resp->reject_code())
-              );
+    LOG_INFO("%s exec_type=%s, order_id=%d, client=%d, exec_id=%d, symbol=%d, side=%s, p=%d, q=%d, reject=%s", prefix, EnumNameExecType(resp->exec_type()), resp->order_id(), resp->client_id(), resp->exec_id(), resp->symbol_id(), EnumNameSide(resp->side()), resp->p(), resp->q(), EnumNameRejectCode(resp->reject_code()));
 }
 
 inline void logOrderResponse(const OrderResponseT* resp, const char* prefix = "[OrderResponse]") {
     if (!resp) return;
-    LOG_INFO(prefix << " "
-              << "exec_type=" << EnumNameExecType(resp->exec_type)
-              << ", order_id=" << resp->order_id
-              << ", client=" << resp->client_id
-              << ", exec_id=" << resp->exec_id
-              << ", symbol=" << resp->symbol_id
-              << ", side=" << EnumNameSide(resp->side)
-              << ", p=" << resp->p
-              << ", q=" << resp->q
-              << ", reject=" << EnumNameRejectCode(resp->reject_code)
-              );
+    LOG_INFO("%s exec_type=%s, order_id=%d, client=%d, exec_id=%d, symbol=%d, side=%s, p=%d, q=%d, reject=%s", prefix, EnumNameExecType(resp->exec_type), resp->order_id, resp->client_id, resp->exec_id, resp->symbol_id, EnumNameSide(resp->side), resp->p, resp->q, EnumNameRejectCode(resp->reject_code));
 }
 
 inline void logOrder(const Order* o, const char* prefix = "[Order]") {
     if (!o) return;
-    LOG_INFO(prefix << " "
-              << "id=" << o->order_id
-              << ", client=" << o->client_id
-              << ", exec_id=" << o->exec_id
-              << ", type=" << EnumNameOrderType(o->type)
-              << ", qty_orig=" << o->qty_original
-              << ", qty_rem=" << o->qty_remaining
-              << ", ts=" << o->timestamp
-              << (o->price_level ? " [InBook]" : " [Floating]")
-              );
+    LOG_INFO("%s id=%d, client=%d, exec_id=%d, type=%s, qty_orig=%d, qty_rem=%d, ts=%d%d", prefix, o->order_id, o->client_id, o->exec_id, EnumNameOrderType(o->type), o->qty_original, o->qty_remaining, o->timestamp, (o->price_level ? " [InBook]" : " [Floating]"));
 }
 
 inline void logPositionResponse(const PositionResponse* resp, const char* prefix = "[PositionResponse]") {
     if (!resp) return;
-    LOG_INFO(prefix << " "
-              << "client=" << resp->client_id()
-              << ", symbol=" << resp->symbol_id()
-              << ", position=" << resp->position()
-              );
+    LOG_INFO("%s client=%d, symbol=%d, position=%d", prefix, resp->client_id(), resp->symbol_id(), resp->position());
 }
 
 inline void logL2Update(const L2Update* update, const char* prefix = "[L2Update]") {
     if (!update) return;
     if (update->side() == Side_None) {
-        LOG_INFO(prefix << " Snapshot Start | Symbol: " << update->symbol_id() );
+        LOG_INFO("%s Snapshot Start | Symbol: %d", prefix, update->symbol_id());
         return;
     }
-    LOG_INFO(prefix << " "
-              << "symbol=" << update->symbol_id()
-              << ", side=" << EnumNameSide(update->side())
-              << ", price=" << update->p()
-              << ", qty=" << update->q()
-              << ", seq=" << update->seq_num()
-              << ", ts=" << update->timestamp()
-              );
+    LOG_INFO("%s symbol=%d, side=%s, price=%d, qty=%d, seq=%d, ts=%d", prefix, update->symbol_id(), EnumNameSide(update->side()), update->p(), update->q(), update->seq_num(), update->timestamp());
 }
 
 inline void logL3Update(const L3Update* update, const char* prefix = "[L3Update]") {
     if (!update) return;
     if (update->side() == Side_None) {
-        LOG_INFO(prefix << " Snapshot Start | Symbol: " << update->symbol_id() );
+        LOG_INFO("%s Snapshot Start | Symbol: %d", prefix, update->symbol_id());
         return;
     }
-    LOG_INFO(prefix << " "
-              << "symbol=" << update->symbol_id()
-              << ", type=" << EnumNameExecType(update->exec_type())
-              << ", order_id=" << update->order_id()
-              << ", side=" << EnumNameSide(update->side())
-              << ", price=" << update->p()
-              << ", qty=" << update->q()
-              << ", seq=" << update->seq_num()
-              << ", ts=" << update->timestamp()
-              );
+    LOG_INFO("%s symbol=%d, type=%s, order_id=%d, side=%s, price=%d, qty=%d, seq=%d, ts=%d", prefix, update->symbol_id(), EnumNameExecType(update->exec_type()), update->order_id(), EnumNameSide(update->side()), update->p(), update->q(), update->seq_num(), update->timestamp());
 }
 
 } // namespace Exchange

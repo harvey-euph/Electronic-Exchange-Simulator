@@ -14,7 +14,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
     , response_ring_(response_ring)
     , db_(db)
 {
-    LOG_INFO("[ClientManager] Initializing on port " << port);
+    LOG_INFO("[ClientManager] Initializing on port %d", port);
 
     auto close_handler = [this](WSClientPtr client) {
         for (auto it = client_sessions_.begin(); it != client_sessions_.end(); ) {
@@ -24,8 +24,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
             
             if (sessions.size() < original_size) {
                 uint32_t client_id = it->first;
-                LOG_INFO("[ClientManager] Session break detected for client " << client_id 
-                << ". Treating as automatic logout.");
+                LOG_INFO("[ClientManager] Session break detected for client %d. Treating as automatic logout.", client_id);
                 
                 if (sessions.empty()) {
                     it = client_sessions_.erase(it);
@@ -58,8 +57,7 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     uint64_t client_ack_seq_num = admin_req->ack_seq_num();
 
     if (client_msg_seq_num != expected_msg_seq_num || client_ack_seq_num > expected_ack_seq_num) {
-        LOG_INFO("[ClientManager] Client " << client_id << " connection rejected. Expected msg: " 
-                  << expected_msg_seq_num << ", ack: " << expected_ack_seq_num);
+        LOG_INFO("[ClientManager] Client %d connection rejected. Expected msg: %d, ack: %d", client_id, expected_msg_seq_num, expected_ack_seq_num);
         
         flatbuffers::FlatBufferBuilder fbb(128);
         auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client_id, expected_msg_seq_num, expected_ack_seq_num, RejectCode_InvalidSequenceNumber, db_->incrementAndGetClientOSeqNum(client_id));
@@ -74,12 +72,11 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     db_->acknowledgeResponses(client_id, client_ack_seq_num);
 
     client_sessions_[client_id].push_back(client);
-    LOG_INFO("[ClientManager] Client " << client_id << " connected (sessions: " 
-              << client_sessions_[client_id].size() << ").");
+    LOG_INFO("[ClientManager] Client %d connected (sessions: %d).", client_id, client_sessions_[client_id].size());
     
     // Send missed executions (OrderResponse)
     auto missed_responses = db_->getResponsesSince(client_id, client_ack_seq_num);
-    LOG_INFO("[ClientManager] Sending " << missed_responses.size() << " missed responses.");
+    LOG_INFO("[ClientManager] Sending %d missed responses.", missed_responses.size());
     for (auto& resp : missed_responses) {
         flatbuffers::FlatBufferBuilder fbb(256);
         auto resp_offset = OrderResponse::Pack(fbb, &resp);
@@ -99,7 +96,7 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     fbb.Finish(client_resp);
     client->send(fbb.GetBufferPointer(), fbb.GetSize());
     
-    LOG_INFO("[ClientManager] Client " << client_id << " session ready.");
+    LOG_INFO("[ClientManager] Client %d session ready.", client_id);
 }
 
 void ClientManager::handle_client_logout(WSClientPtr client, const AdminRequest* admin_req) {
@@ -113,7 +110,7 @@ void ClientManager::handle_client_logout(WSClientPtr client, const AdminRequest*
         }
     }
     client->is_ready.store(false, std::memory_order_release);
-    LOG_INFO("[ClientManager] Client " << client_id << " disconnected.");
+    LOG_INFO("[ClientManager] Client %d disconnected.", client_id);
 }
 
 void ClientManager::process_client_request(WSClientPtr client, const void* data, size_t size)
@@ -187,7 +184,7 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
             uint32_t client_id = open_req->client_id();
 
             auto open_orders = db_->getOpenOrders(client_id);
-            LOG_INFO("[ClientManager] Sending " << open_orders.size() << " open orders on request.");
+            LOG_INFO("[ClientManager] Sending %d open orders on request.", open_orders.size());
             for (auto& order_data : open_orders) {
                 client->send(order_data.data(), order_data.size());
             }

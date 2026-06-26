@@ -61,7 +61,7 @@ CSVDataReader::~CSVDataReader() {
 bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
     std::ifstream file(csv_filename);
     if (!file.is_open()) {
-        LOG_ERROR("[Error] Cannot open CSV file: " << csv_filename);
+        LOG_ERROR("[Error] Cannot open CSV file: %d", csv_filename);
         return false;
     }
 
@@ -87,7 +87,7 @@ bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
         }
 
         if (fields.size() < 10) {
-            LOG_ERROR("[Warning] Line " << line_num << " skipped.");
+            LOG_ERROR("[Warning] Line %d skipped.", line_num);
             continue;
         }
 
@@ -141,12 +141,11 @@ bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
             requests_.push_back(req);
 
         } catch (const std::exception& e) {
-            LOG_ERROR("[Error] Line " << line_num << ": " << e.what());
+            LOG_ERROR("[Error] Line %d: %d", line_num, e.what());
         }
     }
 
-    LOG_INFO("[Info] Successfully loaded " << requests_.size() 
-              << " orders from " << csv_filename);
+    LOG_INFO("[Info] Successfully loaded %d orders from %d", requests_.size(), csv_filename);
     return true;
 }
 
@@ -195,7 +194,7 @@ void CSVDataGen::run()
         writeRandomRequest(out);
     }
 
-    LOG_INFO("[csv_data_gen] wrote " << rows_written_ << " rows to " << out_path_);
+    LOG_INFO("[csv_data_gen] wrote %d rows to %s", rows_written_, out_path_);
 }
 
 const OrderBook& CSVDataGen::book() const

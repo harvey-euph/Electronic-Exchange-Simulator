@@ -78,10 +78,10 @@ void MarketDataServer::handle_market_data_request(WSClientPtr client, const Mark
         std::lock_guard<std::mutex> lock(subs_mutex_);
         if (md_type == MDType_L2) {
             l2_subscribers_[symbol_id].erase(client);
-            LOG_INFO("[MarketDataServer] Client unsubscribed L2 for symbol " << symbol_id);
+            LOG_INFO("[MarketDataServer] Client unsubscribed L2 for symbol %d", symbol_id);
         } else if (md_type == MDType_L3) {
             l3_subscribers_[symbol_id].erase(client);
-            LOG_INFO("[MarketDataServer] Client unsubscribed L3 for symbol " << symbol_id);
+            LOG_INFO("[MarketDataServer] Client unsubscribed L3 for symbol %d", symbol_id);
         }
         return;
     }
@@ -94,7 +94,7 @@ void MarketDataServer::handle_market_data_request(WSClientPtr client, const Mark
                 std::lock_guard<std::mutex> lock(subs_mutex_);
                 l2_subscribers_[symbol_id].insert(client);
             }
-            LOG_INFO("[MarketDataServer] Client subscribed L2 for symbol " << symbol_id);
+            LOG_INFO("[MarketDataServer] Client subscribed L2 for symbol %d", symbol_id);
 
             // Send snapshot
             flatbuffers::FlatBufferBuilder fbb(1024);
@@ -130,7 +130,7 @@ void MarketDataServer::handle_market_data_request(WSClientPtr client, const Mark
                 std::lock_guard<std::mutex> lock(subs_mutex_);
                 l3_subscribers_[symbol_id].insert(client);
             }
-            LOG_INFO("[MarketDataServer] Client subscribed L3 for symbol " << symbol_id);
+            LOG_INFO("[MarketDataServer] Client subscribed L3 for symbol %d", symbol_id);
 
             // Send snapshot
             flatbuffers::FlatBufferBuilder fbb(1024);
@@ -258,8 +258,7 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
     
     if (pending_ptr) {
         if (check_exec(resp->exec_type, EXEC_RESP)) {
-            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order " << resp->order_id 
-                        << " while pending_order " << pending_ptr->order_id << " is still active!");
+            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %d while pending_order %d is still active!", resp->order_id, pending_ptr->order_id);
             throw std::runtime_error("Multiple pending orders");
         } else if (check_exec(resp->exec_type, EXEC_ANN) && resp->order_id == pending_ptr->order_id) {
             delete pending_ptr;

@@ -22,7 +22,7 @@ int main() {
     try {
         response_ring = new mmaplog::MmapReader("./log/execution-journals");
     } catch (const std::exception& e) {
-        LOG_ERROR("[MarketDataServer] FATAL: " << e.what());
+        LOG_ERROR("[MarketDataServer] FATAL: %d", e.what());
         return -1;
     }
 

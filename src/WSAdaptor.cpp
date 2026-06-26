@@ -86,12 +86,12 @@ public:
             ws_.binary(true);
 
             co_await ws_.async_accept(net::use_awaitable);
-            LOG_INFO("[WSSession] WebSocket Handshake successful for " << remote_info_);
+            LOG_INFO("[WSSession] WebSocket Handshake successful for %s", remote_info_);
 
             // Spawn read loop
             net::co_spawn(ws_.get_executor(), read_loop(), net::detached);
         } catch (std::exception const& e) {
-            LOG_ERROR("[WSSession] Handshake error for " << remote_info_ << ": " << e.what());
+            LOG_ERROR("[WSSession] Handshake error for %s: %s", remote_info_, e.what());
             on_close();
         }
     }
@@ -108,7 +108,7 @@ public:
                 buffer_.consume(buffer_.size());
             }
         } catch (std::exception const& e) {
-            LOG_WARN("[WSSession] Client disconnected: " << remote_info_ << " (" << e.what() << ")");
+            LOG_WARN("[WSSession] Client disconnected: %s (%s)", remote_info_, e.what());
             on_close();
         }
     }
@@ -145,7 +145,7 @@ private:
                 co_await ws_.async_write(net::buffer(msg), net::use_awaitable);
             }
         } catch (std::exception const& e) {
-            LOG_ERROR("[WSSession] Write error for " << remote_info_ << ": " << e.what());
+            LOG_ERROR("[WSSession] Write error for %s: %s", remote_info_, e.what());
             {
                 std::lock_guard<std::mutex> lock(write_mutex_);
                 writing_ = false;
@@ -173,9 +173,9 @@ public:
         acceptor_.bind(endpoint, ec);
         acceptor_.listen(net::socket_base::max_listen_connections, ec);
         if (ec) {
-            LOG_ERROR("[WSListener] Failed to listen on " << endpoint << ": " << ec.message());
+            LOG_ERROR("[WSListener] Failed to listen on %s:%d: %s", endpoint.address().to_string(), endpoint.port(), ec.message());
         } else {
-            LOG_INFO("[WSListener] Listening on " << endpoint);
+            LOG_INFO("[WSListener] Listening on %s:%d", endpoint.address().to_string(), endpoint.port());
         }
     }
 
@@ -204,7 +204,7 @@ public:
                 net::co_spawn(ioc_, session->start(), net::detached);
             }
         } catch (std::exception const& e) {
-            LOG_ERROR("[WSListener] Accept loop error: " << e.what());
+            LOG_ERROR("[WSListener] Accept loop error: %s", e.what());
         }
     }
 

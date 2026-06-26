@@ -62,7 +62,7 @@ net::awaitable<void> HttpServer::do_session(tcp::socket socket) {
         }
     } catch (const boost::system::system_error& e) {
         if (e.code() != beast::error::timeout && e.code() != http::error::end_of_stream) {
-            LOG_ERROR("[HttpServer] Session error: " << e.what());
+            LOG_ERROR("[HttpServer] Session error: %s", e.what());
         }
     }
 }

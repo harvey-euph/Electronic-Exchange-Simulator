@@ -27,7 +27,7 @@ int main() {
         response_ring = new mmaplog::MmapReader("./log/execution-journals");
         request_ring = new Exchange::SHMRingBuffer(ORDER_REQUEST, ORDER_REQUEST_SIZE);
     } catch (const std::exception& e) {
-        LOG_ERROR("[ClientManager] FATAL: " << e.what());
+        LOG_ERROR("[ClientManager] FATAL: %d", e.what());
         return -1;
     }
 
