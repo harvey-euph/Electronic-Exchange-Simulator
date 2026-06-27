@@ -7,6 +7,7 @@
 #define ORDER_RESPONSE "ORDER_RESPONSE"
 #define ORDER_REQUEST_SIZE  65536
 #define ORDER_RESPONSE_SIZE 131072
+#define EXECUTION_JOURNAL_DIR "./log/execution-journals"
 
 #define PORT_CM 9001
 #define PORT_MD 9002

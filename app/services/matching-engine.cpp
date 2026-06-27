@@ -52,7 +52,7 @@ int main() {
     }
     */
 
-    mmaplog::MmapWriter response_ring("./log/execution-journals");
+    mmaplog::MmapWriter response_ring(EXECUTION_JOURNAL_DIR);
     Exchange::OrderBook book(1, min_step, price_offset, max_price_levels, &response_ring);
 
     Exchange::SHMRingBuffer request_ring(ORDER_REQUEST, ORDER_REQUEST_SIZE);

@@ -20,7 +20,7 @@ int main() {
     LOG_INFO("[MarketDataServer] Connecting to Response Ring...");
     mmaplog::MmapReader* response_ring = nullptr;
     try {
-        response_ring = new mmaplog::MmapReader("./log/execution-journals");
+        response_ring = new mmaplog::MmapReader(EXECUTION_JOURNAL_DIR);
     } catch (const std::exception& e) {
         LOG_ERROR("[MarketDataServer] FATAL: %d", e.what());
         return -1;

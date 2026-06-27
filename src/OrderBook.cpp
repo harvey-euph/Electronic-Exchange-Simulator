@@ -8,8 +8,6 @@
 
 using namespace Exchange;
 
-thread_local uint64_t g_current_request_start_tsc = 0;
-
 OrderBook::OrderBook(
     uint64_t symbol_id,
     int64_t min_step, 

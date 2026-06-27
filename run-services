@@ -1,62 +1,6 @@
 #!/bin/bash
 
-apply_system_tuning() {
-    echo "Applying low-latency system tuning..."
 
-    #
-    # CPU governor
-    #
-    if command -v cpupower >/dev/null 2>&1; then
-        cpupower frequency-set -g performance >/dev/null 2>&1
-    fi
-
-    for gov in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do
-        [ -f "$gov" ] && echo performance > "$gov" 2>/dev/null
-    done
-
-    #
-    # Disable Transparent Huge Page
-    #
-    if [ -f /sys/kernel/mm/transparent_hugepage/enabled ]; then
-        echo never > /sys/kernel/mm/transparent_hugepage/enabled
-    fi
-
-    if [ -f /sys/kernel/mm/transparent_hugepage/defrag ]; then
-        echo never > /sys/kernel/mm/transparent_hugepage/defrag
-    fi
-
-    #
-    # Disable swap
-    #
-    swapoff -a 2>/dev/null
-
-    #
-    # RT scheduler
-    #
-    sysctl -w kernel.sched_rt_runtime_us=-1 >/dev/null
-
-    #
-    # Memory behavior
-    #
-    sysctl -w vm.swappiness=0 >/dev/null
-    sysctl -w vm.zone_reclaim_mode=0 >/dev/null
-
-    #
-    # Increase file descriptor limit
-    #
-    ulimit -n 1048576
-    ulimit -l unlimited
-
-    #
-    # Boost ksoftirqd (network softirq) priority
-    #
-    echo "Boosting network kernel threads (ksoftirqd) priority..."
-    for pid in $(pgrep ksoftirqd); do
-        chrt -f -p 90 $pid 2>/dev/null || true
-    done
-
-    echo "System tuning applied."
-}
 
 # Enforce running with sudo/root privileges upfront
 if [ "$EUID" -ne 0 ]; then
@@ -65,6 +9,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+source "$PROJECT_ROOT/scripts/system-tuning.sh"
 BUILD_SERVICE_DIR="$PROJECT_ROOT/build/services"
 LOG_DIR="$PROJECT_ROOT/log"
 SESSION="exchange"
