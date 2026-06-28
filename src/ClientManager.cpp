@@ -17,17 +17,7 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
     LOG_INFO("[ClientManager] Initializing on port %d", port);
 
     ws_adaptor_->set_close_handler([this](WSClientPtr ws) {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        auto client_ptr = static_cast<CMClientPtr*>(ws->get_super());
-        if (client_ptr && *client_ptr) {
-            auto client = *client_ptr;
-            client->remove_conn(ws);
-            if (client->empty()) {
-                db_->setClientISeqNum(client->client_id(), client->inbound_seq_num());
-                db_->setClientOSeqNum(client->client_id(), client->outbound_seq_num());
-                clients_.erase(client->client_id());
-            }
-        }
+        this->handle_client_logout(ws);
     });
     
     auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
@@ -106,20 +96,22 @@ void ClientManager::handle_client_logon(WSClientPtr ws, const AdminRequest* admi
     LOG_INFO("[ClientManager] Client %d session ready.", client_id);
 }
 
-void ClientManager::handle_client_logout(WSClientPtr ws, const AdminRequest* admin_req) {
-    uint32_t client_id = admin_req->client_id();
+void ClientManager::handle_client_logout(WSClientPtr ws) {
     auto client_ptr = static_cast<CMClientPtr*>(ws->get_super());
-    if (client_ptr && *client_ptr) {
-        auto client = *client_ptr;
-        client->remove_conn(ws);
+    if (!client_ptr || !*client_ptr) return;
+    auto client = *client_ptr;
+    
+    uint32_t client_id = client->client_id();
+    client->remove_conn(ws);
 
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        if (client->empty()) {
-            db_->setClientISeqNum(client_id, client->inbound_seq_num());
-            db_->setClientOSeqNum(client_id, client->outbound_seq_num());
-            clients_.erase(client_id);
-        }
+    std::lock_guard<std::mutex> lock(clients_mutex_);
+    if (client->empty()) {
+        db_->setClientISeqNum(client_id, client->inbound_seq_num());
+        db_->setClientOSeqNum(client_id, client->outbound_seq_num());
+        clients_.erase(client_id);
     }
+    
+    ws->set_super(nullptr);
     LOG_INFO("[ClientManager] Client %d disconnected.", client_id);
 }
 
@@ -141,7 +133,7 @@ void ClientManager::process_client_request(WSClientPtr ws, const void* data, siz
         if (admin_req->action() == AdminAction_LogOn) {
             this->handle_client_logon(ws, admin_req);
         } else if (admin_req->action() == AdminAction_LogOut) {
-            this->handle_client_logout(ws, admin_req);
+            this->handle_client_logout(ws);
             // TODO: when received EOF, also process as logout
         }
         return;
