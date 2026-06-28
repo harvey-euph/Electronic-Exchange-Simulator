@@ -4,6 +4,7 @@
 #include "fbs/exchange_generated.h"
 #include "mmap_log.h"
 #include "WSAdaptor.hpp"
+#include "EXCHClient.hpp"
 #include "ClientDatabase.hpp"
 #include "Worker.hpp"
 #include <memory>
@@ -33,7 +34,12 @@ private:
     SHMRingBuffer* request_ring_;
     mmaplog::MmapReader* response_ring_;
     std::shared_ptr<ClientDatabase> db_;
-    std::map<uint32_t, std::vector<WSClientPtr>> client_sessions_;
+
+    using CMTag = uint32_t;
+    using CMClient = EXCHClient<CMTag>;
+    using CMClientPtr = std::shared_ptr<CMClient>;
+    std::mutex clients_mutex_;
+    std::map<uint32_t, CMClientPtr> clients_;
 };
 
 } // namespace Exchange

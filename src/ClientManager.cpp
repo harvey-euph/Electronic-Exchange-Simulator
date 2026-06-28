@@ -16,37 +16,27 @@ ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::Mma
 {
     LOG_INFO("[ClientManager] Initializing on port %d", port);
 
-    auto close_handler = [this](WSClientPtr client) {
-        for (auto it = client_sessions_.begin(); it != client_sessions_.end(); ) {
-            auto& sessions = it->second;
-            auto original_size = sessions.size();
-            sessions.erase(std::remove(sessions.begin(), sessions.end(), client), sessions.end());
-            
-            if (sessions.size() < original_size) {
-                uint32_t client_id = it->first;
-                LOG_INFO("[ClientManager] Session break detected for client %d. Treating as automatic logout.", client_id);
-                
-                if (sessions.empty()) {
-                    it = client_sessions_.erase(it);
-                    continue; 
-                }
+    ws_adaptor_->set_close_handler([this](WSClientPtr ws) {
+        std::lock_guard<std::mutex> lock(clients_mutex_);
+        auto client_ptr = static_cast<CMClientPtr*>(ws->get_super());
+        if (client_ptr && *client_ptr) {
+            (*client_ptr)->remove_conn(ws);
+            if ((*client_ptr)->empty()) {
+                clients_.erase((*client_ptr)->client_id());
             }
-            ++it;
         }
-        client->is_ready.store(false, std::memory_order_release);
-    };
+    });
     
     auto message_handler = [this](WSClientPtr client, const void* data, size_t size) {
         this->process_client_request(client, data, size);
     };
 
-    ws_adaptor_->set_close_handler(close_handler);
     ws_adaptor_->set_message_handler(message_handler);
     
     LOG_INFO("[ClientManager] WS Handlers registered.");
 }
 
-void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* admin_req)
+void ClientManager::handle_client_logon(WSClientPtr ws, const AdminRequest* admin_req)
 {
     uint32_t client_id = admin_req->client_id();
     uint64_t expected_msg_seq_num = db_->getClientISeqNum(client_id) + 1;
@@ -62,7 +52,7 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
         auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client_id, expected_msg_seq_num, expected_ack_seq_num, RejectCode_InvalidSequenceNumber, db_->incrementAndGetClientOSeqNum(client_id));
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_AdminResponse, admin_resp.Union());
         fbb.Finish(client_resp);
-        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        ws->send(fbb.GetBufferPointer(), fbb.GetSize());
         // Do not store session or mark ready
         return;
     }
@@ -70,8 +60,23 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
     db_->setClientISeqNum(client_id, client_msg_seq_num);
     db_->acknowledgeResponses(client_id, client_ack_seq_num);
 
-    client_sessions_[client_id].push_back(client);
-    LOG_INFO("[ClientManager] Client %d connected (sessions: %d).", client_id, client_sessions_[client_id].size());
+    CMClientPtr client;
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex_);
+        auto it = clients_.find(client_id);
+        if (it == clients_.end()) {
+            client = std::make_shared<CMClient>(client_id);
+            client->set_client_id(client_id);
+            client->set_inbound_seq_num(client_msg_seq_num);
+            client->set_outbound_seq_num(expected_ack_seq_num);
+            clients_[client_id] = client;
+        } else {
+            client = it->second;
+        }
+        client->add_conn(ws);
+        ws->set_super(&clients_[client_id]);
+    }
+    LOG_INFO("[ClientManager] Client %d connected (connections: %zu).", client_id, client->get_conns().size());
     
     // Send missed executions (OrderResponse)
     auto missed_responses = db_->getResponsesSince(client_id, client_ack_seq_num);
@@ -81,38 +86,39 @@ void ClientManager::handle_client_logon(WSClientPtr client, const AdminRequest* 
         auto resp_offset = OrderResponse::Pack(fbb, &resp);
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
         fbb.Finish(client_resp);
-        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        ws->send(fbb.GetBufferPointer(), fbb.GetSize());
         logOrderResponse(flatbuffers::GetRoot<ClientResponse>(fbb.GetBufferPointer())->data_as_OrderResponse(), "[ClientManager] Resending Missed:");
     }
 
     // Set ready for this client session
-    client->is_ready.store(true, std::memory_order_release);
+    ws->set_ready(true);
 
     // Send AdminResponse(Ready)
     flatbuffers::FlatBufferBuilder fbb(128);
     auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Ready, client_id, expected_msg_seq_num, expected_ack_seq_num, RejectCode_None, db_->incrementAndGetClientOSeqNum(client_id));
     auto client_resp = CreateClientResponse(fbb, ClientResponseData_AdminResponse, admin_resp.Union());
     fbb.Finish(client_resp);
-    client->send(fbb.GetBufferPointer(), fbb.GetSize());
+    ws->send(fbb.GetBufferPointer(), fbb.GetSize());
     
     LOG_INFO("[ClientManager] Client %d session ready.", client_id);
 }
 
-void ClientManager::handle_client_logout(WSClientPtr client, const AdminRequest* admin_req) {
+void ClientManager::handle_client_logout(WSClientPtr ws, const AdminRequest* admin_req) {
     uint32_t client_id = admin_req->client_id();
-    auto it = client_sessions_.find(client_id);
-    if (it != client_sessions_.end()) {
-        auto& sessions = it->second;
-        sessions.erase(std::remove(sessions.begin(), sessions.end(), client), sessions.end());
-        if (sessions.empty()) {
-            client_sessions_.erase(it);
+    auto client_ptr = static_cast<CMClientPtr*>(ws->get_super());
+    if (client_ptr && *client_ptr) {
+        auto client = *client_ptr;
+        db_->setClientISeqNum(client_id, client->inbound_seq_num());
+        client->remove_conn(ws);
+
+        if (client->empty()) {
+            clients_.erase(client_id);
         }
     }
-    client->is_ready.store(false, std::memory_order_release);
     LOG_INFO("[ClientManager] Client %d disconnected.", client_id);
 }
 
-void ClientManager::process_client_request(WSClientPtr client, const void* data, size_t size)
+void ClientManager::process_client_request(WSClientPtr ws, const void* data, size_t size)
 {
     DTRACE_PROBE(exchange, req_entry);
     flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(data), size);
@@ -128,23 +134,41 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
     if (type == ClientRequestData_AdminRequest) {
         auto admin_req = request->data_as_AdminRequest();
         if (admin_req->action() == AdminAction_LogOn) {
-            this->handle_client_logon(client, admin_req);
+            this->handle_client_logon(ws, admin_req);
         } else if (admin_req->action() == AdminAction_LogOut) {
-            this->handle_client_logout(client, admin_req);
+            this->handle_client_logout(ws, admin_req);
             // TODO: when received EOF, also process as logout
         }
         return;
     }
 
     // Check session readiness
-    if (!client->is_ready.load(std::memory_order_acquire)) {
+    if (!ws->is_ready()) {
         // Optionally send an error or just ignore
         return;
     }
 
+    auto client_ptr = static_cast<CMClientPtr*>(ws->get_super());
+    if (!client_ptr || !*client_ptr) return;
+    auto client = *client_ptr;
+
     switch (type) {
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
+            uint64_t expected_i_seq = client->inbound_seq_num() + 1;
+            if (order_req->msg_seq_num() != expected_i_seq) {
+                LOG_WARN("[ClientManager] Order seqnum mismatch. Expected %lu, got %lu", expected_i_seq, order_req->msg_seq_num());
+                flatbuffers::FlatBufferBuilder fbb(128);
+                uint64_t new_o_seq = db_->incrementAndGetClientOSeqNum(client->client_id());
+                client->set_outbound_seq_num(new_o_seq);
+                auto resp_offset = CreateOrderResponse(fbb, ExecType_Rejected, order_req->order_id(), order_req->client_id(), order_req->exec_id(), order_req->symbol_id(), order_req->side(), order_req->p(), order_req->q(), RejectCode_InvalidSequenceNumber, new_o_seq, order_req->msg_seq_num());
+                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
+                fbb.Finish(client_resp);
+                ws->send(fbb.GetBufferPointer(), fbb.GetSize());
+                return;
+            }
+            client->set_inbound_seq_num(expected_i_seq);
+
             auto token = request_ring_->reserve(sizeof(OrderRequestT));
             if (!token) {
                 // TODO: Send some alert
@@ -176,7 +200,7 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
             auto pos_resp = CreatePositionResponse(fbb, post_req->client_id(), post_req->symbol_id(), pos);
             auto client_resp = CreateClientResponse(fbb, ClientResponseData_PositionResponse, pos_resp.Union());
             fbb.Finish(client_resp);
-            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+            ws->send(fbb.GetBufferPointer(), fbb.GetSize());
             break;
         }
         case ClientRequestData_OpenOrderRequest: {
@@ -186,7 +210,7 @@ void ClientManager::process_client_request(WSClientPtr client, const void* data,
             auto open_orders = db_->getOpenOrders(client_id);
             LOG_INFO("[ClientManager] Sending %d open orders on request.", open_orders.size());
             for (auto& order_data : open_orders) {
-                client->send(order_data.data(), order_data.size());
+                ws->send(order_data.data(), order_data.size());
             }
             break;
         }
@@ -203,16 +227,16 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
     OrderResponseT mut_resp = *resp;
     mut_resp.msg_seq_num = db_->incrementAndGetClientOSeqNum(client_id);
 
-    auto it = client_sessions_.find(client_id);
-    if (it != client_sessions_.end() && !it->second.empty()) {
+    auto it = clients_.find(client_id);
+    if (it != clients_.end() && !it->second->empty()) {
+        auto client = it->second;
         flatbuffers::FlatBufferBuilder fbb(256);
         auto resp_offset = OrderResponse::Pack(fbb, &mut_resp);
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
         fbb.Finish(client_resp);
 
-        for (auto& session : it->second) {
-            session->send(fbb.GetBufferPointer(), fbb.GetSize());
-        }
+        client->set_outbound_seq_num(mut_resp.msg_seq_num);
+        client->send(fbb.GetBufferPointer(), fbb.GetSize());
         not_sent = false;
         DTRACE_PROBE1(exchange, exec_resp_before_db, mut_resp.exec_id);
     }    

@@ -485,7 +485,16 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         const dataType = response.dataType();
         if (dataType === ClientResponseData.OrderResponse) {
           const orderResp = response.data(new OrderResponse()) as OrderResponse;
-          if (orderResp) handleOrderResponse(orderResp);
+          if (orderResp) {
+            const expectedSeq = serverSeqNumRef.current + 1n;
+            const seqNum = orderResp.msgSeqNum();
+            if (seqNum !== expectedSeq) {
+              addMgmtLog(`[Error] Sequence number mismatch on OrderResponse. Expected ${expectedSeq}, got ${seqNum}`);
+              onNotification?.('rejected', 'Sequence Error', `Expected ${expectedSeq}, got ${seqNum}`);
+            }
+            serverSeqNumRef.current = seqNum;
+            handleOrderResponse(orderResp);
+          }
         } else if (dataType === ClientResponseData.PositionResponse) {
           const posResp = response.data(new PositionResponse()) as PositionResponse;
           if (posResp) {
@@ -529,6 +538,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         } else if (dataType === ClientResponseData.AdminResponse) {
           const adminResp = response.data(new AdminResponse()) as AdminResponse;
           if (adminResp && adminResp.type() === AdminResponseType.Ready) {
+            serverSeqNumRef.current = adminResp.msgSeqNum();
             setConnected(prev => ({ ...prev, mgmtReady: true }));
             if (!mgmtReadyNotifiedRef.current) {
               if (isInitialLoginRef.current) {

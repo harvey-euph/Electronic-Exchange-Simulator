@@ -14,6 +14,12 @@
 #include <vector>
 #include <optional>
 #include <stdexcept>
+#include "EXCHClient.hpp"
+#include <memory>
+#include <atomic>
+#include <vector>
+#include <optional>
+#include <stdexcept>
 
 namespace Exchange {
 
@@ -51,8 +57,12 @@ private:
     std::map<uint32_t, BookState> books_;
 
     std::mutex subs_mutex_;
-    std::unordered_map<uint32_t, std::unordered_set<WSClientPtr>> l2_subscribers_;
-    std::unordered_map<uint32_t, std::unordered_set<WSClientPtr>> l3_subscribers_;
+    
+    using MDTag = std::pair<MDType, uint32_t>;
+    using MDClient = EXCHClient<MDTag>;
+    using MDClientPtr = std::shared_ptr<MDClient>;
+
+    std::map<MDTag, MDClientPtr> md_clients_;
 
     bool crosses(Side side, int64_t price, const std::shared_ptr<L3Book>& book) const;
     void validated_update(std::shared_ptr<L3Book> book, const OrderResponseT* resp, uint64_t timestamp);

@@ -32,13 +32,15 @@ class WSSession : public WSClient, public std::enable_shared_from_this<WSSession
     
     std::queue<std::string> write_queue_;
     std::mutex write_mutex_;
+    void* super_ = nullptr;
     bool writing_ = false;
+    bool ready_ = false;
     std::atomic<bool> closed_{false};
     std::string remote_info_;
 
     WSAdaptor::MessageHandler msg_handler_;
     WSAdaptor::CloseHandler close_handler_;
-    
+
 public:
     explicit WSSession(tcp::socket&& socket, 
                        WSAdaptor::MessageHandler msg_handler,
@@ -56,6 +58,12 @@ public:
     }
 
     bool is_closed() const { return closed_; }
+
+    void* get_super() const override { return super_; }
+    void set_super(void* p) override { super_ = p; }
+    
+    bool is_ready() const override { return ready_; }
+    void set_ready(bool ready) override { ready_ = ready; }
 
     void on_close() {
         if (!closed_.exchange(true)) {

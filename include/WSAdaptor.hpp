@@ -11,7 +11,14 @@ class WSClient {
 public:
     virtual ~WSClient() = default;
     virtual void send(const void* data, size_t size) = 0;
-    std::atomic_bool is_ready{false};
+    
+    // per-connection user data
+    virtual void* get_super() const = 0;
+    virtual void set_super(void* p) = 0;
+    
+    // connection readiness
+    virtual bool is_ready() const = 0;
+    virtual void set_ready(bool ready) = 0;
 };
 
 using WSClientPtr = std::shared_ptr<WSClient>;

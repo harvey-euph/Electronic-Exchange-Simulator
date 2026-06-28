@@ -70,6 +70,7 @@ protected:
     bool running_ = true;
     uint64_t next_id_ = 1000001;
     uint64_t o_seq_num_ = 0;
+    uint64_t i_seq_num_ = 0;
 
     std::atomic<bool> ready_{false};
     std::mutex ready_mtx_;
