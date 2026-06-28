@@ -22,6 +22,7 @@ PostgresClientDatabase::~PostgresClientDatabase() = default;
 void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderResponseT& resp) {
     std::lock_guard<std::mutex> lock(mutex_);
     uint64_t exec_id = resp.exec_id;
+    uint64_t o_seq_num = resp.msg_seq_num;
     
     flatbuffers::FlatBufferBuilder fbb(256);
     auto resp_offset = OrderResponse::Pack(fbb, &resp);
@@ -35,8 +36,8 @@ void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderRe
         pqxx::params{client_id, "client_" + std::to_string(client_id)}
     );
     w.exec(
-        "INSERT INTO pending_responses (client_id, exec_id, serialized_data) VALUES ($1, $2, $3)",
-        pqxx::params{client_id, exec_id, pqxx::bytes_view{reinterpret_cast<const std::byte*>(fbb.GetBufferPointer()), fbb.GetSize()}}
+        "INSERT INTO pending_responses (client_id, o_seq_num, exec_id, serialized_data) VALUES ($1, $2, $3, $4)",
+        pqxx::params{client_id, o_seq_num, exec_id, pqxx::bytes_view{reinterpret_cast<const std::byte*>(fbb.GetBufferPointer()), fbb.GetSize()}}
     );
     w.commit();
 }
@@ -65,13 +66,85 @@ std::vector<OrderResponseT> PostgresClientDatabase::popPendingResponses(uint32_t
     return result;
 }
 
-uint64_t PostgresClientDatabase::getClientISeqNum(uint32_t client_id) { return 0; }
-void PostgresClientDatabase::setClientISeqNum(uint32_t client_id, uint64_t seq_num) {}
-uint64_t PostgresClientDatabase::getClientOSeqNum(uint32_t client_id) { return 0; }
-uint64_t PostgresClientDatabase::incrementAndGetClientOSeqNum(uint32_t client_id) { return 0; }
-void PostgresClientDatabase::setClientOSeqNum(uint32_t client_id, uint64_t seq_num) {}
-std::vector<OrderResponseT> PostgresClientDatabase::getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) { return {}; }
-void PostgresClientDatabase::acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) {}
+uint64_t PostgresClientDatabase::getClientISeqNum(uint32_t client_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    pqxx::work w(*conn_);
+    pqxx::result r = w.exec("SELECT i_seq_num FROM clients WHERE client_id = $1", pqxx::params{client_id});
+    if (r.empty()) {
+        w.exec("INSERT INTO clients (client_id, username) VALUES ($1, $2) ON CONFLICT DO NOTHING", pqxx::params{client_id, "client_" + std::to_string(client_id)});
+        w.commit();
+        return 0;
+    }
+    return r[0][0].as<uint64_t>();
+}
+
+void PostgresClientDatabase::setClientISeqNum(uint32_t client_id, uint64_t seq_num) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    pqxx::work w(*conn_);
+    w.exec("INSERT INTO clients (client_id, username, i_seq_num) VALUES ($1, $2, $3) ON CONFLICT (client_id) DO UPDATE SET i_seq_num = EXCLUDED.i_seq_num", pqxx::params{client_id, "client_" + std::to_string(client_id), seq_num});
+    w.commit();
+}
+
+uint64_t PostgresClientDatabase::getClientOSeqNum(uint32_t client_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    pqxx::work w(*conn_);
+    pqxx::result r = w.exec("SELECT o_seq_num FROM clients WHERE client_id = $1", pqxx::params{client_id});
+    if (r.empty()) {
+        w.exec("INSERT INTO clients (client_id, username) VALUES ($1, $2) ON CONFLICT DO NOTHING", pqxx::params{client_id, "client_" + std::to_string(client_id)});
+        w.commit();
+        return 0;
+    }
+    return r[0][0].as<uint64_t>();
+}
+
+uint64_t PostgresClientDatabase::incrementAndGetClientOSeqNum(uint32_t client_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    pqxx::work w(*conn_);
+    pqxx::result r = w.exec("INSERT INTO clients (client_id, username, o_seq_num) VALUES ($1, $2, 1) ON CONFLICT (client_id) DO UPDATE SET o_seq_num = clients.o_seq_num + 1 RETURNING o_seq_num", pqxx::params{client_id, "client_" + std::to_string(client_id)});
+    w.commit();
+    return r[0][0].as<uint64_t>();
+}
+
+void PostgresClientDatabase::setClientOSeqNum(uint32_t client_id, uint64_t seq_num) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    pqxx::work w(*conn_);
+    w.exec("INSERT INTO clients (client_id, username, o_seq_num) VALUES ($1, $2, $3) ON CONFLICT (client_id) DO UPDATE SET o_seq_num = EXCLUDED.o_seq_num", pqxx::params{client_id, "client_" + std::to_string(client_id), seq_num});
+    w.commit();
+}
+
+std::vector<OrderResponseT> PostgresClientDatabase::getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    std::vector<OrderResponseT> result;
+    pqxx::work w(*conn_);
+    pqxx::result r = w.exec(
+        "SELECT serialized_data FROM pending_responses WHERE client_id = $1 AND o_seq_num > $2 ORDER BY o_seq_num ASC",
+        pqxx::params{client_id, ack_seq_num}
+    );
+    for (auto const& row : r) {
+        auto bytes = row[0].as<pqxx::bytes>();
+        auto client_resp = flatbuffers::GetRoot<ClientResponse>(bytes.data());
+        if (client_resp->data_type() == ClientResponseData_OrderResponse) {
+            OrderResponseT resp;
+            client_resp->data_as_OrderResponse()->UnPackTo(&resp);
+            result.push_back(std::move(resp));
+        }
+    }
+    return result;
+}
+
+void PostgresClientDatabase::acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reconnect_if_needed();
+    pqxx::work w(*conn_);
+    w.exec("DELETE FROM pending_responses WHERE client_id = $1 AND o_seq_num <= $2", pqxx::params{client_id, ack_seq_num});
+    w.commit();
+}
 
 int64_t PostgresClientDatabase::getPosition(uint32_t client_id, uint32_t symbol_id) {
     std::lock_guard<std::mutex> lock(mutex_);
