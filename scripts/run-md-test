@@ -29,7 +29,9 @@ echo "=== Running test: $TEST_DIR ==="
 # 1. 清乾淨 log 資料夾與 shared memory
 echo "Cleaning logs and stopping old services..."
 mkdir -p "$PROJECT_ROOT/log"
-"$PROJECT_ROOT/scripts/kill-all" >/dev/null 2>&1 || true
+pkill -f "build/services/" >/dev/null 2>&1 || true
+pkill -f "build/components/" >/dev/null 2>&1 || true
+rm -f /dev/shm/ORDER_REQUEST /dev/shm/ORDER_RESPONSE /dev/shm/MARKET_DATA_RING 2>/dev/null || true
 rm -f "$PROJECT_ROOT/log/execution-journals/"* 2>/dev/null
 rm -f "$PROJECT_ROOT/log/"*.log 2>/dev/null
 
