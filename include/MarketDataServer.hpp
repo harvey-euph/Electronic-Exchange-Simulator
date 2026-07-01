@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MDClient.hpp"
 #include "WSAdaptor.hpp"
 #include "mmap_log.h"
 #include "Worker.hpp"
@@ -22,71 +23,8 @@
 
 namespace Exchange {
 
-class MDClient : public std::enable_shared_from_this<MDClient> {
-public:
-    using MessageHandler = std::function<void(std::shared_ptr<MDClient>, const void*, size_t)>;
-
-    explicit MDClient(WSClientPtr ws) : conn_(ws) {}
-
-    void set_message_handler(MessageHandler handler) {
-        msg_handler_ = handler;
-    }
-
-    void on_message(const void* data, size_t size) {
-        if (msg_handler_) {
-            msg_handler_(this->shared_from_this(), data, size);
-        }
-    }
-
-    void send(const void* data, size_t size) {
-        if (conn_) {
-            conn_->send(data, size);
-        }
-    }
-
-    static void bind_adaptor(std::shared_ptr<WSAdaptor> adaptor, 
-                             std::function<void(std::shared_ptr<MDClient>)> on_open,
-                             std::function<void(std::shared_ptr<MDClient>)> on_close,
-                             std::function<void(std::shared_ptr<MDClient>, const void*, size_t)> on_message) 
-    {
-        adaptor->set_open_handler([on_open, on_close, on_message](WSClientPtr ws) {
-            auto client = std::make_shared<MDClient>(ws);
-
-            if (on_message) {
-                client->set_message_handler(on_message);
-                ws->set_message_handler([client](const void* data, size_t size) {
-                    client->on_message(data, size);
-                });
-            }
-
-            if (on_close) {
-                ws->set_close_handler([client, on_close]() {
-                    on_close(client);
-                });
-            }
-
-            if (on_open) {
-                on_open(client);
-            }
-        });
-    }
-
-private:
-    WSClientPtr conn_;
-    MessageHandler msg_handler_;
-};
-
-using MDClientPtr = std::shared_ptr<MDClient>;
-
-struct PendingOrder {
-    uint64_t order_id;
-    Side side;
-    int64_t p;
-    uint64_t q;
-    uint64_t msg_seq_num;
-};
-
-class MarketDataServer : public Worker<MarketDataServer> {
+class MarketDataServer : public Worker<MarketDataServer>
+{
 public:
     MarketDataServer(int port, mmaplog::MmapReader* response_ring);
     ~MarketDataServer();

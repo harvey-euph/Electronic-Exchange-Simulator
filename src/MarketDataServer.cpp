@@ -77,6 +77,7 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     uint32_t symbol_id = req->symbol_id();
     MDType md_type = req->md_type();
     SubType sub_type = req->sub_type();
+
     if (sub_type == SubType_unsubscribe) {
         std::lock_guard<std::mutex> lock(subs_mutex_);
         if (md_type == MDType_L2) {
@@ -203,7 +204,8 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     }
 }
 
-bool MarketDataServer::crosses(Side side, int64_t price, const std::shared_ptr<L3Book>& book) const {
+bool MarketDataServer::crosses(Side side, int64_t price, const std::shared_ptr<L3Book>& book) const 
+{
     if (side == Side_Buy) {
         if (book->asks.empty()) return false;
         return price == 0 || price >= book->asks.begin()->first;
@@ -214,7 +216,8 @@ bool MarketDataServer::crosses(Side side, int64_t price, const std::shared_ptr<L
     return false;
 }
 
-void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type, uint64_t order_id, Side side, int64_t p, uint64_t q, uint64_t msg_seq_num, uint64_t timestamp) {
+void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type, uint64_t order_id, Side side, int64_t p, uint64_t q, uint64_t msg_seq_num, uint64_t timestamp)
+{
     std::vector<MDClientPtr> target_clients;
     {
         std::lock_guard<std::mutex> lock(subs_mutex_);
@@ -235,7 +238,8 @@ void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type,
     }
 }
 
-void MarketDataServer::publish_l2_update(uint32_t symbol_id, const std::vector<L2UpdateT>& updates, uint64_t msg_seq_num, uint64_t timestamp) {
+void MarketDataServer::publish_l2_update(uint32_t symbol_id, const std::vector<L2UpdateT>& updates, uint64_t msg_seq_num, uint64_t timestamp)
+{
     std::vector<MDClientPtr> target_clients;
     {
         std::lock_guard<std::mutex> lock(subs_mutex_);
