@@ -35,6 +35,11 @@ int main()
     g_md_server = &server;
     server.run();
 
+    if (const char* dump_file = std::getenv("MD_DUMP_FILE")) {
+        LOG_INFO("[MarketDataServer] Dumping book to %s", dump_file);
+        server.gdb_dump_book(1, dump_file);
+    }
+
     delete response_ring;
     return 0;
 }

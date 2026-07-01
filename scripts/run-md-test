@@ -28,6 +28,7 @@ echo "=== Running test: $TEST_DIR ==="
 
 # 1. 清乾淨 log 資料夾與 shared memory
 echo "Cleaning logs and stopping old services..."
+mkdir -p "$PROJECT_ROOT/log"
 "$PROJECT_ROOT/scripts/kill-all" >/dev/null 2>&1 || true
 rm -f "$PROJECT_ROOT/log/execution-journals/"* 2>/dev/null
 rm -f "$PROJECT_ROOT/log/"*.log 2>/dev/null
@@ -52,18 +53,14 @@ wait $ME_PID 2>/dev/null
 
 # 3. 開啟 MD 會去讀 log/execution-journals 建立 book
 echo "Starting Market Data Server..."
-"$BUILD_DIR/services/market-data-server" > md_out.log 2>&1 &
+MD_DUMP_FILE="${TEST_DIR}/server-book.csv" "$BUILD_DIR/services/market-data-server" > log/md_out.log 2>&1 &
 MD_PID=$!
 
 sleep 1 # 等待 MD Server 把 Journal 讀完並建好 Book
 
-# 4. 用 GDB 注入 MD Server 匯出 L3Book 狀態
-echo "Dumping server book via GDB..."
-gdb -p $MD_PID -batch -ex "call g_md_server->gdb_dump_book(1, \"${TEST_DIR}/server-book.csv\")" -ex "detach" -ex "quit" > /dev/null 2>&1
-
 # 5. 開啟 Client Book Dumper 收取 Snapshot
 echo "Starting Client Book Dumper..."
-"$BUILD_DIR/components/client-book-dumper" 1 "${TEST_DIR}/client-book.csv" > client.log 2>&1 &
+"$BUILD_DIR/components/client-book-dumper" 1 "${TEST_DIR}/client-book.csv" > log/client.log 2>&1 &
 CLIENT_PID=$!
 
 sleep 0.5 # 等待 Client 收完 Snapshot

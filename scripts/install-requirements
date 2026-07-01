@@ -29,6 +29,7 @@ sudo apt-get install -y \
   libfmt-dev \
   nodejs \
   npm \
-  tmux
+  tmux \
+  gdb
 
 echo "System dependencies installed successfully."
