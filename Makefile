@@ -3,7 +3,7 @@ INCLUDES := -Iinclude
 
 # Detect CPU core count to determine performance tier
 NUM_CORES := $(shell nproc)
-CXXFLAGS := -std=c++20 -O3 -Wall -Wextra -MMD -MP
+CXXFLAGS := -std=c++20 -g -O3 -Wall -Wextra -MMD -MP
 
 ifeq ($(shell test $(NUM_CORES) -ge 3; echo $$?),0)
     # Enable busy-waiting and native microarchitecture tuning on systems with >= 3 cores

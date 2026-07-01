@@ -26,11 +26,13 @@ namespace Exchange {
 class MarketDataServer : public Worker<MarketDataServer>
 {
 public:
-    MarketDataServer(int port, mmaplog::MmapReader* response_ring);
+    MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, mmaplog::MmapReader* response_ring);
     ~MarketDataServer();
 
     int poll_client();
     int poll_server();
+
+    void gdb_dump_book(uint32_t symbol_id, const char* filepath);
 
 private:
     std::pair<std::shared_ptr<L3Book>, OrderResponseT> get_or_create_book(uint32_t symbol_id);

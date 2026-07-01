@@ -5,8 +5,8 @@
 
 namespace Exchange {
 
-MarketDataServer::MarketDataServer(int port, mmaplog::MmapReader* response_ring)
-    : ws_adaptor_(std::make_shared<WSAdaptor>(port))
+MarketDataServer::MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, mmaplog::MmapReader* response_ring)
+    : ws_adaptor_(ws_adaptor)
     , response_ring_(response_ring)
 {
     MDClient::bind_adaptor(
@@ -58,7 +58,8 @@ int MarketDataServer::poll_server()
     return 0;
 }
 
-std::pair<std::shared_ptr<L3Book>, OrderResponseT> MarketDataServer::get_or_create_book(uint32_t symbol_id) {
+std::pair<std::shared_ptr<L3Book>, OrderResponseT> MarketDataServer::get_or_create_book(uint32_t symbol_id)
+{
     std::lock_guard<std::mutex> lock(books_mutex_);
     auto it = books_.find(symbol_id);
     if (it == books_.end()) {
@@ -299,3 +300,8 @@ void MarketDataServer::__update(std::shared_ptr<L3Book> book, const OrderRespons
 }
 
 } // namespace Exchange
+
+void Exchange::MarketDataServer::gdb_dump_book(uint32_t symbol_id, const char* filepath) {
+    auto state = get_or_create_book(symbol_id);
+    state.first->dump_raw(filepath);
+}

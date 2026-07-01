@@ -1,4 +1,5 @@
 #include "L3Book.hpp"
+#include <fstream>
 
 namespace Exchange {
 
@@ -240,6 +241,17 @@ void L3Book::clear() {
     orders.clear();
     bids.clear();
     asks.clear();
+}
+
+void L3Book::dump_raw(const char* filepath) {
+    std::lock_guard<std::mutex> lock(mutex);
+    std::ofstream ofs(filepath);
+    for (auto it = asks.rbegin(); it != asks.rend(); ++it) {
+        ofs << "A," << it->first << "," << it->second.total_qty << "\n";
+    }
+    for (auto it = bids.begin(); it != bids.end(); ++it) {
+        ofs << "B," << it->first << "," << it->second.total_qty << "\n";
+    }
 }
 
 } // namespace Exchange

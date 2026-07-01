@@ -85,13 +85,13 @@ void AlgoTradingClient::send_order_request(OrderRequestT& order) {
     if (order.action == OrderAction_New && order.type != OrderType_Market) {
         std::string err;
         if (!validate_price(order.symbol_id, order.p, err)) {
-            LOG_ERROR("[AlgoTradingClient] ERROR: Trying to send order with invalid price: %d", err);
+            LOG_ERROR("[AlgoTradingClient] ERROR: Trying to send order with invalid price: %s", err.c_str());
             throw std::runtime_error("Invalid order price: " + err);
         }
     } else if (order.action == OrderAction_Modify) {
         std::string err;
         if (!validate_price(order.symbol_id, order.p, err)) {
-            LOG_ERROR("[AlgoTradingClient] ERROR: Trying to modify order with invalid price: %d", err);
+            LOG_ERROR("[AlgoTradingClient] ERROR: Trying to modify order with invalid price: %s", err.c_str());
             throw std::runtime_error("Invalid order price: " + err);
         }
     }
@@ -152,7 +152,7 @@ void AlgoTradingClient::on_order_response(const OrderResponse* response) {
         response->reject_code() == RejectCode_None) {
         std::string err;
         if (!validate_price(response->symbol_id(), response->p(), err)) {
-            LOG_ERROR("[AlgoTradingClient] ERROR: OrderResponse has invalid price: %d", err);
+            LOG_ERROR("[AlgoTradingClient] ERROR: OrderResponse has invalid price: %s", err.c_str());
             throw std::runtime_error("OrderResponse has invalid price: " + err);
         }
     }
@@ -177,16 +177,16 @@ int AlgoTradingClient::run() {
                 symbols_info_[symbol_id] = std::move(info);
             }
         } catch (const std::exception& e) {
-            LOG_ERROR("[AlgoTradingClient] Warning: Failed to fetch symbol info for %d: %d", symbol_id, e.what());
+            LOG_ERROR("[AlgoTradingClient] Warning: Failed to fetch symbol info for %d: %s", symbol_id, e.what());
         }
     }
 
     if (!mgmt_client_->connect()) {
-        LOG_ERROR("Failed to connect to Management port %s", config_.mgmt_port);
+        LOG_ERROR("Failed to connect to Management port %s", config_.mgmt_port.c_str());
         return 1;
     }
     if (!md_client_->connect()) {
-        LOG_ERROR("Failed to connect to Market Data port %s", config_.l2_port);
+        LOG_ERROR("Failed to connect to Market Data port %s", config_.l2_port.c_str());
         return 1;
     }
 
@@ -249,7 +249,7 @@ int AlgoTradingClient::run() {
             auto update = md_update->data_as_L2Update();
             std::string err;
             if (update->side() != Side_None && update->p() != 0 && !validate_price(update->symbol_id(), update->p(), err)) {
-                LOG_ERROR("[AlgoTradingClient] ERROR: L2 Update has invalid price: %s", err);
+                LOG_ERROR("[AlgoTradingClient] ERROR: L2 Update has invalid price: %s", err.c_str());
                 throw std::runtime_error("L2 Update has invalid price: " + err);
             }
             on_l2_update(update);
@@ -257,7 +257,7 @@ int AlgoTradingClient::run() {
             auto update = md_update->data_as_L3Update();
             std::string err;
             if (update->side() != Side_None && update->p() != 0 && !validate_price(update->symbol_id(), update->p(), err)) {
-                LOG_ERROR("[AlgoTradingClient] ERROR: L3 Update has invalid price: %s", err);
+                LOG_ERROR("[AlgoTradingClient] ERROR: L3 Update has invalid price: %s", err.c_str());
                 throw std::runtime_error("L3 Update has invalid price: " + err);
             }
             on_l3_update(update);

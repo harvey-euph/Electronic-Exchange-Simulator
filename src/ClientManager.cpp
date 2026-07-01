@@ -8,13 +8,13 @@
 
 namespace Exchange {
 
-ClientManager::ClientManager(int port, SHMRingBuffer* request_ring, mmaplog::MmapReader* response_ring, std::shared_ptr<ClientDatabase> db) 
-    : ws_adaptor_(std::make_shared<WSAdaptor>(port))
+ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, SHMRingBuffer* request_ring, mmaplog::MmapReader* response_ring, std::shared_ptr<ClientDatabase> db) 
+    : ws_adaptor_(ws_adaptor)
     , request_ring_(request_ring)
     , response_ring_(response_ring)
     , db_(db)
 {
-    LOG_INFO("[ClientManager] Initializing on port %d", port);
+    LOG_INFO("[ClientManager] Initializing");
 
     CMClient::bind_adaptor(
         ws_adaptor_,

@@ -142,6 +142,16 @@ struct L2Book {
         // Clear anything below the book in case depth decreased
         std::cout << "\033[J" << std::flush;
     }
+
+    void display_raw(std::ostream& os = std::cout) {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (auto it = asks.rbegin(); it != asks.rend(); ++it) {
+            os << "A," << it->first << "," << it->second << "\n";
+        }
+        for (auto it = bids.begin(); it != bids.end(); ++it) {
+            os << "B," << it->first << "," << it->second << "\n";
+        }
+    }
 };
 
 } // namespace Exchange

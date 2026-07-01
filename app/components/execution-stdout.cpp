@@ -23,7 +23,7 @@ int main() {
                 std::string exec_str;
                 switch (resp->exec_type) {
                     case ExecType_New: exec_str = "NEW"; break;
-                    case ExecType_Replaced: exec_str = "REP"; break;
+                    case ExecType_Replaced: exec_str = "MOD"; break;
                     case ExecType_Cancelled: exec_str = "CAN"; break;
                     case ExecType_Fill: exec_str = "FIL"; break;
                     case ExecType_PartialFill: exec_str = "PAR"; break;

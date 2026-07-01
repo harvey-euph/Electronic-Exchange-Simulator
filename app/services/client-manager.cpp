@@ -9,10 +9,9 @@
 #include <iostream>
 #include "mmap_log.h"
 
-int main() {
+int main()
+{
     Exchange::initLogger("ClientManager");
-    LOG_INFO("================================================================================");
-
     setup_signals();
 
 #ifdef USE_PGSQL
@@ -31,7 +30,8 @@ int main() {
         return -1;
     }
 
-    Exchange::ClientManager manager(PORT_CM, request_ring, response_ring, db);
+    auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(PORT_CM);
+    Exchange::ClientManager manager(ws_adaptor, request_ring, response_ring, db);
 
     int main_core = CM_CORE;
     if (main_core >= 0) {

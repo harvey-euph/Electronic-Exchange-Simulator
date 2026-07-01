@@ -7,7 +7,10 @@
 
 using namespace Exchange;
 
-int main() {
+Exchange::MarketDataServer* g_md_server = nullptr;
+
+int main()
+{
     Exchange::initLogger("MarketDataServer");
 
     setup_signals();
@@ -22,12 +25,14 @@ int main() {
     try {
         response_ring = new mmaplog::MmapReader(EXECUTION_JOURNAL_DIR);
     } catch (const std::exception& e) {
-        LOG_ERROR("[MarketDataServer] FATAL: %d", e.what());
+        LOG_ERROR("[MarketDataServer] FATAL: %s", e.what());
         return -1;
     }
 
     LOG_INFO("[MarketDataServer] Polling response ring and WebSocket events...");
-    MarketDataServer server(PORT_MD, response_ring);
+    auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(PORT_MD);
+    MarketDataServer server(ws_adaptor, response_ring);
+    g_md_server = &server;
     server.run();
 
     delete response_ring;

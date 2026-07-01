@@ -40,6 +40,7 @@ struct L3Book {
     std::vector<L2UpdateT> update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty);
     void remove_from_queues(uint64_t order_id, std::vector<L2UpdateT>& updates);
     void display(int depth_limit = 10);
+    void dump_raw(const char* filepath);
     void clear();
 };
 
