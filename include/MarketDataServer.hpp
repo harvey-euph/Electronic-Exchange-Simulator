@@ -96,7 +96,6 @@ public:
 
 private:
     std::pair<std::shared_ptr<L3Book>, OrderResponseT> get_or_create_book(uint32_t symbol_id);
-    void setup_handlers();
     void handle_market_data_request(MDClientPtr client, const MarketDataRequest* req);
     void process_market_update(const OrderResponseT* resp);
 
@@ -108,8 +107,7 @@ private:
 
     std::mutex subs_mutex_;
     
-    std::unordered_map<uint32_t, std::unordered_set<MDClientPtr>> l2_clients_;
-    std::unordered_map<uint32_t, std::unordered_set<MDClientPtr>> l3_clients_;
+    std::unordered_map<uint32_t, std::unordered_set<MDClientPtr>> l2_clients_, l3_clients_;
     std::unordered_map<MDClientPtr, std::vector<std::pair<MDType, uint32_t>>> client_subs_;
 
     bool crosses(Side side, int64_t price, const std::shared_ptr<L3Book>& book) const;

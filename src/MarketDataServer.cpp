@@ -9,7 +9,31 @@ MarketDataServer::MarketDataServer(int port, mmaplog::MmapReader* response_ring)
     : ws_adaptor_(std::make_shared<WSAdaptor>(port))
     , response_ring_(response_ring)
 {
-    setup_handlers();
+    MDClient::bind_adaptor(
+        ws_adaptor_,
+        nullptr, // on_open
+        [this](MDClientPtr client) { // on_close
+            std::lock_guard<std::mutex> lock(subs_mutex_);
+            auto it = client_subs_.find(client);
+            if (it != client_subs_.end()) {
+                for (const auto& [md_type, symbol_id] : it->second) {
+                    if (md_type == MDType_L2) {
+                        l2_clients_[symbol_id].erase(client);
+                    } else if (md_type == MDType_L3) {
+                        l3_clients_[symbol_id].erase(client);
+                    }
+                }
+                client_subs_.erase(it);
+            }
+        },
+        [this](MDClientPtr client, const void* data, size_t size) { // on_message
+            flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(data), size);
+            if (VerifyMarketDataRequestBuffer(verifier)) {
+                auto req = GetMarketDataRequest(data);
+                this->handle_market_data_request(client, req);
+            }
+        }
+    );
 }
 
 MarketDataServer::~MarketDataServer() {
@@ -46,35 +70,6 @@ std::pair<std::shared_ptr<L3Book>, OrderResponseT> MarketDataServer::get_or_crea
         return state;
     }
     return it->second;
-}
-
-void MarketDataServer::setup_handlers()
-{
-    MDClient::bind_adaptor(
-        ws_adaptor_,
-        nullptr, // on_open
-        [this](MDClientPtr client) { // on_close
-            std::lock_guard<std::mutex> lock(subs_mutex_);
-            auto it = client_subs_.find(client);
-            if (it != client_subs_.end()) {
-                for (const auto& [md_type, symbol_id] : it->second) {
-                    if (md_type == MDType_L2) {
-                        l2_clients_[symbol_id].erase(client);
-                    } else if (md_type == MDType_L3) {
-                        l3_clients_[symbol_id].erase(client);
-                    }
-                }
-                client_subs_.erase(it);
-            }
-        },
-        [this](MDClientPtr client, const void* data, size_t size) { // on_message
-            flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(data), size);
-            if (VerifyMarketDataRequestBuffer(verifier)) {
-                auto req = GetMarketDataRequest(data);
-                this->handle_market_data_request(client, req);
-            }
-        }
-    );
 }
 
 void MarketDataServer::handle_market_data_request(MDClientPtr client, const MarketDataRequest* req)
@@ -175,13 +170,13 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
                         fbb.Finish(md_update);
                         client->send(fbb.GetBufferPointer(), fbb.GetSize());
 
-                        if (order.qty_req > order.qty_rem) {
-                            fbb.Clear();
-                            auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
-                            auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
-                            fbb.Finish(md_fill);
-                            client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                        }
+                        if (order.qty_req > order.qty_rem) continue;
+
+                        fbb.Clear();
+                        auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
+                        auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
+                        fbb.Finish(md_fill);
+                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
                     }
                 }
                 // Asks (lowest to highest)
@@ -194,13 +189,13 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
                         fbb.Finish(md_update);
                         client->send(fbb.GetBufferPointer(), fbb.GetSize());
 
-                        if (order.qty_req > order.qty_rem) {
-                            fbb.Clear();
-                            auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
-                            auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
-                            fbb.Finish(md_fill);
-                            client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                        }
+                        if (order.qty_req == order.qty_rem) continue;
+
+                        fbb.Clear();
+                        auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
+                        auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
+                        fbb.Finish(md_fill);
+                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
                     }
                 }
             }
@@ -286,8 +281,7 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
 
     __update(book, resp, timestamp);
 
-    if (!pending.order_id) return;
-    if (crosses(pending.side, pending.p, book)) return;
+    if (!pending.order_id || crosses(pending.side, pending.p, book)) return;
 
     __update(book, &pending, timestamp);
     pending.order_id = 0;
