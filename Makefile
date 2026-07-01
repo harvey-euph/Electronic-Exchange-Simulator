@@ -221,6 +221,12 @@ test: $(TEST_TARGETS)
 		echo "Running $$test_bin"; \
 		$$test_bin || exit $$?; \
 	done
+	@for md_test in tests/md-*; do \
+		if [ -d "$$md_test" ]; then \
+			echo "Running MD Test: $$md_test"; \
+			sudo ./scripts/run-md-test "$$md_test" || exit $$?; \
+		fi \
+	done
 
 # -----------------------------------------------------------------------------
 # Compile Source Objects
