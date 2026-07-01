@@ -18,16 +18,11 @@ ME_PID=$!
 echo "Starting market-data-server..."
 ./build/services/market-data-server > /dev/null 2>&1 &
 MD_PID=$!
-
-# 4. Start Client Manager
-echo "Starting client-manager..."
-./build/services/client-manager > /dev/null 2>&1 &
-CM_PID=$!
 sleep 1
 
 # 5. Run CSVSender with the specific case
 echo "Sending orders..."
-./build/client-examples/CSVSender data/error_case.csv > /dev/null 2>&1
+././build/components/csv_inserter data/error_case.csv > /dev/null 2>&1
 echo "CSVSender finished."
 
 # 6. Stop services
