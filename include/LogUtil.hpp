@@ -29,11 +29,6 @@ inline void initLogger(const std::string& logger_name) {
 #define LOG_WARN(fmt_str, ...) do { spdlog::warn(fmt::sprintf(fmt_str, ##__VA_ARGS__)); } while(0)
 #define LOG_ERROR(fmt_str, ...) do { spdlog::error(fmt::sprintf(fmt_str, ##__VA_ARGS__)); } while(0)
 
-
-
-
-
-
 inline void logOrderRequest(const OrderRequest* req, const char* prefix = "[OrderRequest]") {
     if (!req) return;
     LOG_INFO("%s action=%s, exec_id=%d, order_id=%d, client=%d, sym=%d, side=%s, type=%s, price=%d, qty=%d, visible=%d, ts=%d", prefix, EnumNameOrderAction(req->action()), req->exec_id(), req->order_id(), req->client_id(), req->symbol_id(), EnumNameSide(req->side()), EnumNameOrderType(req->type()), req->p(), req->q(), req->visible_qty(), req->timestamp());

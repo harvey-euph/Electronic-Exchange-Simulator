@@ -35,6 +35,7 @@ SERVICE_DIR := app/services
 AGENT_DIR := app/client-agents
 EXAMPLE_DIR := app/client-examples
 CLIENT_PERF_DIR := app/client-perf
+COMPONENT_DIR := app/components
 TEST_DIR := tests
 FBS_DIR := fbs
 FBS_OUT := include/fbs
@@ -99,6 +100,13 @@ EXAMPLE_SOURCES := $(wildcard $(EXAMPLE_DIR)/*.cpp)
 EXAMPLE_TARGETS := $(patsubst $(EXAMPLE_DIR)/%.cpp,$(BUILD_DIR)/client-examples/%,$(EXAMPLE_SOURCES))
 
 # -----------------------------------------------------------------------------
+# Component Executables
+# -----------------------------------------------------------------------------
+
+COMPONENT_SOURCES := $(wildcard $(COMPONENT_DIR)/*.cpp)
+COMPONENT_TARGETS := $(patsubst $(COMPONENT_DIR)/%.cpp,$(BUILD_DIR)/components/%,$(COMPONENT_SOURCES))
+
+# -----------------------------------------------------------------------------
 # Client Perf Executables
 # -----------------------------------------------------------------------------
 
@@ -129,7 +137,7 @@ TEST_TARGETS := $(patsubst $(TEST_DIR)/%.cpp,$(BUILD_DIR)/tests/%,$(TEST_SOURCES
 WEB_DIR := web
 
 .PHONY: all
-all: $(FBS_GENERATED) $(SERVICE_TARGETS) $(AGENT_TARGETS) $(EXAMPLE_TARGETS) $(CLIENT_PERF_TARGETS) $(OBS_TARGETS) ebpf web_target
+all: $(FBS_GENERATED) $(SERVICE_TARGETS) $(AGENT_TARGETS) $(EXAMPLE_TARGETS) $(CLIENT_PERF_TARGETS) $(COMPONENT_TARGETS) $(OBS_TARGETS) ebpf web_target
 
 .PHONY: fbs
 fbs: $(FBS_GENERATED)
@@ -162,6 +170,14 @@ $(BUILD_DIR)/services/%: $(SERVICE_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 $(BUILD_DIR)/client-agents/%: $(AGENT_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
 	@mkdir -p $(BUILD_DIR)/client-agents
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(filter-out $(BUILD_DIR)/PostgresClientDatabase.o $(BUILD_DIR)/PostgresSymbolDatabase.o $(BUILD_DIR)/ClientManager.o,$(SRC_OBJECTS)) $(TEST_LDLIBS) -o $@
+
+# -----------------------------------------------------------------------------
+# Build Components
+# -----------------------------------------------------------------------------
+
+$(BUILD_DIR)/components/%: $(COMPONENT_DIR)/%.cpp $(SRC_OBJECTS) $(FBS_GENERATED)
+	@mkdir -p $(BUILD_DIR)/components
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $< $(SRC_OBJECTS) $(LDLIBS) -o $@
 
 # -----------------------------------------------------------------------------
 # Build Examples
