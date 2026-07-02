@@ -1,6 +1,0 @@
-[ExecutionStdout] Starting execution journal poller...
-[ExecutionStdout] [NEW] [BID] @ 5000000 x 10 | order_id: 1, client_id: 1, symbol_id: 1, msg_seq_num: 0
-[ExecutionStdout] [NEW] [BID] @ 5000000 x 20 | order_id: 2, client_id: 2, symbol_id: 1, msg_seq_num: 0
-[ExecutionStdout] [CAN] [BID] @ 5000000 x 10 | order_id: 1, client_id: 1, symbol_id: 1, msg_seq_num: 0
-[ExecutionStdout] [CAN] [BID] @ 5000000 x 20 | order_id: 2, client_id: 2, symbol_id: 1, msg_seq_num: 0
-[ExecutionStdout] [NEW] [ASK] @ 5100000 x 50 | order_id: 3, client_id: 3, symbol_id: 1, msg_seq_num: 0

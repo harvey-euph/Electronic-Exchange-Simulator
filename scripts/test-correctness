@@ -12,6 +12,11 @@ EXPECTED_EXEC_CSV="${TEST_DIR}/expected-exec.csv"
 ACTUAL_EXEC_CSV="${TEST_DIR}/actual-exec.csv"
 EXPECTED_BOOK_CSV="${TEST_DIR}/expected-book.csv"
 
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+echo "=== Generating Expected Outcomes for $TEST_DIR ==="
+"$PROJECT_ROOT/scripts/generate-expected" "$TEST_DIR"
+
 # Verify files exist
 if [ ! -f "$INPUT_CSV" ]; then
     echo "Error: $INPUT_CSV not found!"
@@ -28,7 +33,6 @@ if [ ! -f "$EXPECTED_BOOK_CSV" ]; then
     exit 1
 fi
 
-PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="$PROJECT_ROOT/build"
 
 echo "=== Running Correctness Test: $TEST_DIR ==="
