@@ -20,13 +20,17 @@ void HttpServer::run(net::io_context& ioc) {
 
 net::awaitable<void> HttpServer::do_listen() {
     auto executor = co_await net::this_coro::executor;
-    tcp::acceptor acceptor(executor, endpoint_);
+    try {
+        tcp::acceptor acceptor(executor, endpoint_);
 
-    for (;;) {
-        tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
-        net::co_spawn(executor, [this, s = std::move(socket)]() mutable {
-            return do_session(std::move(s));
-        }, net::detached);
+        for (;;) {
+            tcp::socket socket = co_await acceptor.async_accept(net::use_awaitable);
+            net::co_spawn(executor, [this, s = std::move(socket)]() mutable {
+                return do_session(std::move(s));
+            }, net::detached);
+        }
+    } catch (const std::exception& e) {
+        LOG_ERROR("[HttpServer] Acceptor error: %s", e.what());
     }
 }
 

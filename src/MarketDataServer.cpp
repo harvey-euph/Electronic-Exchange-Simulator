@@ -273,7 +273,8 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
     
     if (pending.order_id) {
         if (check_exec(resp->exec_type, EXEC_RESP)) {
-            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %d while pending_order %d is still active!", resp->order_id, pending.order_id);
+            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %d with exec_id: %d while pending_order %d is still active!", 
+                resp->order_id, resp->exec_id, pending.order_id);
             throw std::runtime_error("Multiple pending orders");
         } else if (check_exec(resp->exec_type, EXEC_ANN) && resp->order_id == pending.order_id) {
             pending.order_id = 0;

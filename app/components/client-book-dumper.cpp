@@ -29,6 +29,10 @@ public:
     }
 
     void on_l3_update(const L3Update*) override {} // Ignore
+    
+    void init() {
+        fetch_symbols_info();
+    }
 };
 
 int main(int argc, char** argv) 
@@ -48,6 +52,7 @@ int main(int argc, char** argv)
         config.symbol_ids = {g_book.symbol_id};
 
         BookDumperClient client(config);
+        client.init();
         
         if (client.start_md() != 0) {
             std::cerr << "Failed to start MarketDataClient\n";

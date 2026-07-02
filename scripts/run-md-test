@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# set -e/
+
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <test_directory>"
     echo "Example: $0 tests/md_test_mod_remaining_correctness"
@@ -39,6 +41,9 @@ rm -f "$PROJECT_ROOT/log/"*.log 2>/dev/null
 echo "Starting Matching Engine..."
 "$BUILD_DIR/services/matching-engine" >/dev/null 2>&1 &
 ME_PID=$!
+
+"$BUILD_DIR/services/public-data" >/dev/null 2>&1 &
+PD_PID=$!
 
 # Wait for ME to initialize SHM
 sleep 0.5
@@ -100,7 +105,8 @@ else
     diff "${TEST_DIR}/client-book.csv" "$EXPECTED_CSV"
 fi
 
-rm -f "${TEST_DIR}/server-book.csv" "${TEST_DIR}/client-book.csv"
+# rm -f "${TEST_DIR}/server-book.csv" "${TEST_DIR}/client-book.csv"
+kill -SIGINT $PD_PID
 
 if [ $SERVER_CHECK -eq 0 ] && [ $CLIENT_CHECK -eq 0 ]; then
     exit 0

@@ -46,9 +46,11 @@ int main() {
                 std::cout << "[ExecutionStdout] [" << exec_str << "] [" << side_str << "] @ "
                           << p_aligned << " x " << q_aligned 
                           << " | order_id: " << resp->order_id
+                          << ", exec_id: " << resp->exec_id
                           << ", client_id: " << resp->client_id
                           << ", symbol_id: " << resp->symbol_id
-                          << ", msg_seq_num: " << resp->msg_seq_num << std::endl;
+                          << ", msg_seq_num: " << resp->msg_seq_num 
+                          << std::endl;
             } else {
                 std::cout << "[ExecutionStdout] Warning: Read invalid length " << len << std::endl;
             }
