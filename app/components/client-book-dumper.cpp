@@ -1,6 +1,5 @@
-#include "SimpleWSClient.hpp"
+#include "MarketDataClient.hpp"
 #include "L2Book.hpp"
-#include "fbs/exchange_generated.h"
 #include <iostream>
 #include <fstream>
 #include <csignal>
@@ -19,7 +18,21 @@ void sigint_handler(int) {
     g_running = false;
 }
 
-int main(int argc, char** argv) {
+class BookDumperClient : public MarketDataClient {
+public:
+    BookDumperClient(const Config& config) : TradingClientBase(config), MarketDataClient(config) {}
+
+    void on_l2_update(const L2Update* update) override {
+        if (update->symbol_id() == g_book.symbol_id) {
+            g_book.update(update->side(), update->p(), update->q());
+        }
+    }
+
+    void on_l3_update(const L3Update*) override {} // Ignore
+};
+
+int main(int argc, char** argv) 
+{
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <symbol_id> <output_csv>\n";
         return 1;
@@ -31,28 +44,15 @@ int main(int argc, char** argv) {
     std::signal(SIGINT, sigint_handler);
 
     try {
-        auto md_client = SimpleWSClient::create("127.0.0.1", "9002");
-        if (!md_client->connect()) {
-            std::cerr << "Failed to connect to Market Data port 9002\n";
+        AlgoTradingConfig config;
+        config.symbol_ids = {g_book.symbol_id};
+
+        BookDumperClient client(config);
+        
+        if (client.start_md() != 0) {
+            std::cerr << "Failed to start MarketDataClient\n";
             return 1;
         }
-
-        md_client->run_async([](const void* data, size_t size) {
-            (void)size;
-            auto md_update = flatbuffers::GetRoot<MarketDataUpdate>(data);
-            if (md_update->data_type() == MarketDataUpdateData_L2Update) {
-                auto update = md_update->data_as_L2Update();
-                if (update->symbol_id() == g_book.symbol_id) {
-                    g_book.update(update->side(), update->p(), update->q());
-                }
-            }
-        });
-
-        // Send subscribe request
-        flatbuffers::FlatBufferBuilder fbb(128);
-        auto req = CreateMarketDataRequest(fbb, g_book.symbol_id, MDType_L2, SubType_subscribe);
-        fbb.Finish(req);
-        md_client->send(fbb.GetBufferPointer(), fbb.GetSize());
 
         // Block until SIGINT
         while (g_running) {
@@ -66,7 +66,7 @@ int main(int argc, char** argv) {
             std::cerr << "Failed to open output file: " << g_filepath << std::endl;
         }
 
-        md_client->stop();
+        client.stop_md();
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
