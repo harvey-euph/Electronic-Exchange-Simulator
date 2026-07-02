@@ -8,9 +8,9 @@
 #include "mmap_log.h"
 
 
-int main() {
+int main()
+{
     Exchange::initLogger("MatchingEngine");
-    LOG_INFO("================================================================================");
 
     setup_signals();
 

@@ -13,9 +13,9 @@
 
 using namespace Exchange;
 
-int main() {
+int main()
+{
     Exchange::initLogger("PublicData");
-    LOG_INFO("================================================================================");
 
     try {
         boost::asio::io_context ioc{1};
