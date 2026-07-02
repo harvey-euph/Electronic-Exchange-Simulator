@@ -1,0 +1,153 @@
+#!/bin/bash
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <test_directory>"
+    echo "Example: $0 tests/cross-multiple"
+    exit 1
+fi
+
+TEST_DIR=$1
+INPUT_CSV="${TEST_DIR}/requests.csv"
+EXPECTED_EXEC_CSV="${TEST_DIR}/expected-exec.csv"
+ACTUAL_EXEC_CSV="${TEST_DIR}/actual-exec.csv"
+EXPECTED_BOOK_CSV="${TEST_DIR}/expected-book.csv"
+
+# Verify files exist
+if [ ! -f "$INPUT_CSV" ]; then
+    echo "Error: $INPUT_CSV not found!"
+    exit 1
+fi
+
+if [ ! -f "$EXPECTED_EXEC_CSV" ]; then
+    echo "Error: $EXPECTED_EXEC_CSV not found!"
+    exit 1
+fi
+
+if [ ! -f "$EXPECTED_BOOK_CSV" ]; then
+    echo "Error: $EXPECTED_BOOK_CSV not found!"
+    exit 1
+fi
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$PROJECT_ROOT/build"
+
+echo "=== Running Correctness Test: $TEST_DIR ==="
+
+# 1. Clean up
+echo "Cleaning logs and stopping old services..."
+mkdir -p "$PROJECT_ROOT/log"
+pkill -f "build/services/" >/dev/null 2>&1 || true
+pkill -f "build/components/" >/dev/null 2>&1 || true
+rm -f /dev/shm/ORDER_REQUEST /dev/shm/ORDER_RESPONSE /dev/shm/MARKET_DATA_RING 2>/dev/null || true
+rm -f "$PROJECT_ROOT/log/execution-journals/"* 2>/dev/null
+rm -f "$PROJECT_ROOT/log/"*.log 2>/dev/null
+
+# 2. Start public-data and Matching Engine
+"$BUILD_DIR/services/public-data" >/dev/null 2>&1 &
+PD_PID=$!
+
+echo "Starting Matching Engine..."
+"$BUILD_DIR/services/matching-engine" >/dev/null 2>&1 &
+ME_PID=$!
+
+sleep 0.5
+
+# 3. Inject requests and run Dumper
+echo "Inserting CSV data and dumping executions..."
+"$BUILD_DIR/components/execution-stdout" > "$ACTUAL_EXEC_CSV" 2>/dev/null &
+EXEC_PID=$!
+
+"$BUILD_DIR/components/csv_inserter" "$INPUT_CSV"
+
+sleep 3
+
+# 4. Stop ME and Dumper
+echo "Stopping Matching Engine..."
+kill -SIGINT $ME_PID 2>/dev/null || true
+wait $ME_PID 2>/dev/null || true
+
+kill -9 $EXEC_PID 2>/dev/null || true
+
+# 5. Check ME correctness (Executions)
+
+echo "Comparing actual executions with expected result..."
+diff -q "$ACTUAL_EXEC_CSV" "$EXPECTED_EXEC_CSV"
+EXEC_CHECK=$?
+
+if [ $EXEC_CHECK -ne 0 ]; then
+    echo "❌ ME EXECUTION TEST FAILED: $TEST_DIR"
+    echo "--- Execution Diff ---"
+    diff "$ACTUAL_EXEC_CSV" "$EXPECTED_EXEC_CSV"
+    kill -SIGINT $PD_PID 2>/dev/null
+    exit 1
+else
+    echo "✅ ME EXECUTION TEST PASSED: $TEST_DIR"
+fi
+
+# 6. Start MD Server to read journals and build book
+echo "Starting Market Data Server..."
+MD_DUMP_FILE="${TEST_DIR}/server-book.csv" "$BUILD_DIR/services/market-data-server" > "${TEST_DIR}/md_out.log" 2>&1 &
+MD_PID=$!
+
+sleep 1
+
+# 7. Start Client Book Dumper
+echo "Starting Client Book Dumper..."
+"$BUILD_DIR/components/client-book-dumper" 1 "${TEST_DIR}/client-book.csv" > "${TEST_DIR}/client.log" 2>&1 &
+CLIENT_PID=$!
+
+sleep 0.5
+
+# 8. Cleanup and Compare Books
+echo "Stopping Client Book Dumper..."
+kill -SIGINT $CLIENT_PID 2>/dev/null
+wait $CLIENT_PID 2>/dev/null
+
+echo "Stopping Market Data Server..."
+kill -SIGINT $MD_PID 2>/dev/null
+wait $MD_PID 2>/dev/null
+
+kill -SIGINT $PD_PID 2>/dev/null
+
+echo "Comparing server book with expected result..."
+diff -q "${TEST_DIR}/server-book.csv" "$EXPECTED_BOOK_CSV"
+SERVER_CHECK=$?
+
+echo "Comparing client book with expected result..."
+diff -q "${TEST_DIR}/client-book.csv" "$EXPECTED_BOOK_CSV"
+CLIENT_CHECK=$?
+
+if [ $SERVER_CHECK -eq 0 ]; then
+    echo "✅ SERVER BOOK TEST PASSED: $TEST_DIR"
+else
+    echo "❌ SERVER BOOK TEST FAILED: $TEST_DIR"
+    echo "--- Server Book Diff ---"
+    diff "${TEST_DIR}/server-book.csv" "$EXPECTED_BOOK_CSV"
+fi
+
+if [ $CLIENT_CHECK -eq 0 ]; then
+    echo "✅ CLIENT BOOK TEST PASSED: $TEST_DIR"
+else
+    echo "❌ CLIENT BOOK TEST FAILED: $TEST_DIR"
+    echo "--- Client Book Diff ---"
+    diff "${TEST_DIR}/client-book.csv" "$EXPECTED_BOOK_CSV"
+fi
+
+echo "Checking logs for errors..."
+grep -q "\[error\]" "${TEST_DIR}/md_out.log"
+MD_ERROR_CHECK=$?
+
+if [ $MD_ERROR_CHECK -eq 0 ]; then
+    echo "❌ LOG TEST FAILED: [error] found in md_out.log"
+    echo "--- md_out.log errors ---"
+    grep "\[error\]" "${TEST_DIR}/md_out.log"
+else
+    echo "✅ LOG TEST PASSED: No errors in md_out.log"
+fi
+
+if [ $SERVER_CHECK -eq 0 ] && [ $CLIENT_CHECK -eq 0 ] && [ $MD_ERROR_CHECK -ne 0 ]; then
+    echo "🎉 ALL TESTS PASSED SUCCESSFULLY!"
+    exit 0
+else
+    exit 1
+fi

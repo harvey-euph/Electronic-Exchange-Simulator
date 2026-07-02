@@ -1,0 +1,9 @@
+[ExecutionStdout] Starting execution journal poller...
+[ExecutionStdout] [NEW] [ASK] @ 5000000 x 20 | order_id: 1, client_id: 1, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [NEW] [ASK] @ 5000000 x 30 | order_id: 2, client_id: 2, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [NEW] [BID] @ 4900000 x 100 | order_id: 3, client_id: 3, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [MOD] [BID] @ 5000000 x 100 | order_id: 3, client_id: 3, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [PAR] [BID] @ 5000000 x  20 | order_id: 3, client_id: 3, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [FIL] [ASK] @ 5000000 x  20 | order_id: 1, client_id: 1, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [PAR] [BID] @ 5000000 x  30 | order_id: 3, client_id: 3, symbol_id: 1, msg_seq_num: 0
+[ExecutionStdout] [FIL] [ASK] @ 5000000 x  30 | order_id: 2, client_id: 2, symbol_id: 1, msg_seq_num: 0

@@ -13,7 +13,7 @@ data/*
 *.pyc
 !data/basic.csv
 !tests/*/requests.csv
-!tests/*/expected-result.csv
+!tests/*/expected-*.csv
 .run_service.pid
 
 # eBPF Generated Files
