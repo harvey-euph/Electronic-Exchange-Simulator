@@ -222,10 +222,10 @@ test: $(TEST_TARGETS)
 		echo "Running $$test_bin"; \
 		$$test_bin || exit $$?; \
 	done
-	@for md_test in tests/md-*; do \
-		if [ -d "$$md_test" ]; then \
-			echo "Running MD Test: $$md_test"; \
-			./scripts/run-md-test "$$md_test" || exit $$?; \
+	@for test in tests/*; do \
+		if [ -d "$$test" ]; then \
+			echo "Running Test: $$test"; \
+			./scripts/test-correctness "$$test" || exit $$?; \
 		fi \
 	done
 

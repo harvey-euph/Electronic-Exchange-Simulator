@@ -195,6 +195,7 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
         sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
         
         if (!o->qty_remaining) {
+            sendResponse(ExecType_Fill, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), 0, RejectCode_None, req->msg_seq_num);
             active_orders_.erase(o->order_id);
             removeOrderFromLevel(o);
             if (!pl->order_count) {
@@ -218,8 +219,14 @@ REQUEUE:
     o->qty_original = new_qty;
     o->exec_id = req->exec_id;
 
-    const size_t price_idx = target - price_array_.data();
-    match(o, req->side, price_idx);
+    if (!o->qty_remaining) {
+        sendResponse(ExecType_Fill, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), 0, RejectCode_None, req->msg_seq_num);
+        active_orders_.erase(o->order_id);
+        delete o;
+    } else {
+        const size_t price_idx = target - price_array_.data();
+        match(o, req->side, price_idx);
+    }
 }
 
 void OrderBook::processRequest(const OrderRequestT* req)
