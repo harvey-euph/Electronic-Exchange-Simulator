@@ -21,9 +21,9 @@ int main()
     }
 
     LOG_INFO("[MarketDataServer] Connecting to Response Ring...");
-    mmaplog::MmapReader* response_ring = nullptr;
+    std::unique_ptr<mmaplog::MmapReader> response_ring;
     try {
-        response_ring = new mmaplog::MmapReader(EXECUTION_JOURNAL_DIR);
+        response_ring = std::make_unique<mmaplog::MmapReader>(EXECUTION_JOURNAL_DIR);
     } catch (const std::exception& e) {
         LOG_ERROR("[MarketDataServer] FATAL: %s", e.what());
         return -1;
@@ -31,7 +31,7 @@ int main()
 
     LOG_INFO("[MarketDataServer] Polling response ring and WebSocket events...");
     auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(PORT_MD);
-    MarketDataServer server(ws_adaptor, response_ring);
+    MarketDataServer server(ws_adaptor, std::move(response_ring));
     g_md_server = &server;
     server.run();
 
@@ -40,6 +40,5 @@ int main()
         server.gdb_dump_book(1, dump_file);
     }
 
-    delete response_ring;
     return 0;
 }

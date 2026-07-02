@@ -1,3 +1,5 @@
+#ifdef USE_PGSQL
+
 #pragma once
 #include <pqxx/pqxx>
 #include <memory>
@@ -46,3 +48,5 @@ inline std::unique_ptr<pqxx::connection> getDbConnection() {
 
 } // namespace DbUtil
 } // namespace Exchange
+
+#endif

@@ -8,10 +8,10 @@
 
 namespace Exchange {
 
-ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, SHMRingBuffer* request_ring, mmaplog::MmapReader* response_ring, std::shared_ptr<ClientDatabase> db) 
+ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, std::unique_ptr<SHMRingBuffer> request_ring, std::unique_ptr<mmaplog::MmapReader> response_ring, std::shared_ptr<ClientDatabase> db) 
     : ws_adaptor_(ws_adaptor)
-    , request_ring_(request_ring)
-    , response_ring_(response_ring)
+    , request_ring_(std::move(request_ring))
+    , response_ring_(std::move(response_ring))
     , db_(db)
 {
     LOG_INFO("[ClientManager] Initializing");

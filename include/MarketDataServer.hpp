@@ -26,7 +26,7 @@ namespace Exchange {
 class MarketDataServer : public Worker<MarketDataServer>
 {
 public:
-    MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, mmaplog::MmapReader* response_ring);
+    MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, std::unique_ptr<mmaplog::MmapReader> response_ring);
     ~MarketDataServer();
 
     int poll_client();
@@ -40,7 +40,7 @@ private:
     void process_market_update(const OrderResponseT* resp);
 
     std::shared_ptr<WSAdaptor> ws_adaptor_;
-    mmaplog::MmapReader* response_ring_;
+    std::unique_ptr<mmaplog::MmapReader> response_ring_;
     
     std::mutex books_mutex_;
     std::map<uint32_t, std::pair<std::shared_ptr<L3Book>, OrderResponseT>> books_;

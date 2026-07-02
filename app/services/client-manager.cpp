@@ -20,18 +20,18 @@ int main()
     auto db = std::make_shared<Exchange::InMemoryClientDatabase>();
 #endif
 
-    mmaplog::MmapReader* response_ring = nullptr;
-    Exchange::SHMRingBuffer* request_ring = nullptr;
+    std::unique_ptr<mmaplog::MmapReader> response;
+    std::unique_ptr<Exchange::SHMRingBuffer> request;
     try {
-        response_ring = new mmaplog::MmapReader(EXECUTION_JOURNAL_DIR);
-        request_ring = new Exchange::SHMRingBuffer(ORDER_REQUEST, ORDER_REQUEST_SIZE);
+        response = std::make_unique<mmaplog::MmapReader>(EXECUTION_JOURNAL_DIR);
+        request = std::make_unique<Exchange::SHMRingBuffer>(ORDER_REQUEST, ORDER_REQUEST_SIZE);
     } catch (const std::exception& e) {
-        LOG_ERROR("[ClientManager] FATAL: %d", e.what());
+        LOG_ERROR("[ClientManager] FATAL: %s", e.what());
         return -1;
     }
 
     auto ws_adaptor = std::make_shared<Exchange::WSAdaptor>(PORT_CM);
-    Exchange::ClientManager manager(ws_adaptor, request_ring, response_ring, db);
+    Exchange::ClientManager manager(ws_adaptor, std::move(request), std::move(response), db);
 
     int main_core = CM_CORE;
     if (main_core >= 0) {
@@ -40,7 +40,5 @@ int main()
 
     manager.run();
 
-    delete response_ring;
-    delete request_ring;
     return 0;
 }

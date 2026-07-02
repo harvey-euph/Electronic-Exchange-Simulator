@@ -5,9 +5,9 @@
 
 namespace Exchange {
 
-MarketDataServer::MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, mmaplog::MmapReader* response_ring)
+MarketDataServer::MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, std::unique_ptr<mmaplog::MmapReader> response_ring)
     : ws_adaptor_(ws_adaptor)
-    , response_ring_(response_ring)
+    , response_ring_(std::move(response_ring))
 {
     MDClient::bind_adaptor(
         ws_adaptor_,

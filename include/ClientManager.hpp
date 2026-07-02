@@ -20,7 +20,7 @@ namespace Exchange {
 class ClientManager : public Worker<ClientManager>
 {
 public:
-    ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, SHMRingBuffer* request_ring, mmaplog::MmapReader* response_ring, std::shared_ptr<ClientDatabase> db);
+    ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, std::unique_ptr<SHMRingBuffer> request_ring, std::unique_ptr<mmaplog::MmapReader> response_ring, std::shared_ptr<ClientDatabase> db);
 
     void handle_execution_response(const OrderResponseT* resp);
     void process_client_request(CMClientPtr client, const void* data, size_t size);
@@ -33,8 +33,8 @@ public:
 private:
 
     std::shared_ptr<WSAdaptor> ws_adaptor_;
-    SHMRingBuffer* request_ring_;
-    mmaplog::MmapReader* response_ring_;
+    std::unique_ptr<SHMRingBuffer> request_ring_;
+    std::unique_ptr<mmaplog::MmapReader> response_ring_;
     std::shared_ptr<ClientDatabase> db_;
 
     std::mutex clients_mutex_;
