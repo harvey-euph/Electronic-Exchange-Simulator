@@ -100,6 +100,9 @@ def main():
             qty = int(row['quantity'])
             
             if action == 'New':
+                if price <= 0:
+                    send_resp('REJ', order_id, client_id, side, price, qty)
+                    continue
                 if order_id in active_orders:
                     send_resp('REJ', order_id, client_id, side, price, qty)
                     continue
@@ -170,6 +173,10 @@ def main():
                 o = match(o)
                 if o['qty_remaining'] > 0:
                     add_order(o)
+            
+            else:
+                send_resp('REJ', order_id, client_id, side, price, qty)
+
 
     max_p_len = 0
     max_q_len = 0
