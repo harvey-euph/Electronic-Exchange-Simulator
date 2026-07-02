@@ -9,8 +9,16 @@ if [ "$#" -ne 1 ]; then
 fi
 
 TEST_DIR=$1
-INPUT_CSV="${TEST_DIR}/input.csv"
+INPUT_CSV="${TEST_DIR}/requests.csv"
 EXPECTED_CSV="${TEST_DIR}/expected-result.csv"
+CHECK_FILE="${TEST_DIR}/me-checked"
+
+# Verify me-checked exists
+if [ ! -f "$CHECK_FILE" ]; then
+    echo "Error: $CHECK_FILE not found!"
+    echo "Please run './scripts/test-me $TEST_DIR' first to verify ME correctness."
+    exit 1
+fi
 
 # Verify files exist
 if [ ! -f "$INPUT_CSV" ]; then

@@ -12,7 +12,7 @@ data/*
 *.csv
 *.pyc
 !data/basic.csv
-!tests/*/input.csv
+!tests/*/requests.csv
 !tests/*/expected-result.csv
 .run_service.pid
 

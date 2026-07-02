@@ -1,0 +1,77 @@
+#!/bin/bash
+
+if [ "$#" -ne 1 ]; then
+    echo "Usage: $0 <test_directory>"
+    echo "Example: $0 tests/cross-multiple"
+    exit 1
+fi
+
+TEST_DIR=$1
+INPUT_CSV="${TEST_DIR}/requests.csv"
+EXPECTED_CSV="${TEST_DIR}/expected-exec.csv"
+ACTUAL_CSV="${TEST_DIR}/actual-exec.csv"
+CHECK_FILE="${TEST_DIR}/me-checked"
+
+# Verify files exist
+if [ ! -f "$INPUT_CSV" ]; then
+    echo "Error: $INPUT_CSV not found!"
+    exit 1
+fi
+
+if [ ! -f "$EXPECTED_CSV" ]; then
+    echo "Error: $EXPECTED_CSV not found! Please generate it first."
+    exit 1
+fi
+
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$PROJECT_ROOT/build"
+
+echo "=== Running ME test: $TEST_DIR ==="
+
+# 1. Clean up
+echo "Cleaning logs and stopping old services..."
+mkdir -p "$PROJECT_ROOT/log"
+pkill -f "build/services/" >/dev/null 2>&1 || true
+pkill -f "build/components/" >/dev/null 2>&1 || true
+rm -f /dev/shm/ORDER_REQUEST /dev/shm/ORDER_RESPONSE /dev/shm/MARKET_DATA_RING 2>/dev/null || true
+rm -f "$PROJECT_ROOT/log/execution-journals/"* 2>/dev/null
+rm -f "$CHECK_FILE"
+
+# 2. Start ME
+echo "Starting Matching Engine..."
+"$BUILD_DIR/services/matching-engine" >/dev/null 2>&1 &
+ME_PID=$!
+
+sleep 0.5
+
+# 3. Inject requests
+echo "Inserting CSV data..."
+"$BUILD_DIR/components/csv_inserter" "$INPUT_CSV"
+
+sleep 1
+
+# 4. Stop ME
+echo "Stopping Matching Engine..."
+kill -SIGINT $ME_PID 2>/dev/null
+wait $ME_PID 2>/dev/null
+
+# 5. Dump executions
+echo "Dumping executions..."
+# execution-stdout loops infinitely, so we run it with timeout to capture all existing logs
+timeout 1 "$BUILD_DIR/components/execution-stdout" > "$ACTUAL_CSV" 2>/dev/null || true
+
+# 6. Compare
+echo "Comparing actual executions with expected result..."
+diff -q "$ACTUAL_CSV" "$EXPECTED_CSV"
+CHECK=$?
+
+if [ $CHECK -eq 0 ]; then
+    echo "✅ ME TEST PASSED: $TEST_DIR"
+    touch "$CHECK_FILE"
+    exit 0
+else
+    echo "❌ ME TEST FAILED: $TEST_DIR"
+    echo "--- Diff ---"
+    diff "$ACTUAL_CSV" "$EXPECTED_CSV"
+    exit 1
+fi
