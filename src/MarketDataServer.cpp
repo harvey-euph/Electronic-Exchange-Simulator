@@ -273,15 +273,25 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
     
     if (pending.order_id) {
         if (check_exec(resp->exec_type, EXEC_RESP)) {
-            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %d with exec_id: %d while pending_order %d is still active!", 
+            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %lu with exec_id: %lu while pending_order %lu is still active!", 
                 resp->order_id, resp->exec_id, pending.order_id);
             throw std::runtime_error("Multiple pending orders");
-        } else if (check_exec(resp->exec_type, EXEC_ANN) && resp->order_id == pending.order_id) {
-            pending.order_id = 0;
+        } else if (check_exec(resp->exec_type, EXEC_ANN | EXEC_PAR) && resp->order_id == pending.order_id) {
+            if (resp->exec_type == ExecType_PartialFill) {
+                pending.q -= resp->q;
+            } else {
+                pending.order_id = 0;
+            }
             return;
         }
     } else if (check_exec(resp->exec_type, EXEC_ME) && crosses(resp->side, resp->p, book)) {
+        if (resp->exec_type == ExecType_Replaced) {
+            OrderResponseT fake_cancel = *resp;
+            fake_cancel.exec_type = ExecType_Cancelled;
+            __update(book, &fake_cancel, timestamp);
+        }
         pending = *resp;
+        pending.exec_type = ExecType_New;
         return;
     }
 
