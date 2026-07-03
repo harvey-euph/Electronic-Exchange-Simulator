@@ -11,7 +11,7 @@
 
 int main()
 {
-    Exchange::initLogger("ClientManager");
+    Exchange::initLogger("CM");
     setup_signals();
 
 #ifdef USE_PGSQL

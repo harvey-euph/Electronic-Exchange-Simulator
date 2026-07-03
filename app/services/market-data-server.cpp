@@ -11,7 +11,7 @@ Exchange::MarketDataServer* g_md_server = nullptr;
 
 int main()
 {
-    Exchange::initLogger("MarketDataServer");
+    Exchange::initLogger("MD");
 
     setup_signals();
     

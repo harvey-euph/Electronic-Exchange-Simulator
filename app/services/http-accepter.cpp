@@ -13,7 +13,7 @@ using namespace Exchange;
 
 int main()
 {
-    Exchange::initLogger("HttpAccepter");
+    Exchange::initLogger("HA");
 
     try {
         boost::asio::io_context ioc{1};
