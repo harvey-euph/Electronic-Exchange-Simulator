@@ -28,9 +28,9 @@ $SUDO_CMD pkill -f "build/services/"
 $SUDO_CMD systemctl stop nginx 2>/dev/null || true
 
 echo "=== Stopping eBPF Tracers ==="
-$SUDO_CMD pkill -f "total-lat"
-$SUDO_CMD pkill -f "lat-tracer"
-$SUDO_CMD pkill -f "ebpf-msg-flow"
+$SUDO_CMD pkill -x "total-lat" || true
+$SUDO_CMD pkill -x "lat-tracer" || true
+$SUDO_CMD pkill -x "ebpf-msg-flow" || true
 
 echo "=== Cleaning up shared memory files ==="
 $SUDO_CMD rm -f /dev/shm/ORDER_REQUEST \
