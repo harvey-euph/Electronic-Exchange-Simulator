@@ -1,4 +1,4 @@
-#include "AlgoTradingClient.hpp"
+#include "OrderEntryClient.hpp"
 #include "csv_util.hpp"
 #include "LogUtil.hpp"
 #include <iostream>
@@ -10,22 +10,14 @@
 
 namespace Exchange {
 
-class CSVSender : public AlgoTradingClient {
+class CSVSender : public OrderEntryClient {
 public:
     CSVSender(const Config& config, const std::string& csv_path)
-        : AlgoTradingClient(config), csv_path_(csv_path) {
+        : TradingClientBase(config), OrderEntryClient(config), csv_path_(csv_path) {
         if (!reader_.loadFromCSV(csv_path_)) {
             throw std::runtime_error("Failed to load CSV: " + csv_path_);
         }
         std::cout << "[CSVSender] Loaded " << reader_.getRequests().size() << " orders from " << csv_path_ << std::endl;
-    }
-
-    void on_l2_update(const L2Update* update) override {
-        (void)update;
-    }
-
-    void on_l3_update(const L3Update* update) override {
-        (void)update;
     }
 
     void on_order_response(const OrderResponse* response) override {
@@ -67,7 +59,7 @@ public:
             auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::seconds>(now - finish_start_time_).count() >= 5) {
                 std::cout << "[CSVSender] Stopping." << std::endl;
-                stop();
+                stop_oe();
             }
         }
     }
@@ -94,7 +86,7 @@ int main(int argc, char** argv) {
     
     try {
         Exchange::CSVSender client(config, csv_path);
-        return client.run();
+        return client.run_oe();
     } catch (const std::exception& e) {
         std::cerr << "[CSVSender] Fatal Error: " << e.what() << std::endl;
         return EXIT_FAILURE;

@@ -22,7 +22,7 @@ inline void initLogger(const std::string& logger_name) {
         std::vector<spdlog::sink_ptr> sinks {console_sink, file_sink};
         auto logger = std::make_shared<spdlog::logger>(logger_name, sinks.begin(), sinks.end());
         
-        logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%n] [%^%l%$] %v");
+        logger->set_pattern("%^%L%$ [%Y-%m-%d %H:%M:%S.%e] [%n] %v");
         logger->flush_on(spdlog::level::info);
         spdlog::set_default_logger(logger);
     } catch (const spdlog::spdlog_ex& ex) {

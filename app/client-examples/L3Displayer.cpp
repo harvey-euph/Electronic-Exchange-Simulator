@@ -1,12 +1,12 @@
-#include "AlgoTradingClient.hpp"
+#include "MarketDataClient.hpp"
 #include "L3Book.hpp"
 #include <iostream>
 
 namespace Exchange {
 
-class L3Displayer : public AlgoTradingClient {
+class L3Displayer : public MarketDataClient {
 public:
-    L3Displayer(const Config& config) : AlgoTradingClient(config) {
+    L3Displayer(const Config& config) : MarketDataClient(config) {
         if (!config_.symbol_ids.empty()) {
             book_.symbol_id = config_.symbol_ids[0];
         }
@@ -19,8 +19,6 @@ public:
 
     // Unused overrides
     void on_l2_update(const L2Update*) override {}
-    void on_order_response(const OrderResponse*) override {}
-    void on_position_response(const PositionResponse*) override {}
 
 private:
     L3Book book_;
@@ -36,7 +34,7 @@ int main(int argc, char** argv) {
 
     try {
         Exchange::L3Displayer client(config);
-        return client.run();
+        return client.run_md();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
