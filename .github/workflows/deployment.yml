@@ -60,6 +60,8 @@ jobs:
             git reset --hard origin/main
             # ./scripts/install-requirements
             make -j$(nproc)
+            cd performance/ebpf && make total-lat && cd ../..
             sudo ./kill-all
             sudo ./run-services
+            sudo nohup ./performance/ebpf/total-lat > log/latency.log 2>&1 &
             ./run-mm-native

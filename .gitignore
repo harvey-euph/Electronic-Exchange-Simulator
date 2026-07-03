@@ -19,6 +19,7 @@ data/*
 vmlinux.h
 *.skel.h
 performance/ebpf/lat-tracer
+performance/ebpf/total-lat
 performance/ebpf/ebpf-msg-flow
 # Web Frontend Rules
 web/node_modules
