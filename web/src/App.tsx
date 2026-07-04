@@ -9,7 +9,7 @@ import { Positions } from './components/Positions';
 import { EmbeddedLog } from './components/EmbeddedLog';
 import { NotificationSystem } from './components/NotificationSystem';
 import type { NotificationSystemRef } from './components/NotificationSystem';
-import { formatPrice } from './types';
+import { formatPrice, getPriceExpForSymbol } from './types';
 import './App.css';
 
 function App() {
@@ -148,8 +148,9 @@ function App() {
     let value = cash;
     for (const [sId, pos] of positions) {
       const price = prices.get(sId) || pos.averagePrice || 0n;
-      const posValue = pos.side === Side.Buy ? pos.totalQuantity * price : -pos.totalQuantity * price;
-      value += posValue;
+      const posValueNative = Number(pos.side === Side.Buy ? pos.totalQuantity * price : -pos.totalQuantity * price);
+      const exp = getPriceExpForSymbol(sId);
+      value += posValueNative * Math.pow(10, exp);
     }
     return value;
   }, [positions, cash, prices]);
@@ -242,7 +243,7 @@ function App() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>NAV:</span>
                       <span style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 'bold', fontFamily: 'var(--font-mono)' }}>
-                        {formatPrice(totalValue, symbolInfo?.priceExp)}
+                        {totalValue.toFixed(2)}
                       </span>
                     </div>
                     <button 

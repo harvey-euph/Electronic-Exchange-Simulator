@@ -25,7 +25,7 @@ interface OrderEntryProps {
   orderType: OrderType;
   setOrderType: (t: OrderType) => void;
 
-  cash?: bigint;
+  cash?: number;
   disabled?: boolean;
   priceExp?: number;
   priceMinStep?: bigint;
@@ -121,7 +121,7 @@ export const OrderEntry: React.FC<OrderEntryProps> = ({
         {cash !== undefined && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Cash:</span>
-            <span style={{ fontSize: '12px', color: 'var(--accent-blue)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{formatPrice(cash, priceExp)}</span>
+            <span style={{ fontSize: '12px', color: 'var(--accent-blue)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{cash.toFixed(2)}</span>
           </div>
         )}
       </div>

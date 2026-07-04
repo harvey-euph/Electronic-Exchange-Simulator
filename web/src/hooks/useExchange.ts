@@ -20,7 +20,7 @@ import { OpenOrderRequest } from '../fbs/exchange/open-order-request';
 import { PositionRequest } from '../fbs/exchange/position-request';
 import { RejectCode } from '../fbs/exchange/reject-code';
 import type { OrderData, ConnectedState, SymbolPosition, SymbolInfoData } from '../types';
-import { formatPrice, parsePrice } from '../types';
+import { formatPrice, parsePrice, getPriceExpForSymbol } from '../types';
 import { MarketDataRequest } from '../fbs/exchange/market-data-request';
 import { SymbolInfo } from '../fbs/exchange/symbol-info';
 import { MDType } from '../fbs/exchange/mdtype';
@@ -69,7 +69,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
   const [prices, setPrices] = useState<Map<number, bigint>>(new Map());
   const [openOrders, setOpenOrders] = useState<Map<string, OrderData>>(new Map());
   const [positions, setPositions] = useState<Map<number, SymbolPosition>>(new Map());
-  const [cash, setCash] = useState<bigint>(0n);
+  const [cash, setCash] = useState<number>(0);
   const [subscribedSymbols, setSubscribedSymbols] = useState<Set<number>>(new Set());
   const [mgmtLogs, setMgmtLogs] = useState<string[]>([]);
   const [symbolInfo, setSymbolInfo] = useState<SymbolInfoData | null>(null);
@@ -349,7 +349,9 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       if (side !== Side.None) {
         const fillQty = q;
         const fillPrice = p;
-        const cashValue = q * p;
+        const exp = getPriceExpForSymbol(sId);
+        const cashValueNative = Number(q * p);
+        const cashValue = cashValueNative * Math.pow(10, exp);
         const cashDelta = side === Side.Buy ? -cashValue : cashValue;
         
         setCash(prev => prev + cashDelta);
@@ -503,7 +505,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
             const sId = posResp.symbolId();
             const qty = posResp.position();
             if (sId === 0) {
-              setCash(qty);
+              setCash(Number(qty));
             } else {
               setPositions(prev => {
                 const next = new Map(prev);
