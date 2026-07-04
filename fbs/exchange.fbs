@@ -13,7 +13,7 @@ table OrderRequest
 {
     action: OrderAction;
     exec_id: ulong;           // Unique on client_id
-    order_id: ulong;          // Reuse for modify/cancel, Unique universely
+    order_id: uint;          // Reuse for modify/cancel, Unique per client
     client_id: uint;
     symbol_id: uint;
     side: Side;
@@ -28,7 +28,7 @@ table OrderRequest
 table OrderResponse
 {
     exec_type: ExecType;
-    order_id: ulong;          // Reuse for modify/cancel, Unique universely
+    order_id: uint;          // Reuse for modify/cancel, Unique per client
     client_id: uint;
     exec_id: ulong;           // Correlate with OrderRequest.exec_id
     symbol_id: uint;
@@ -72,7 +72,7 @@ table PositionRequest {
 
 table OrderStatusRequest {
     client_id: uint;
-    order_id: ulong; // If 0, all orders for this client
+    order_id: uint; // If 0, all orders for this client
 }
 
 union ClientRequestData {

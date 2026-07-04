@@ -11,32 +11,34 @@ def main():
     
     responses = []
     
-    active_orders = {} # order_id -> dict
+    active_orders = {} # (client_id, order_id) -> dict
     
-    # price levels: price -> list of order_ids
+    # price levels: price -> list of (client_id, order_id)
     bids = {} 
     asks = {}
     
-    def remove_order(order_id):
-        if order_id not in active_orders:
+    def remove_order(client_id, order_id):
+        combined = (client_id, order_id)
+        if combined not in active_orders:
             return
-        o = active_orders[order_id]
+        o = active_orders[combined]
         book = bids if o['side'] == 'Buy' else asks
         p = o['price']
         if p in book:
-            if order_id in book[p]:
-                book[p].remove(order_id)
+            if combined in book[p]:
+                book[p].remove(combined)
             if not book[p]:
                 del book[p]
-        del active_orders[order_id]
+        del active_orders[combined]
         
     def add_order(o):
-        active_orders[o['order_id']] = o
+        combined = (o['client_id'], o['order_id'])
+        active_orders[combined] = o
         book = bids if o['side'] == 'Buy' else asks
         p = o['price']
         if p not in book:
             book[p] = []
-        book[p].append(o['order_id'])
+        book[p].append(combined)
 
     def send_resp(exec_type, order_id, client_id, side, p, q, msg_seq_num=0):
         responses.append({
@@ -69,8 +71,8 @@ def main():
                 del book[best_p]
                 continue
                 
-            maker_id = maker_ids[0]
-            maker = active_orders[maker_id]
+            maker_combined = maker_ids[0]
+            maker = active_orders[maker_combined]
             
             fill_qty = min(taker['qty_remaining'], maker['qty_remaining'])
             taker['qty_remaining'] -= fill_qty
@@ -83,7 +85,7 @@ def main():
             send_resp(m_exec, maker['order_id'], maker['client_id'], maker['side'], best_p, fill_qty)
             
             if maker['qty_remaining'] == 0:
-                remove_order(maker_id)
+                remove_order(maker['client_id'], maker['order_id'])
                 
         return taker
 
@@ -99,11 +101,13 @@ def main():
             price = int(row['price'])
             qty = int(row['quantity'])
             
+            combined = (client_id, order_id)
+
             if action == 'New':
                 if price <= 0:
                     send_resp('REJ', order_id, client_id, side, price, qty)
                     continue
-                if order_id in active_orders:
+                if combined in active_orders:
                     send_resp('REJ', order_id, client_id, side, price, qty)
                     continue
                 
@@ -123,19 +127,19 @@ def main():
                     add_order(taker)
 
             elif action == 'Cancel':
-                if order_id not in active_orders:
+                if combined not in active_orders:
                     send_resp('REJ', order_id, client_id, side, price, qty)
                     continue
-                o = active_orders[order_id]
+                o = active_orders[combined]
                 send_resp('CAN', o['order_id'], o['client_id'], side, o['price'], qty)
-                remove_order(order_id)
+                remove_order(client_id, order_id)
                 
             elif action == 'Modify':
-                if order_id not in active_orders:
+                if combined not in active_orders:
                     send_resp('REJ', order_id, client_id, side, price, qty)
                     continue
                     
-                o = active_orders[order_id]
+                o = active_orders[combined]
                 old_p = o['price']
                 target_p = price if price != 0 else old_p
                 new_qty = qty if qty != 0 else o['qty_original']
@@ -159,12 +163,12 @@ def main():
                         send_resp('MOD', order_id, client_id, side, target_p, new_qty)
                         if o['qty_remaining'] == 0:
                             send_resp('FIL', order_id, client_id, side, target_p, 0)
-                            remove_order(order_id)
+                            remove_order(client_id, order_id)
                         continue
                         
                 # REQUEUE
                 send_resp('MOD', order_id, client_id, side, target_p, new_qty)
-                remove_order(order_id)
+                remove_order(client_id, order_id)
                 
                 o['qty_remaining'] = new_qty - executed_qty
                 o['qty_original'] = new_qty

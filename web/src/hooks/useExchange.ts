@@ -802,7 +802,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.startOrderRequest(builder);
     OrderRequest.addAction(builder, OrderAction.New);
     OrderRequest.addExecId(builder, execId);
-    OrderRequest.addOrderId(builder, orderId);
+    OrderRequest.addOrderId(builder, Number(orderId));
     OrderRequest.addClientId(builder, numericClientId);
     OrderRequest.addSymbolId(builder, parseInt(symbolId));
     OrderRequest.addSide(builder, side);
@@ -846,7 +846,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.startOrderRequest(builder);
     OrderRequest.addAction(builder, OrderAction.Cancel);
     OrderRequest.addExecId(builder, execId);
-    OrderRequest.addOrderId(builder, BigInt(order.orderId));
+    OrderRequest.addOrderId(builder, Number(order.orderId));
     OrderRequest.addClientId(builder, numericClientId);
     OrderRequest.addSymbolId(builder, order.symbolId);
     OrderRequest.addSide(builder, order.side);
@@ -873,7 +873,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.startOrderRequest(builder);
     OrderRequest.addAction(builder, OrderAction.Modify);
     OrderRequest.addExecId(builder, execId);
-    OrderRequest.addOrderId(builder, BigInt(order.orderId));
+    OrderRequest.addOrderId(builder, Number(order.orderId));
     OrderRequest.addClientId(builder, numericClientId);
     OrderRequest.addSymbolId(builder, order.symbolId);
     OrderRequest.addSide(builder, order.side);

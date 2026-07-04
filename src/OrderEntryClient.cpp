@@ -120,7 +120,7 @@ void OrderEntryClient::new_order(uint32_t symbol_id, Side side, OrderType type, 
     send_order_request(req);
 }
 
-void OrderEntryClient::replace_order(uint64_t order_id, int64_t p, uint64_t q, uint32_t symbol_id, Side side) {
+void OrderEntryClient::replace_order(uint32_t order_id, int64_t p, uint64_t q, uint32_t symbol_id, Side side) {
     OrderRequestT req;
     req.action = OrderAction_Modify;
     req.order_id = order_id;
@@ -131,7 +131,7 @@ void OrderEntryClient::replace_order(uint64_t order_id, int64_t p, uint64_t q, u
     send_order_request(req);
 }
 
-void OrderEntryClient::cancel_order(uint64_t order_id, uint32_t symbol_id, Side side) {
+void OrderEntryClient::cancel_order(uint32_t order_id, uint32_t symbol_id, Side side) {
     OrderRequestT req;
     req.action = OrderAction_Cancel;
     req.order_id = order_id;

@@ -87,7 +87,7 @@ TEST_F(MarketOrderTest, MarketBuyMatchesAllAsks)
     EXPECT_EQ(it->second->total_qty, 50ULL);
 
     // Market order should not be in book (fully filled)
-    EXPECT_EQ(orderbook->active_orders_.count(9999), 0);
+    EXPECT_EQ(orderbook->active_orders_.count((3ULL << 32) | 9999), 0);
 }
 
 TEST_F(MarketOrderTest, MarketSellMatchesAllBids)
@@ -115,7 +115,7 @@ TEST_F(MarketOrderTest, MarketSellMatchesAllBids)
     EXPECT_EQ(it->second->total_qty, 50ULL);
 
     // Market order should not be in book (fully filled)
-    EXPECT_EQ(orderbook->active_orders_.count(8888), 0);
+    EXPECT_EQ(orderbook->active_orders_.count((4ULL << 32) | 8888), 0);
 }
 
 TEST_F(MarketOrderTest, MarketOrderRestInBookAtExtremePrice)
@@ -132,8 +132,8 @@ TEST_F(MarketOrderTest, MarketOrderRestInBookAtExtremePrice)
     EXPECT_EQ(orderbook->active_levels_[1].size(), 0);
 
     // Market order should be in book at price_idx = max_price_levels_ - 1
-    EXPECT_EQ(orderbook->active_orders_.count(7777), 1);
-    Order* o = orderbook->active_orders_[7777];
+    EXPECT_EQ(orderbook->active_orders_.count((5ULL << 32) | 7777), 1);
+    Order* o = orderbook->active_orders_[(5ULL << 32) | 7777];
     EXPECT_EQ(o->qty_remaining, 100ULL);
     
     size_t expected_idx = 1000 - 1; // max_levels - 1

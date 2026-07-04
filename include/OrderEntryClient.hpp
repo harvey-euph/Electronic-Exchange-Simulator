@@ -22,8 +22,8 @@ public:
 
     // Layer 1: Basic Actions
     void new_order(uint32_t symbol_id, Side side, OrderType type, int64_t p, uint64_t q, uint64_t visible_qty = 0);
-    void replace_order(uint64_t order_id, int64_t p, uint64_t q, uint32_t symbol_id = 0, Side side = Side_None);
-    void cancel_order(uint64_t order_id, uint32_t symbol_id = 0, Side side = Side_None);
+    void replace_order(uint32_t order_id, int64_t p, uint64_t q, uint32_t symbol_id = 0, Side side = Side_None);
+    void cancel_order(uint32_t order_id, uint32_t symbol_id = 0, Side side = Side_None);
 
     // Layer 0: Raw Request
     virtual void send_order_request(OrderRequestT& order);
@@ -42,7 +42,7 @@ public:
 protected:
     std::unique_ptr<SimpleWSClient> mgmt_client_;
     bool oe_running_ = true;
-    uint64_t next_id_ = 1000001;
+    uint32_t next_id_ = 1000001;
     uint64_t o_seq_num_ = 0;
     uint64_t i_seq_num_ = 0;
 

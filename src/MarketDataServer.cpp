@@ -273,10 +273,10 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
     
     if (pending.order_id) {
         if (check_exec(resp->exec_type, EXEC_RESP)) {
-            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %lu with exec_id: %lu while pending_order %lu is still active!", 
+            LOG_ERROR("[MarketDataServer] FATAL: Received new crossing order %u with exec_id: %lu while pending_order %u is still active!", 
                 resp->order_id, resp->exec_id, pending.order_id);
             throw std::runtime_error("Multiple pending orders");
-        } else if (check_exec(resp->exec_type, EXEC_ANN | EXEC_PAR) && resp->order_id == pending.order_id) {
+        } else if (check_exec(resp->exec_type, EXEC_ANN | EXEC_PAR) && resp->order_id == pending.order_id && resp->client_id == pending.client_id) {
             if (resp->exec_type == ExecType_PartialFill) {
                 pending.q -= resp->q;
             } else {
@@ -305,8 +305,9 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
 
 void MarketDataServer::__update(std::shared_ptr<L3Book> book, const OrderResponseT* resp, uint64_t timestamp)
 {
-    auto updates = book->update(resp->exec_type, resp->order_id, resp->side, resp->p, resp->q);
-    publish_l3_update(resp->symbol_id, resp->exec_type, resp->order_id, resp->side, resp->p, resp->q, resp->msg_seq_num, timestamp);
+    uint64_t combined_order_id = (static_cast<uint64_t>(resp->client_id) << 32) | resp->order_id;
+    auto updates = book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q);
+    publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, resp->msg_seq_num, timestamp);
     publish_l2_update(resp->symbol_id, updates, resp->msg_seq_num, timestamp);
 }
 

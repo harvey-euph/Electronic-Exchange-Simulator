@@ -92,9 +92,9 @@ private:
     
     PriceLevel* GetOrCreatePriceLevel(size_t price_index, Side side);
     void removePriceLevel(PriceLevel* pl, Side side);
-    void sendResponse(ExecType exec_type, uint64_t order_id, uint32_t client_id,
+    void sendResponse(ExecType exec_type, uint64_t combined_order_id,
                       uint64_t exec_id, Side side, int64_t p, uint64_t q,
-                      RejectCode reject_code = RejectCode_None, uint64_t orig_msg_seq_num = 0);
+                      uint64_t orig_msg_seq_num = 0, RejectCode reject_code = RejectCode_None);
 
     void handleNewOrder(const OrderRequestT* req, bool report_ack = true);
     void handleCancelOrder(const OrderRequestT* req, bool report_cancelled = true);

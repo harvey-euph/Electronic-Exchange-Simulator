@@ -51,7 +51,7 @@ inline void logOrderResponse(const OrderResponseT* resp, const char* prefix = "[
 
 inline void logOrder(const Order* o, const char* prefix = "[Order]") {
     if (!o) return;
-    LOG_INFO("%s id=%d, client=%d, exec_id=%d, type=%s, qty_orig=%d, qty_rem=%d, ts=%d%d", prefix, o->order_id, o->client_id, o->exec_id, EnumNameOrderType(o->type), o->qty_original, o->qty_remaining, o->timestamp, (o->price_level ? " [InBook]" : " [Floating]"));
+    LOG_INFO("%s id=%lu, client=%u, type=%s, qty_orig=%lu, qty_rem=%lu, ts=%lu%s", prefix, static_cast<uint64_t>(o->order_id & 0xFFFFFFFF), static_cast<uint32_t>(o->order_id >> 32), EnumNameOrderType(o->type), o->qty_original, o->qty_remaining, o->timestamp, (o->price_level ? " [InBook]" : " [Floating]"));
 }
 
 inline void logPositionResponse(const PositionResponse* resp, const char* prefix = "[PositionResponse]") {

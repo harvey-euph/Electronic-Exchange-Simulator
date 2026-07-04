@@ -287,7 +287,7 @@ TEST_F(OrderBookTest, CancelAndModify)
     orderbook->processRequest(&cancel_req);
 
     // --- 針對取消後的變動進行詳細檢查 ---
-    EXPECT_EQ(orderbook->active_orders_.count(30301), 0) << "訂單 30301 應已被移除";
+    EXPECT_EQ(orderbook->active_orders_.count((1ULL << 32) | 30301), 0) << "訂單 30301 應已被移除";
 
     // 檢查 10300 價格層的變化
     {
@@ -302,7 +302,7 @@ TEST_F(OrderBookTest, CancelAndModify)
         size_t count = 0;
         for (Order* ord = pl_10300->dummy_head.next; ord != &pl_10300->dummy_tail; ord = ord->next)
         {
-            EXPECT_NE(ord->order_id, 30301ULL);
+            EXPECT_NE(ord->order_id, (1ULL << 32) | 30301ULL);
             count++;
         }
         EXPECT_EQ(count, 2ULL);
@@ -342,14 +342,14 @@ TEST_F(OrderBookTest, CancelAndModify)
         // 檢查訂單內容
         Order* modified_order = pl_10450->dummy_head.next;
         ASSERT_NE(modified_order, &pl_10450->dummy_tail);
-        EXPECT_EQ(modified_order->order_id, 30302ULL);
+        EXPECT_EQ(modified_order->order_id, (1ULL << 32) | 30302ULL);
         EXPECT_EQ(modified_order->qty_remaining, 250ULL);
         EXPECT_EQ(modified_order->qty_original, 250ULL);  // 注意：依你的實作是否更新 original
         // EXPECT_EQ(orderbook->pl_to_price(modified_order->price_level), 10450);
     }
 
     // 檢查 active_orders_ 是否更新
-    EXPECT_EQ(orderbook->active_orders_.count(30302), 1);
+    EXPECT_EQ(orderbook->active_orders_.count((1ULL << 32) | 30302), 1);
 
     // Best Bid 是否改變？（目前不會，因為 10500 仍是最高）
     EXPECT_EQ(orderbook->best_levels_[0]->total_qty, 300ULL);
@@ -412,9 +412,9 @@ TEST_F(OrderBookTest, MatchSingleLayer)
         auto it = orderbook->active_levels_[1].find(orderbook->price_to_index(match_price));
         EXPECT_EQ(it, orderbook->active_levels_[1].end()) << "10600 Ask 價格層應被完全清除";
 
-        EXPECT_EQ(orderbook->active_orders_.count(40000 + match_price + 0), 0);
-        EXPECT_EQ(orderbook->active_orders_.count(40000 + match_price + 1), 0);
-        EXPECT_EQ(orderbook->active_orders_.count(40000 + match_price + 2), 0);
+        EXPECT_EQ(orderbook->active_orders_.count((2ULL << 32) | (40000 + match_price + 0)), 0);
+        EXPECT_EQ(orderbook->active_orders_.count((2ULL << 32) | (40000 + match_price + 1)), 0);
+        EXPECT_EQ(orderbook->active_orders_.count((2ULL << 32) | (40000 + match_price + 2)), 0);
     }
 
     // 2. 新增的 Bid 訂單應部分成交並掛簿
@@ -428,7 +428,7 @@ TEST_F(OrderBookTest, MatchSingleLayer)
 
         Order* ord = pl->dummy_head.next;
         ASSERT_NE(ord, &pl->dummy_tail);
-        EXPECT_EQ(ord->order_id, 9991ULL);
+        EXPECT_EQ(ord->order_id, (9991ULL << 32) | 9991ULL);
         EXPECT_EQ(ord->qty_remaining, 200ULL);
         EXPECT_EQ(ord->qty_original, 500ULL);
     }
@@ -469,7 +469,7 @@ TEST_F(OrderBookTest, MatchingMultiLayer)
         for (int i = 0; i < 3; ++i)
         {
             uint64_t oid = 20000 + price + i;
-            EXPECT_EQ(orderbook->active_orders_.count(oid), 0);
+            EXPECT_EQ(orderbook->active_orders_.count((1ULL << 32) | oid), 0);
         }
     }
 
@@ -502,7 +502,7 @@ TEST_F(OrderBookTest, MatchingMultiLayer)
     }
 
     // 4. 大賣單應已完全成交
-    EXPECT_EQ(orderbook->active_orders_.count(8888), 0) 
+    EXPECT_EQ(orderbook->active_orders_.count((8888ULL << 32) | 8888), 0) 
         << "賣單 8888 已完全成交，不應留在 active_orders_";
 
     // 5. Best Bid 更新檢查

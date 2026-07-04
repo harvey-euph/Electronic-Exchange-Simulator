@@ -247,7 +247,7 @@ void PostgresClientDatabase::addOrUpdateOpenOrder(const OrderResponseT* resp) {
     reconnect_if_needed();
 
     uint32_t client_id = resp->client_id;
-    uint64_t order_id = resp->order_id;
+    uint64_t order_id = (static_cast<uint64_t>(resp->client_id) << 32) | resp->order_id;
     uint32_t symbol_id = resp->symbol_id;
     int16_t side = static_cast<int16_t>(resp->side);
     int64_t price = resp->p;
@@ -280,7 +280,8 @@ void PostgresClientDatabase::removeOpenOrder(uint32_t client_id, uint64_t order_
     std::lock_guard<std::mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
-    w.exec("DELETE FROM open_orders WHERE order_id = $1", pqxx::params{order_id});
+    uint64_t combined_order_id = (static_cast<uint64_t>(client_id) << 32) | order_id;
+    w.exec("DELETE FROM open_orders WHERE order_id = $1", pqxx::params{combined_order_id});
     w.commit();
 }
 
@@ -301,7 +302,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::getOpenOrders(uint32_t
         uint64_t qty = row[4].as<uint64_t>();
 
         flatbuffers::FlatBufferBuilder fbb(256);
-        auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, order_id, client_id, 0 /* exec_id */, symbol_id, static_cast<Side>(side), price, qty, RejectCode_None);
+        auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, static_cast<uint32_t>(order_id & 0xFFFFFFFF), client_id, 0 /* exec_id */, symbol_id, static_cast<Side>(side), price, qty, RejectCode_None);
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
         fbb.Finish(client_resp);
 

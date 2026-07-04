@@ -318,8 +318,8 @@ std::unordered_map<uint64_t, CSVDataGen::Target> CSVDataGen::activeOrderTargets(
         const Order* order = order_ptr;
         const PriceLevel* level = order->price_level;
         targets.emplace(order_id, Target{
-            order->order_id,
-            order->client_id,
+            static_cast<uint32_t>(order->order_id & 0xFFFFFFFF),
+            static_cast<uint32_t>(order->order_id >> 32),
             sideForLevel(level),
             static_cast<int64_t>(book().pl_to_price(level)),
             order->qty_remaining
@@ -352,8 +352,8 @@ CSVDataGen::Target CSVDataGen::randomActiveOrder()
     const Order* order = it->second;
     const PriceLevel* level = order->price_level;
     return {
-        order->order_id,
-        order->client_id,
+        static_cast<uint32_t>(order->order_id & 0xFFFFFFFF),
+        static_cast<uint32_t>(order->order_id >> 32),
         sideForLevel(level),
         static_cast<int64_t>(book().pl_to_price(level)),
         order->qty_remaining

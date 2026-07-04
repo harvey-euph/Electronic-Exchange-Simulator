@@ -36,9 +36,7 @@ OrderBook::~OrderBook() {}
 static Order* createOrder(const OrderRequestT* req)
 {
     return new Order {
-        req->exec_id,
-        req->order_id,
-        req->client_id,
+        (static_cast<uint64_t>(req->client_id) << 32) | req->order_id,
         req->q,
         req->q,
         req->type,
@@ -52,8 +50,10 @@ static Order* createOrder(const OrderRequestT* req)
 
 void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
 {
-    if (active_orders_.count(req->order_id)) {
-        sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_DuplicateOrderID, req->msg_seq_num);
+    uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+
+    if (active_orders_.count(combined_order_id)) {
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_DuplicateOrderID);
         return;
     }
 
@@ -63,7 +63,7 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
         (req->side == Side_Buy ? max_price_levels_ - 1 : 0) : price_to_index(req->p);
 
     if (report_ack) {
-        sendResponse(ExecType_New, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_None, req->msg_seq_num);
+        sendResponse(ExecType_New, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num);
     }
 
     match(taker, req->side, price_idx);
@@ -96,10 +96,10 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
                 const Side maker_side = static_cast<Side>(1^side_int);
                 sendResponse(
                     taker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                    taker->order_id, taker->client_id, exec_id, taker_side, p, qty_fill);
+                    taker->order_id, exec_id, taker_side, p, qty_fill);
                 sendResponse(
                     maker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                    maker->order_id, maker->client_id, exec_id, maker_side, p, qty_fill);
+                    maker->order_id, exec_id, maker_side, p, qty_fill);
             }
 
             if (maker->qty_remaining) continue;
@@ -133,9 +133,10 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
 
 void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelled)
 {
-    auto it = active_orders_.find(req->order_id);
+    uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+    auto it = active_orders_.find(combined_order_id);
     if (it == active_orders_.end()) {
-        sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_OrderNotFound, req->msg_seq_num);
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_OrderNotFound);
         return;
     }
 
@@ -153,16 +154,17 @@ void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelle
         removePriceLevel(pl, req->side);
 
     if (report_cancelled) {
-        sendResponse(ExecType_Cancelled, o->order_id, o->client_id, req->exec_id, req->side, p, req->q, RejectCode_None, req->msg_seq_num);
+        sendResponse(ExecType_Cancelled, o->order_id, req->exec_id, req->side, p, req->q, req->msg_seq_num);
     }
     delete o;
 }
 
 void OrderBook::handleModifyOrder(const OrderRequestT* req)
 {
-    auto it = active_orders_.find(req->order_id);
+    uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+    auto it = active_orders_.find(combined_order_id);
     if (it == active_orders_.end()) {
-        sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_OrderNotFound, req->msg_seq_num);
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_OrderNotFound);
         return;
     }
 
@@ -173,57 +175,47 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
     const uint64_t executed_qty = o->qty_original - o->qty_remaining;
 
     if (new_qty < executed_qty) {
-        sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_InvalidModify, req->msg_seq_num);
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_InvalidModify);
         return;
     }
 
     int64_t qty_diff = static_cast<int64_t>(new_qty) - static_cast<int64_t>(o->qty_original);
-
-    if (pl == target) {
-        if (!qty_diff) {
-            sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
-            return;
-        }
-
-        if (qty_diff > 0) { goto REQUEUE; }
-
-        pl->total_qty += qty_diff;
-
-        o->qty_remaining = new_qty - executed_qty;
-        o->qty_original = new_qty;
-        o->exec_id = req->exec_id;
-        sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
-        
-        if (!o->qty_remaining) {
-            sendResponse(ExecType_Fill, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), 0, RejectCode_None, req->msg_seq_num);
-            active_orders_.erase(o->order_id);
-            removeOrderFromLevel(o);
-            if (!pl->order_count) {
-                removePriceLevel(pl, req->side);
-            }
-            delete o;
-        }
+    
+    // Check if nothing changes
+    if (pl == target && qty_diff == 0) {
+        sendResponse(ExecType_Replaced, combined_order_id, req->exec_id, req->side, pl_to_price(target), new_qty, req->msg_seq_num);
         return;
     }
 
-REQUEUE:
-    sendResponse(ExecType_Replaced, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), new_qty, RejectCode_None, req->msg_seq_num);
+    const uint64_t new_qty_remaining = new_qty - executed_qty;
+    bool needs_requeue = (pl != target || qty_diff > 0);
 
-    removeOrderFromLevel(o);
-    pl->total_qty -= o->qty_remaining;
-    if (!pl->order_count) {
-        removePriceLevel(pl, req->side);
+    // Send Replaced response first
+    sendResponse(ExecType_Replaced, combined_order_id, req->exec_id, req->side, pl_to_price(target), new_qty, req->msg_seq_num);
+
+    if (!new_qty_remaining || needs_requeue) {
+        removeOrderFromLevel(o);
+        pl->total_qty -= o->qty_remaining;
+        if (!pl->order_count) {
+            removePriceLevel(pl, req->side);
+        }
+    } else {
+        // In-place update (qty_diff < 0)
+        pl->total_qty += qty_diff;
     }
 
-    o->qty_remaining = new_qty - executed_qty;
-    o->qty_original = new_qty;
-    o->exec_id = req->exec_id;
-
-    if (!o->qty_remaining) {
-        sendResponse(ExecType_Fill, req->order_id, req->client_id, req->exec_id, req->side, pl_to_price(target), 0, RejectCode_None, req->msg_seq_num);
+    // If it fills immediately after replaced
+    if (!new_qty_remaining) {
+        sendResponse(ExecType_Fill, combined_order_id, req->exec_id, req->side, pl_to_price(target), 0, req->msg_seq_num);
         active_orders_.erase(o->order_id);
         delete o;
-    } else {
+        return;
+    }
+
+    o->qty_remaining = new_qty_remaining;
+    o->qty_original = new_qty;
+
+    if (needs_requeue) {
         const size_t price_idx = target - price_array_.data();
         match(o, req->side, price_idx);
     }
@@ -241,20 +233,25 @@ void OrderBook::processRequest(const OrderRequestT* req)
         return;
     case OrderAction_Modify:
         if (req->p && price_invalid(req->p)) {
-            sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_PriceInvalid, req->msg_seq_num);
+            uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_PriceInvalid);
             return;
         }
         handleModifyOrder(req);
         return;
     case OrderAction_New:
         if (req->type != OrderType_Market && price_invalid(req->p)) {
-            sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_PriceInvalid, req->msg_seq_num);
+            uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_PriceInvalid);
             return;
         }
         handleNewOrder(req);
         return;
     default:
-        sendResponse(ExecType_Rejected, req->order_id, req->client_id, req->exec_id, req->side, req->p, req->q, RejectCode_InvalidAction, req->msg_seq_num);
+        {
+            uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, req->msg_seq_num, RejectCode_InvalidAction);
+        }
         return;
     }
 }
@@ -373,9 +370,9 @@ PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
     return level;
 }
 
-void OrderBook::sendResponse(ExecType exec_type, uint64_t order_id, uint32_t client_id,
+void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
                              uint64_t exec_id, Side side, int64_t p, uint64_t q,
-                             RejectCode reject_code, uint64_t orig_msg_seq_num)
+                             uint64_t orig_msg_seq_num, RejectCode reject_code)
 {
     if (!response_ring_) return;
     
@@ -385,8 +382,8 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t order_id, uint32_t cli
 
     new (ptr) OrderResponseT {
         .exec_type = exec_type,
-        .order_id = order_id,
-        .client_id = client_id,
+        .order_id = static_cast<uint32_t>(combined_order_id & 0xFFFFFFFF),
+        .client_id = static_cast<uint32_t>(combined_order_id >> 32),
         .exec_id = exec_id,
         .symbol_id = this->symbol_id_,
         .side = side,
