@@ -46,8 +46,11 @@ function App() {
     modifyOrder,
     mgmtLogs,
     clearMgmtLogs,
-    symbolInfo
+    symbolInfos,
+    fetchSymbolInfo
   } = useExchange(parseInt(symbolId), handleNotification, () => setHasLoggedIn(false));
+
+  const symbolInfo = symbolInfos.get(parseInt(symbolId));
 
   // Set default prices based on the selected symbol info
   useEffect(() => {
@@ -138,7 +141,7 @@ function App() {
     }
     const oppositeSide = flattenSide === Side.Buy ? Side.Sell : Side.Buy;
     sendOrder(oppositeSide, clientId, sId.toString(), '0', flattenQuantity.toString(), OrderType.Market);
-  }, [connected.mgmtReady, clientId, sendOrder, handleNotification]);
+  }, [connected.mgmtReady, clientId, sendOrder, handleNotification, symbolInfos, fetchSymbolInfo]);
 
   const handleLogin = () => {
     connectMgmt(clientId, symbolId);
@@ -217,6 +220,7 @@ function App() {
           bids={sortedBids} asks={sortedAsks} onPriceClick={handlePriceClick} 
           onReconnectL2={connectL2}
           priceExp={symbolInfo?.priceExp}
+          symbolInfos={symbolInfos}
         />
 
         <div className="right-panel">
@@ -265,7 +269,8 @@ function App() {
                       noWrapper
                       expandedSymbols={expandedSymbols}
                       onToggleSymbol={toggleSymbol}
-                      symbolInfo={symbolInfo}
+                      symbolInfos={symbolInfos}
+                      onSymbolSelect={(id) => setSymbolId(id.toString())}
                     />
                   ) : (
                     <Positions 
@@ -276,6 +281,8 @@ function App() {
                       noWrapper
                       expandedSymbols={expandedSymbols}
                       onToggleSymbol={toggleSymbol}
+                      symbolInfos={symbolInfos}
+                      onSymbolSelect={(id) => setSymbolId(id.toString())}
                     />
                   )}
                 </div>

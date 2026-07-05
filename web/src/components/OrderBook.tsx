@@ -10,24 +10,15 @@ interface OrderBookProps {
   onPriceClick?: (price: string, side: Side, peggedLevel?: number | null) => void;
   onReconnectL2?: () => void;
   priceExp?: number;
+  symbolInfos?: Map<number, any>;
 }
 
-export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, bids, asks, onPriceClick, onReconnectL2, priceExp }) => {
+export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, bids, asks, onPriceClick, onReconnectL2, priceExp, symbolInfos }) => {
   const [midColor, setMidColor] = useState('var(--text-primary)');
   const prevMidRef = useRef<bigint | null>(null);
 
-  const isDefaultSymbol = symbolId === '1' || symbolId === '0';
-  const selectValue = isDefaultSymbol ? symbolId : 'custom';
-
   const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    if (val === 'custom') {
-      if (isDefaultSymbol) {
-        onSymbolChange('2');
-      }
-    } else {
-      onSymbolChange(val);
-    }
+    onSymbolChange(e.target.value);
   };
 
   // Take 5 best asks (lowest prices). Since asks is [High ... Low], we take the last 5.
@@ -65,24 +56,19 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
           <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Symbol:</span>
           <select 
             className="modern-select"
-            value={selectValue} 
+            value={symbolId} 
             onChange={handleSelectChange} 
             style={{ padding: '2px 24px 2px 8px', height: '24px', fontSize: '12px' }} 
           >
             <option value="1">BTC/USD (1)</option>
-            <option value="0">USD Cash (0)</option>
-            <option value="custom">Custom...</option>
+            <option value="2">ETH/USD (2)</option>
+            <option value="3">SOL/USD (3)</option>
+            {symbolInfos && Array.from(symbolInfos.values()).filter(i => ![0,1,2,3].includes(i.symbolId)).map(info => (
+              <option key={info.symbolId} value={info.symbolId.toString()}>
+                {info.name} ({info.symbolId})
+              </option>
+            ))}
           </select>
-          {!isDefaultSymbol && (
-            <input 
-              type="text" 
-              className="modern-input"
-              value={symbolId} 
-              onChange={e => onSymbolChange(e.target.value.replace(/[^0-9]/g, ''))} 
-              style={{ width: '40px', padding: '2px 6px', height: '24px' }} 
-              placeholder="ID"
-            />
-          )}
         </div>
       </div>
       

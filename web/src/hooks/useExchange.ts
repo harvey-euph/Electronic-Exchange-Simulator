@@ -72,15 +72,14 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
   const [cash, setCash] = useState<number>(0);
   const [subscribedSymbols, setSubscribedSymbols] = useState<Set<number>>(new Set());
   const [mgmtLogs, setMgmtLogs] = useState<string[]>([]);
-  const [symbolInfo, setSymbolInfo] = useState<SymbolInfoData | null>(null);
+  const [symbolInfos, setSymbolInfos] = useState<Map<number, SymbolInfoData>>(new Map());
 
-  const symbolInfoRef = useRef<SymbolInfoData | null>(null);
-  const fetchSymbolRef = useRef<(() => void) | null>(null);
-  const isFetchingRef = useRef(false);
+  const symbolInfosRef = useRef<Map<number, SymbolInfoData>>(new Map());
+  const isFetchingRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
-    symbolInfoRef.current = symbolInfo;
-  }, [symbolInfo]);
+    symbolInfosRef.current = symbolInfos;
+  }, [symbolInfos]);
 
   const inflightOrdersRef = useRef<Map<string, { side: Side, symbolId: number }>>(new Map());
   const orderMetadataRef = useRef<Map<string, { side: Side, symbolId: number }>>(new Map());
@@ -103,6 +102,11 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
   const asksRef = useRef<Map<bigint, bigint>>(new Map());
   const pricesRef = useRef<Map<number, bigint>>(new Map());
   const lastBookSymbolIdRef = useRef<number>(0);
+  const activeSymbolIdRef = useRef<number>(activeSymbolId);
+
+  useEffect(() => {
+    activeSymbolIdRef.current = activeSymbolId;
+  }, [activeSymbolId]);
 
   // Periodically flush market data refs to React state (throttle renders)
   useEffect(() => {
@@ -125,68 +129,44 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     console.log(`[L2] ${new Date().toLocaleTimeString()} - ${msg}`);
   }, []);
 
-  // 1. Fetch SymbolInfo when activeSymbolId changes
+  // 1. Fetch SymbolInfo function
+  const fetchSymbolInfo = useCallback(async (sId: number) => {
+    if (sId <= 0 || isNaN(sId)) return;
+    if (symbolInfosRef.current.has(sId) || isFetchingRef.current.has(sId)) return;
+    
+    isFetchingRef.current.add(sId);
+    try {
+      const res = await fetch(`/v1/symbol/${sId}`);
+      if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+      const arrayBuffer = await res.arrayBuffer();
+      const buf = new Uint8Array(arrayBuffer);
+      const bb = new flatbuffers.ByteBuffer(buf);
+      const info = SymbolInfo.getRootAsSymbolInfo(bb);
+      
+      const infoData: SymbolInfoData = {
+        symbolId: info.symbolId(),
+        name: info.name() || '',
+        priceExp: info.priceExp(),
+        priceMinStep: info.priceMinStep(),
+        priceMin: info.priceMin(),
+        priceMax: info.priceMax()
+      };
+      
+      setSymbolInfos(prev => new Map(prev).set(sId, infoData));
+      const scale = Math.pow(10, -infoData.priceExp);
+      addMgmtLog(`Fetched SymbolInfo for ${infoData.name}: step=${Number(infoData.priceMinStep) / scale}, min=${Number(infoData.priceMin) / scale}, max=${Number(infoData.priceMax) / scale}`);
+    } catch (err) {
+      addMgmtLog(`Failed to fetch SymbolInfo for symbol ${sId}: ${err}.`);
+    } finally {
+      isFetchingRef.current.delete(sId);
+    }
+  }, [addMgmtLog]);
+
   useEffect(() => {
-    if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
-    
-    let active = true;
-    let retryTimeoutId: any = null;
+    fetchSymbolInfo(activeSymbolId);
+  }, [activeSymbolId, fetchSymbolInfo]);
 
-    const fetchSymbol = async () => {
-      if (retryTimeoutId) {
-        clearTimeout(retryTimeoutId);
-        retryTimeoutId = null;
-      }
-      if (isFetchingRef.current) return;
-      isFetchingRef.current = true;
-
-      try {
-        const res = await fetch(`/v1/symbol/${activeSymbolId}`);
-        if (!res.ok) {
-          throw new Error(`HTTP error: ${res.status}`);
-        }
-        const arrayBuffer = await res.arrayBuffer();
-        if (!active) return;
-        
-        const buf = new Uint8Array(arrayBuffer);
-        const bb = new flatbuffers.ByteBuffer(buf);
-        const info = SymbolInfo.getRootAsSymbolInfo(bb);
-        
-        const infoData: SymbolInfoData = {
-          symbolId: info.symbolId(),
-          name: info.name() || '',
-          priceExp: info.priceExp(),
-          priceMinStep: info.priceMinStep(),
-          priceMin: info.priceMin(),
-          priceMax: info.priceMax()
-        };
-        
-        setSymbolInfo(infoData);
-        const scale = Math.pow(10, -infoData.priceExp);
-        const stepVal = Number(infoData.priceMinStep) / scale;
-        const minVal = Number(infoData.priceMin) / scale;
-        const maxVal = Number(infoData.priceMax) / scale;
-        addMgmtLog(`Fetched SymbolInfo for ${infoData.name}: step=${stepVal}, min=${minVal}, max=${maxVal}`);
-      } catch (err) {
-        if (!active) return;
-        addMgmtLog(`Failed to fetch SymbolInfo for symbol ${activeSymbolId}: ${err}. Retrying in 2 seconds...`);
-        retryTimeoutId = setTimeout(fetchSymbol, 2000);
-      } finally {
-        isFetchingRef.current = false;
-      }
-    };
-    
-    fetchSymbolRef.current = fetchSymbol;
-    fetchSymbol();
-    
-    return () => {
-      active = false;
-      if (retryTimeoutId) clearTimeout(retryTimeoutId);
-      fetchSymbolRef.current = null;
-    };
-  }, [activeSymbolId, addMgmtLog]);
-
-  // 2. Clear bids/asks and subscribe to L2 when activeSymbolId, connected.l2, or symbolInfo changes
+  // 2. Clear bids/asks and subscribe to L2 when activeSymbolId, connected.l2, or symbolInfos changes
   useEffect(() => {
     if (lastBookSymbolIdRef.current !== activeSymbolId) {
       setBids(new Map());
@@ -198,7 +178,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
 
     if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
 
-    if (connected.l2 && symbolInfo && symbolInfo.symbolId === activeSymbolId) {
+    if (connected.l2 && symbolInfos.has(activeSymbolId)) {
       if (l2WsRef.current?.readyState === WebSocket.OPEN) {
         setSubscribedSymbols(prev => {
           if (prev.has(activeSymbolId)) return prev;
@@ -214,7 +194,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         });
       }
     }
-  }, [activeSymbolId, connected.l2, symbolInfo]);
+  }, [activeSymbolId, connected.l2, symbolInfos]);
 
   const subscribeL2 = useCallback((sId: number) => {
     setSubscribedSymbols(prev => {
@@ -243,12 +223,15 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     const side = resp.side();
     const rejectCode = resp.rejectCode();
 
-    if (execType !== ExecType.Complete && execType !== ExecType.OrderStatus && execType !== ExecType.Cancelled && symbolInfoRef.current && sId === activeSymbolId) {
+    if (execType !== ExecType.Complete && execType !== ExecType.OrderStatus && execType !== ExecType.Cancelled) {
       if (p !== 0n) {
-        const valErr = validatePrice(p, symbolInfoRef.current);
-        if (valErr) {
-          addMgmtLog(`[Error] Received invalid OrderResponse price: ${valErr}`);
-          onNotification?.('rejected', 'Response Price Invalid', valErr);
+        const info = symbolInfosRef.current.get(sId);
+        if (info) {
+          const valErr = validatePrice(p, info);
+          if (valErr) {
+            addMgmtLog(`[Error] Received invalid OrderResponse price for symbol ${sId}: ${valErr}`);
+            onNotification?.('rejected', 'Response Price Invalid', valErr);
+          }
         }
       }
     }
@@ -687,23 +670,24 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         const q = l2Update.q();
         const sId = l2Update.symbolId();
 
-        if (sId === activeSymbolId && (!symbolInfoRef.current || symbolInfoRef.current.symbolId !== sId)) {
-          if (fetchSymbolRef.current) {
-            addMgmtLog(`[L2] Snapshot/update received but symbol data not yet retrieved. Fetching SymbolInfo immediately...`);
-            fetchSymbolRef.current();
-          }
+        if (sId === activeSymbolIdRef.current && (!symbolInfosRef.current.has(sId))) {
+          addMgmtLog(`[L2] Snapshot/update received but symbol data not yet retrieved. Fetching SymbolInfo...`);
+          fetchSymbolInfo(sId);
         }
 
-        if (side !== Side.None && q !== BigInt(0) && symbolInfoRef.current && sId === activeSymbolId) {
-          const valErr = validatePrice(p, symbolInfoRef.current);
-          if (valErr) {
-            addMgmtLog(`[Error] Received invalid L2 price: ${valErr}`);
-            onNotification?.('rejected', 'L2 Price Invalid', valErr);
+        if (side !== Side.None && q !== BigInt(0)) {
+          const info = symbolInfosRef.current.get(sId);
+          if (info) {
+            const valErr = validatePrice(p, info);
+            if (valErr) {
+              addMgmtLog(`[Error] Received invalid L2 price for symbol ${sId}: ${valErr}`);
+              onNotification?.('rejected', 'L2 Price Invalid', valErr);
+            }
           }
         }
 
         if (side === Side.None) { 
-          if (sId === activeSymbolId) {
+          if (sId === activeSymbolIdRef.current) {
             setBids(new Map());
             setAsks(new Map());
             bidsRef.current.clear();
@@ -713,7 +697,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         }
 
         if (side === Side.Buy) {
-          if (sId === activeSymbolId) {
+          if (sId === activeSymbolIdRef.current) {
             if (q === BigInt(0)) {
               bidsRef.current.delete(p);
             } else {
@@ -726,7 +710,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
             pricesRef.current.set(sId, p);
           }
         } else if (side === Side.Sell) {
-          if (sId === activeSymbolId) {
+          if (sId === activeSymbolIdRef.current) {
             if (q === BigInt(0)) {
               asksRef.current.delete(p);
             } else {
@@ -736,7 +720,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         }
 
         // Price cross check
-        if (sId === activeSymbolId) {
+        if (sId === activeSymbolIdRef.current) {
           let bestBid: bigint | null = null;
           for (const price of bidsRef.current.keys()) {
             if (bestBid === null || price > bestBid) {
@@ -773,7 +757,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       l2RetryTimeoutRef.current = window.setTimeout(connectL2, 2000);
     };
     ws.onerror = () => addL2Log(`WebSocket Error`);
-  }, [addL2Log, activeSymbolId]);
+  }, [addL2Log]);
 
   useEffect(() => {
     connectL2();
@@ -810,9 +794,11 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.addSide(builder, side);
     OrderRequest.addType(builder, type);
     
-    const pVal = parsePrice(price, symbolInfo?.priceExp);
+    const sid = parseInt(symbolId);
+    const info = symbolInfos.get(sid);
+    const pVal = parsePrice(price, info?.priceExp);
     if (type !== OrderType.Market) {
-      const valErr = validatePrice(pVal, symbolInfo);
+      const valErr = validatePrice(pVal, info || null);
       if (valErr) {
         addMgmtLog(`[Error] Order rejected locally: ${valErr}`);
         onNotification?.('rejected', 'Invalid Price', valErr);
@@ -838,7 +824,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       sentRequestsRef.current.set(execId.toString(), performance.now());
       mgmtWsRef.current.send(builder.asUint8Array() as any);
     } catch (err) { addMgmtLog(`Order send error: ${err}`); }
-  }, [addMgmtLog, symbolInfo]);
+  }, [addMgmtLog, symbolInfos]);
 
   const cancelOrder = useCallback((order: OrderData, clientId: string) => {
     if (!mgmtWsRef.current || mgmtWsRef.current.readyState !== WebSocket.OPEN) return;
@@ -880,8 +866,9 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     OrderRequest.addSymbolId(builder, order.symbolId);
     OrderRequest.addSide(builder, order.side);
     
-    const pVal = parsePrice(newPrice, symbolInfo?.priceExp);
-    const valErr = validatePrice(pVal, symbolInfo);
+    const info = symbolInfos.get(order.symbolId);
+    const pVal = parsePrice(newPrice, info?.priceExp);
+    const valErr = validatePrice(pVal, info || null);
     if (valErr) {
       addMgmtLog(`[Error] Modify rejected locally: ${valErr}`);
       onNotification?.('rejected', 'Invalid Price', valErr);
@@ -904,7 +891,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     addMgmtLog(`Modifying Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} NewP=${newPrice} (raw=${pVal}) NewQ=${newQty} ExecID=${execId}`)
     sentRequestsRef.current.set(execId.toString(), performance.now());
     mgmtWsRef.current.send(builder.asUint8Array() as any)
-  }, [addMgmtLog, symbolInfo]);
+  }, [addMgmtLog, symbolInfos]);
 
   const clearMgmtLogs = useCallback(() => {
     setMgmtLogs([]);
@@ -927,6 +914,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     modifyOrder,
     mgmtLogs,
     clearMgmtLogs,
-    symbolInfo
+    symbolInfos,
+    fetchSymbolInfo
   };
 }

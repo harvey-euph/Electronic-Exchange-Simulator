@@ -12,12 +12,13 @@ interface OpenOrdersProps {
   noWrapper?: boolean;
   expandedSymbols: Set<number>;
   onToggleSymbol: (sid: number) => void;
-  symbolInfo?: SymbolInfoData | null;
+  symbolInfos?: Map<number, SymbolInfoData>;
+  onSymbolSelect?: (sid: number) => void;
 }
 
 export const OpenOrders: React.FC<OpenOrdersProps> = ({
   orders, onModify, onCancel, currentSymbolId, noWrapper,
-  expandedSymbols, onToggleSymbol, symbolInfo
+  expandedSymbols, onToggleSymbol, symbolInfos, onSymbolSelect
 }) => {
   const [editValues, setEditValues] = useState<Record<string, { p: string, q: string }>>({});
   const lastOrdersRef = React.useRef<Map<string, { p: string, q: string }>>(new Map());
@@ -38,7 +39,8 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
 
   // Helper: prefer live symbolInfo's priceExp over the hardcoded map
   const getExp = (sid: number): number => {
-    if (symbolInfo && symbolInfo.symbolId === sid) return symbolInfo.priceExp;
+    const info = symbolInfos?.get(sid);
+    if (info) return info.priceExp;
     return getPriceExpForSymbol(sid);
   };
 
@@ -69,7 +71,7 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
 
       return next;
     });
-  }, [orders, symbolInfo]);
+  }, [orders, symbolInfos]);
 
   const handleUpdate = (orderId: string, field: 'p' | 'q', val: string) => {
     setEditValues(prev => ({
@@ -132,12 +134,17 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
             <tbody>
               {sortedSymbols.map(sid => (
                 <React.Fragment key={sid}>
-                  <tr className="symbol-group-header" onClick={() => onToggleSymbol(sid)}>
+                  <tr className="symbol-group-header" style={{ cursor: 'pointer' }}>
                     <td colSpan={6}>
-                      <div className="symbol-group-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div className="symbol-group-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }} onClick={(e) => {
+                          if (onSymbolSelect) onSymbolSelect(sid);
+                        }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className={`expand-icon ${expandedSymbols.has(sid) ? 'expanded' : ''}`}>▼</span>
-                          <span>Symbol {sid}</span>
+                          <span className={`expand-icon ${expandedSymbols.has(sid) ? 'expanded' : ''}`} onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleSymbol(sid);
+                          }}>▼</span>
+                          <span style={{ fontWeight: 'bold' }}>{symbolInfos?.get(sid)?.name || `Symbol ${sid}`}</span>
                           <span style={{ color: 'var(--text-secondary)', fontSize: '10px' }}>
                             ({ordersBySymbol[sid].length})
                           </span>
@@ -220,10 +227,11 @@ export const OpenOrders: React.FC<OpenOrdersProps> = ({
                             allowDecimal
                             step={(() => {
                               // Use symbolInfo step if available and matches this order's symbol
-                              if (symbolInfo && symbolInfo.symbolId === o.symbolId && symbolInfo.priceMinStep > 0n) {
-                                const exp = symbolInfo.priceExp;
-                                if (exp >= 0) return Number(symbolInfo.priceMinStep);
-                                return Number(symbolInfo.priceMinStep) / Math.pow(10, -exp);
+                              const info = symbolInfos?.get(o.symbolId);
+                              if (info && info.priceMinStep > 0n) {
+                                const exp = info.priceExp;
+                                if (exp >= 0) return Number(info.priceMinStep);
+                                return Number(info.priceMinStep) / Math.pow(10, -exp);
                               }
                               return 1;
                             })()}

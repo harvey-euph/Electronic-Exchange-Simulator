@@ -11,11 +11,14 @@ interface PositionsProps {
   noWrapper?: boolean;
   expandedSymbols: Set<number>;
   onToggleSymbol: (sid: number) => void;
+  symbolInfos?: Map<number, any>;
+  onSymbolSelect?: (sid: number) => void;
 }
 
 export const Positions: React.FC<PositionsProps> = ({ 
   positions, prices, onFlatten, noWrapper,
-  expandedSymbols, onToggleSymbol
+  expandedSymbols, onToggleSymbol,
+  symbolInfos, onSymbolSelect
 }) => {
   const activePositions = useMemo(() => 
     positions.filter(([, p]) => p.totalQuantity !== 0n || p.realizedPnL !== 0n)
@@ -74,13 +77,20 @@ export const Positions: React.FC<PositionsProps> = ({
                 <React.Fragment key={sId}>
                   <tr 
                     className="symbol-group-header" 
-                    onClick={() => onToggleSymbol(sId)}
-                    style={{ borderBottom: isExpanded ? 'none' : '1px solid var(--border-color)' }}
+                    style={{ borderBottom: isExpanded ? 'none' : '1px solid var(--border-color)', cursor: 'pointer' }}
                   >
-                    <td style={{ textAlign: 'left', verticalAlign: 'middle' }}>
+                    <td style={{ textAlign: 'left', verticalAlign: 'middle' }} onClick={(e) => {
+                      if (onSymbolSelect) onSymbolSelect(sId);
+                    }}>
                       <div className="symbol-group-title" style={{ gap: '6px' }}>
-                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`}>▼</span>
-                        Symbol {sId}
+                        <span className={`expand-icon ${isExpanded ? 'expanded' : ''}`} onClick={(e) => {
+                          e.stopPropagation();
+                          onToggleSymbol(sId);
+                        }}>▼</span>
+                        <span style={{ fontWeight: 'bold' }}>
+                          {symbolInfos?.get(sId)?.name || `Symbol ${sId}`}
+                        </span>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>({sId})</span>
                       </div>
                     </td>
                     <td style={{ 
