@@ -14,8 +14,9 @@ namespace Exchange {
 inline void initLogger(const std::string& logger_name) {
     try {
         umask(0000); // Ensure log and shm files created by this process are readable/writable by all
-        std::filesystem::create_directories("log");
-        std::filesystem::permissions("log", std::filesystem::perms::all);
+        std::error_code ec;
+        std::filesystem::create_directories("log", ec);
+        std::filesystem::permissions("log", std::filesystem::perms::all, ec);
         auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("log/services.log", false);
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
         

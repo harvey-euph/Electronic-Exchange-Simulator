@@ -26,8 +26,11 @@ namespace Exchange {
 
 class MarketMakerNative : public AlgoTradingClient {
 public:
-    MarketMakerNative(const Config& config) : AlgoTradingClient(config) {
-        std::cout << "[MM-Native] Started. ClientID=" << config_.client_id << std::endl;
+    MarketMakerNative(const Config& config, uint32_t target_symbol, const std::string& binance_symbol) 
+        : AlgoTradingClient(config), target_symbol_(target_symbol), binance_symbol_(binance_symbol) {
+        std::cout << "[MM-Native] Started. ClientID=" << config_.client_id 
+                  << " SymbolID=" << target_symbol_ 
+                  << " Binance=" << binance_symbol_ << std::endl;
     }
 
     ~MarketMakerNative() override = default;
@@ -50,7 +53,7 @@ public:
             return; // Wait until we fetch the first price
         }
 
-        auto it = symbols_info_.find(1);
+        auto it = symbols_info_.find(target_symbol_);
         [[maybe_unused]] int64_t step = (it != symbols_info_.end()) ? it->second->price_min_step : 1;
 
         double estimation = mm_mid_price_;
@@ -77,14 +80,14 @@ private:
             std::string body = perform_https_request(
                 "api.binance.com", "443",
                 http::verb::get,
-                "/api/v3/ticker/price?symbol=BTCUSDT"
+                "/api/v3/ticker/price?symbol=" + binance_symbol_
             );
 
             std::string price_str = get_json_string(body, "price");
             if (!price_str.empty()) {
                 double price = std::stod(price_str);
                 double scale = 100.0;
-                auto it = symbols_info_.find(1);
+                auto it = symbols_info_.find(target_symbol_);
                 if (it != symbols_info_.end()) {
                     scale = std::pow(10, -it->second->price_exp);
                 }
@@ -98,7 +101,7 @@ private:
 
     void manage_orders(double estimation, bool is_fetch_tick) {
         auto open_orders = account_.get_open_orders();
-        auto it = symbols_info_.find(1);
+        auto it = symbols_info_.find(target_symbol_);
         int64_t step = (it != symbols_info_.end()) ? it->second->price_min_step : 1;
 
         std::vector<OrderResponseT> bids;
@@ -141,7 +144,7 @@ private:
                         }
                     } else {
                         uint64_t q = std::uniform_int_distribution<uint64_t>(10, 50)(gen_);
-                        new_limit_order(1, Side_Buy, target_p, q);
+                        new_limit_order(target_symbol_, Side_Buy, target_p, q);
                     }
                 }
             };
@@ -164,7 +167,7 @@ private:
                         }
                     } else {
                         uint64_t q = std::uniform_int_distribution<uint64_t>(10, 50)(gen_);
-                        new_limit_order(1, Side_Sell, target_p, q);
+                        new_limit_order(target_symbol_, Side_Sell, target_p, q);
                     }
                 }
             };
@@ -218,16 +221,31 @@ private:
     int tick_count_ = 0;
     double mm_mid_price_ = 0.0;
     int64_t last_est_ticks_ = 0;
+    uint32_t target_symbol_;
+    std::string binance_symbol_;
 };
 
 } // namespace Exchange
 
-int main() {
+int main(int argc, char** argv) {
+    uint32_t client_id = 100;
+    uint32_t symbol_id = 1;
+    std::string binance_symbol = "BTCUSDT";
+
+    if (argc >= 2) {
+        client_id = std::stoul(argv[1]);
+    }
+    if (argc >= 3) {
+        symbol_id = std::stoul(argv[2]);
+        if (symbol_id == 2) binance_symbol = "ETHUSDT";
+        else if (symbol_id == 3) binance_symbol = "SOLUSDT";
+    }
+
     Exchange::AlgoTradingConfig config;
-    config.client_id = 100; // Native Market Maker
-    config.symbol_ids = {1};
+    config.client_id = client_id; // Native Market Maker
+    config.symbol_ids = {symbol_id};
     config.timer_interval_ms = 100; // Faster tick (100ms)
 
-    Exchange::MarketMakerNative mm(config);
+    Exchange::MarketMakerNative mm(config, symbol_id, binance_symbol);
     return mm.run();
 }
