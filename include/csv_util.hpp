@@ -11,6 +11,9 @@
 
 namespace Exchange {
 
+std::vector<std::vector<std::string>> readCSV(const std::string& filename);
+void writeCSV(const std::string& filename, const std::vector<std::vector<std::string>>& data);
+
 class CSVDataReader {
 public:
     CSVDataReader() = default;

@@ -26,6 +26,38 @@ constexpr uint32_t SYMBOL_ID = 1;
 
 namespace Exchange {
 
+std::vector<std::vector<std::string>> readCSV(const std::string& filename) {
+    std::vector<std::vector<std::string>> result;
+    std::ifstream file(filename);
+    if (!file.is_open()) return result;
+
+    std::string line;
+    while (std::getline(file, line)) {
+        if (line.empty()) continue;
+        std::vector<std::string> row;
+        std::stringstream ss(line);
+        std::string cell;
+        while (std::getline(ss, cell, ',')) {
+            row.push_back(cell);
+        }
+        result.push_back(row);
+    }
+    return result;
+}
+
+void writeCSV(const std::string& filename, const std::vector<std::vector<std::string>>& data) {
+    std::ofstream file(filename);
+    if (!file.is_open()) return;
+
+    for (const auto& row : data) {
+        for (size_t i = 0; i < row.size(); ++i) {
+            file << row[i];
+            if (i + 1 < row.size()) file << ",";
+        }
+        file << "\n";
+    }
+}
+
 // 安全轉換函數：轉換失敗時回傳 0
 static int64_t  safe_stoll(const std::string& str) {
     if (str.empty()) return 0;

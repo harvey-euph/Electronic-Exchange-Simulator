@@ -9,6 +9,7 @@
 #include "AffinityConfig.hpp"
 #include "DbUtil.hpp"
 #include "SymbolDatabase.hpp"
+#include "CSVSymbolDatabase.hpp"
 #include "HttpServer.hpp"
 
 using namespace Exchange;
@@ -27,7 +28,7 @@ int main()
 #ifdef USE_PGSQL
         auto db = std::make_shared<PostgresSymbolDatabase>(DbUtil::getConnectionString());
 #else
-        auto db = std::make_shared<InMemorySymbolDatabase>();
+        auto db = std::make_shared<CSVSymbolDatabase>("data/symbols.csv");
 #endif
 
         auto handler = [db](const http::request<http::vector_body<char>>& req) -> http::response<http::string_body> {

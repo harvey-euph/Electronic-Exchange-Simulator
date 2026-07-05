@@ -179,7 +179,7 @@ public:
         return result;
     }
 
-private:
+protected:
     std::map<uint32_t, int64_t>& get_or_create_client_positions(uint32_t client_id) {
         auto it = positions_.find(client_id);
         if (it == positions_.end()) {

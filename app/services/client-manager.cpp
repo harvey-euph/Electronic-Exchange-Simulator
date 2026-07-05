@@ -2,6 +2,7 @@
 #include "ClientManager.hpp"
 #include "ring/SHMRingBuffer.hpp"
 #include "ClientDatabase.hpp"
+#include "CSVClientDatabase.hpp"
 #include "DbUtil.hpp"
 #include "ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
@@ -17,7 +18,7 @@ int main()
 #ifdef USE_PGSQL
     auto db = std::make_shared<Exchange::PostgresClientDatabase>(Exchange::DbUtil::getConnectionString());
 #else
-    auto db = std::make_shared<Exchange::InMemoryClientDatabase>();
+    auto db = std::make_shared<Exchange::CSVClientDatabase>("data/clients.csv");
 #endif
 
     std::unique_ptr<mmaplog::MmapReader> response;
