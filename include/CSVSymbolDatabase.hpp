@@ -3,6 +3,8 @@
 #include "SymbolDatabase.hpp"
 #include <string>
 #include <unordered_map>
+#include <vector>
+#include <set>
 
 namespace Exchange {
 
@@ -12,6 +14,8 @@ public:
     ~CSVSymbolDatabase() override = default;
 
     bool getSymbolInfo(uint32_t symbol_id, DbSymbolInfo& info) override;
+    std::vector<uint32_t> getSymbolsForCore(int32_t core_id) override;
+    std::set<int32_t> getAllCores() override;
 
 private:
     std::unordered_map<uint32_t, DbSymbolInfo> symbols_;
