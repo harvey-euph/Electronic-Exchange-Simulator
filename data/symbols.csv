@@ -1,0 +1,4 @@
+symbol_id,name,price_exp,min_step,min_price,max_price
+1,BTC,-2,25,3000000,12000000
+2,ETH,-2,10,150000,600000
+3,SOL,-3,5,5000,500000

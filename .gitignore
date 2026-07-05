@@ -8,10 +8,8 @@ build
 .agents
 .codex
 .vscode
-data/*
-*.csv
+tests/*/*.csv
 *.pyc
-!data/basic.csv
 !tests/*/requests.csv
 .run_service.pid
 
