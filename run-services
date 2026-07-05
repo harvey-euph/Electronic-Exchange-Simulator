@@ -28,41 +28,37 @@ fi
 # We don't need sudo askpass since EUID=0 is enforced.
 SUDO_CMD=""
 
-# Find all executable services dynamically, verifying they correspond to source files
-SERVICES=()
-for src in "$PROJECT_ROOT/app/services"/*.cpp; do
-    [ -e "$src" ] || continue
-    base=$(basename "$src" .cpp)
-    exe="$BUILD_SERVICE_DIR/$base"
-    if [ -x "$exe" ]; then
-        SERVICES+=("$exe")
-    fi
-done
-
-# Sort the services array
-if [ ${#SERVICES[@]} -gt 0 ]; then
-    IFS=$'\n' SERVICES=($(printf '%s\n' "${SERVICES[@]}" | sort))
-    unset IFS
-fi
-
-if [ ${#SERVICES[@]} -eq 0 ]; then
-    echo "Error: No executable services found in $BUILD_SERVICE_DIR. Please compile the project first using 'make'."
-    exit 1
-fi
-
-get_run_cmd() {
-    local exe_path="$1"
-    echo "chrt -f 99 $exe_path"
-}
+# Explicitly list the services to start
+SERVICES=(
+    "client-manager"
+    "market-data-server"
+    "public-data"
+)
 
 echo "Starting $SESSION services in the background..."
 
-for exe in "${SERVICES[@]}"; do
-    name=$(basename "$exe")
-    run_cmd=$(get_run_cmd "$exe" "$name")
-    
-    # Run the service in a loop for health check/auto-restart in the background
+# Start regular services
+for name in "${SERVICES[@]}"; do
+    exe="$BUILD_SERVICE_DIR/$name"
+    if [ ! -x "$exe" ]; then
+        echo "Error: Executable $exe not found. Please compile first."
+        exit 1
+    fi
+    run_cmd="chrt -f 99 $exe"
     nohup bash -c "while true; do $run_cmd >/dev/null 2>&1; sleep 2; done" "exchange_core_service_$name" >/dev/null 2>&1 &
+done
+
+# Start matching-engine separately for each core
+ME_EXE="$BUILD_SERVICE_DIR/matching-engine"
+if [ ! -x "$ME_EXE" ]; then
+    echo "Error: Executable $ME_EXE not found. Please compile first."
+    exit 1
+fi
+
+CORES=(1)
+for core in "${CORES[@]}"; do
+    run_cmd="chrt -f 99 $ME_EXE $core"
+    nohup bash -c "while true; do $run_cmd >/dev/null 2>&1; sleep 2; done" "exchange_core_service_matching-engine_${core}" >/dev/null 2>&1 &
 done
 
 $SUDO_CMD systemctl start nginx

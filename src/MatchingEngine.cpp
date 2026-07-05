@@ -7,8 +7,8 @@ namespace Exchange {
 
 // extern thread_local uint64_t g_current_request_start_tsc;
 
-MatchingEngine::MatchingEngine(SHMRingBuffer* request_ring, OrderBook* book)
-    : request_ring_(request_ring), book_(book)
+MatchingEngine::MatchingEngine(SHMRingBuffer* request_ring, std::unordered_map<uint32_t, std::unique_ptr<OrderBook>> books)
+    : request_ring_(request_ring), books_(std::move(books))
 {}
 
 int MatchingEngine::poll_client()
@@ -27,7 +27,10 @@ int MatchingEngine::poll_server()
     }
 
     auto req = static_cast<const OrderRequestT*>(slot->payload);
-    book_->processRequest(req);
+    auto it = books_.find(req->symbol_id);
+    if (it != books_.end()) {
+        it->second->processRequest(req);
+    }
 
     request_ring_->release(*slot);
     return 1;

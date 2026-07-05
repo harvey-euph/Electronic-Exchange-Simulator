@@ -7,10 +7,21 @@
 #include <iostream>
 #include "mmap_log.h"
 
+#include "SymbolDatabase.hpp"
+#include "CSVSymbolDatabase.hpp"
+#include <unordered_map>
+#include <memory>
+#include <string>
 
-int main()
+int main(int argc, char* argv[])
 {
-    Exchange::initLogger("ME");
+    int32_t target_core_id = 1;
+    if (argc > 1) {
+        target_core_id = std::stoi(argv[1]);
+    }
+
+    std::string logger_name = "ME" + std::to_string(target_core_id);
+    Exchange::initLogger(logger_name.c_str());
 
     setup_signals();
 
@@ -21,45 +32,41 @@ int main()
 
     LOG_INFO("[OrderCore] Starting matching engine...");
 
-    // Query DB for symbol 1 parameters
-    int64_t min_step = 25;                       // min_step_raw for BTC
-    int64_t price_offset = 120000;              // min_price_raw / min_step_raw (3000000 / 25)
-    size_t max_price_levels = 360001;           // (max_price_raw - min_price_raw) / min_step_raw + 1
-    
-    LOG_INFO("[OrderCore] Using internal Symbol 1 config (BTC): min_step=%d, price_offset=%d, max_price_levels=%d", min_step, price_offset, max_price_levels);
+    std::shared_ptr<Exchange::SymbolDatabase> db;
+#ifdef USE_PGSQL
+    db = std::make_shared<Exchange::PostgresSymbolDatabase>(Exchange::DbUtil::getConnectionString());
+#else
+    db = std::make_shared<Exchange::CSVSymbolDatabase>("data/symbols.csv");
+#endif
 
-    /*
-    try {
-        auto conn = Exchange::DbUtil::getDbConnection();
-        pqxx::work w(*conn);
-        pqxx::result r = w.exec(
-            "SELECT min_step_raw, min_price_raw, max_price_raw FROM symbols WHERE symbol_id = 1"
-        );
-        if (!r.empty()) {
-            int64_t min_step_raw = r[0][0].as<int64_t>();
-            int64_t min_price_raw = r[0][1].as<int64_t>();
-            int64_t max_price_raw = r[0][2].as<int64_t>();
-            
-            min_step = min_step_raw;
-            price_offset = min_price_raw / min_step_raw;
-            max_price_levels = (max_price_raw - min_price_raw) / min_step_raw + 1;
-            LOG_INFO("[OrderCore] Loaded Symbol 1 config from DB: min_step=%d, price_offset=%d, max_price_levels=%d", min_step, price_offset, max_price_levels);
-        } else {
-            LOG_ERROR("[OrderCore] WARNING: Symbol 1 not found in DB, using default parameters");
-        }
-    } catch (const std::exception& e) {
-        LOG_ERROR("[OrderCore] ERROR querying DB: %d, using default parameters", e.what());
+    auto symbol_ids = db->getSymbolsForCore(target_core_id);
+    if (symbol_ids.empty()) {
+        LOG_ERROR("[OrderCore] No symbols found for core %d. Shutting down.", target_core_id);
+        return 0;
     }
-    */
+
+    LOG_INFO("[OrderCore] Core %d will handle %zu symbols", target_core_id, symbol_ids.size());
 
     mmaplog::MmapWriter response_ring(EXECUTION_JOURNAL_DIR);
-    Exchange::OrderBook book(1, min_step, price_offset, max_price_levels, &response_ring);
+    
+    std::unordered_map<uint32_t, std::unique_ptr<Exchange::OrderBook>> books;
+    for (uint32_t sid : symbol_ids) {
+        Exchange::DbSymbolInfo info;
+        if (db->getSymbolInfo(sid, info)) {
+            int64_t min_step = info.min_step;
+            int64_t price_offset = info.min_price / info.min_step;
+            size_t max_price_levels = (info.max_price - info.min_price) / info.min_step + 1;
+            books[sid] = std::make_unique<Exchange::OrderBook>(sid, min_step, price_offset, max_price_levels, &response_ring);
+            LOG_INFO("[OrderCore] Created book for symbol %u (%s)", sid, info.name.c_str());
+        }
+    }
 
-    Exchange::SHMRingBuffer request_ring(ORDER_REQUEST, ORDER_REQUEST_SIZE);
+    std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(target_core_id);
+    Exchange::SHMRingBuffer request_ring(ring_name.c_str(), ORDER_REQUEST_SIZE);
 
-    LOG_INFO("[OrderCore] Listening for requests on OrderRequest ring...");
+    LOG_INFO("[OrderCore] Listening for requests on %s...", ring_name.c_str());
 
-    Exchange::MatchingEngine engine(&request_ring, &book);
+    Exchange::MatchingEngine engine(&request_ring, std::move(books));
     engine.run();
 
     LOG_INFO("[OrderCore] Shutting down...");

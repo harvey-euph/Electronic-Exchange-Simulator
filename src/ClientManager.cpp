@@ -8,11 +8,16 @@
 
 namespace Exchange {
 
-ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, std::unique_ptr<SHMRingBuffer> request_ring, std::unique_ptr<mmaplog::MmapReader> response_ring, std::shared_ptr<ClientDatabase> db) 
+ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, 
+                             std::map<int32_t, std::unique_ptr<SHMRingBuffer>> request_rings, 
+                             std::unique_ptr<mmaplog::MmapReader> response_ring, 
+                             std::shared_ptr<ClientDatabase> db,
+                             std::shared_ptr<SymbolDatabase> sym_db) 
     : ws_adaptor_(ws_adaptor)
-    , request_ring_(std::move(request_ring))
+    , request_rings_(std::move(request_rings))
     , response_ring_(std::move(response_ring))
     , db_(db)
+    , sym_db_(sym_db)
 {
     LOG_INFO("[ClientManager] Initializing");
 
@@ -184,7 +189,19 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
             }
             client->increment_inbound_seq_num();
 
-            auto token = request_ring_->reserve(sizeof(OrderRequestT));
+            DbSymbolInfo info;
+            int32_t core_id = 1; // default
+            if (sym_db_->getSymbolInfo(order_req->symbol_id(), info)) {
+                core_id = info.core_id;
+            }
+
+            auto it = request_rings_.find(core_id);
+            if (it == request_rings_.end()) {
+                LOG_WARN("[ClientManager] No request ring for core_id %d", core_id);
+                return;
+            }
+
+            auto token = it->second->reserve(sizeof(OrderRequestT));
             if (!token) {
                 // TODO: Send some alert
                 return;
@@ -203,7 +220,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
                 .timestamp   = order_req->timestamp(),
                 .msg_seq_num = order_req->msg_seq_num(),
             };
-            request_ring_->commit(*token);
+            it->second->commit(*token);
             DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
             break;
         }
