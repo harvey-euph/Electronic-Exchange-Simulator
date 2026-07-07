@@ -247,7 +247,7 @@ function App() {
                       className={`tab-item ${activeTab === 'activity' ? 'active' : ''}`}
                       onClick={() => setActiveTab('activity')}
                     >
-                      ACTIVITY LOG
+                      LOG
                     </button>
                   </div>
                   

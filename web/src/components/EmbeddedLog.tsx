@@ -81,7 +81,9 @@ export const EmbeddedLog: React.FC<EmbeddedLogProps> = ({ logs, onClear, noWrapp
         style={{ 
           flex: 1, 
           overflowY: 'auto', 
+          overflowX: 'hidden',
           display: 'flex',
+          minHeight: 0,
           flexDirection: 'column',
           gap: '6px',
           paddingRight: '4px'

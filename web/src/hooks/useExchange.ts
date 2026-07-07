@@ -583,7 +583,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
             
             if (reasonCode === RejectCode.InvalidSequenceNumber) {
                 clientSeqNumRef.current = adminResp.expectedMsgSeqNum();
-                serverSeqNumRef.current = adminResp.expectedAckSeqNum();
+                // serverSeqNumRef is already updated to seqNum (the reject message's seq num) at line 533
                 
                 addMgmtLog(`[O_Seq=${clientSeqNumRef.current}] Resyncing seq numbers to Msg=${clientSeqNumRef.current}, Ack=${serverSeqNumRef.current} and retrying LogOn`);
                 const builder = new flatbuffers.Builder(256);

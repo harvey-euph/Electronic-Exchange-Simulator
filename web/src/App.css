@@ -304,7 +304,7 @@ body {
 /* Layout Classes */
 .app-container {
   padding: 12px;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -413,6 +413,8 @@ body {
 @media (max-width: 480px) {
   .app-container {
     padding: 8px;
+    height: auto;
+    min-height: 100vh;
   }
   
   .header-left {
@@ -497,7 +499,7 @@ body {
 
 .table-container {
   flex: 1;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
