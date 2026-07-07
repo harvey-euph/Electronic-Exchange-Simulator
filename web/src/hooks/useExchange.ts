@@ -263,7 +263,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     }
 
     const execName = ExecType[execType] ?? `Unknown(${execType})`;
-    addMgmtLog(`[Exec] ID=${orderId} Type=${execName} Side=${Side[side]} P=${p} Q=${q} ExecID=${execId}${latencyStr}`);
+    const msgSeqNum = resp.msgSeqNum();
+    addMgmtLog(`[I_Seq=${msgSeqNum}] [Exec] ID=${orderId} Type=${execName} Side=${Side[side]} P=${p} Q=${q} ExecID=${execId}${latencyStr}`);
 
     // Deduplicate notifications by execId
     const shouldNotify = execId !== '0' && !notifiedExecIds.current.has(execId);
@@ -273,7 +274,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
 
     if (rejectCode !== 0) {
       const msg = REJECT_MESSAGES[rejectCode] || `Error Code: ${rejectCode}`;
-      addMgmtLog(`[Error] Order Rejected: ID=${orderId} Code=${rejectCode} (${msg})${latencyStr}`);
+      addMgmtLog(`[I_Seq=${msgSeqNum}] [Error] Order Rejected: ID=${orderId} Code=${rejectCode} (${msg})${latencyStr}`);
       if (shouldNotify) {
         onNotification?.('rejected', 'Order Rejected', `${msg} (ID: ${orderId})`);
       }
@@ -441,7 +442,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       notifiedExecIds.current.clear();
       sentRequestsRef.current.clear();
       mgmtReadyNotifiedRef.current = false;
-      addMgmtLog(`Connected ClientID=${clientId}`);
+      addMgmtLog(`[O_Seq=${clientSeqNumRef.current}] Connected and sending LogOn ClientID=${clientId}`);
       setConnected(prev => ({ ...prev, mgmt: true }));
       const builder = new flatbuffers.Builder(256);
       const usernameOffset = builder.createString(clientId);
@@ -471,15 +472,13 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
         if (dataType === ClientResponseData.OrderResponse) {
           const orderResp = response.data(new OrderResponse()) as OrderResponse;
           if (orderResp) {
-            if (orderResp.execType() !== ExecType.OrderStatus) {
-              const expectedSeq = serverSeqNumRef.current + 1n;
-              const seqNum = orderResp.msgSeqNum();
-              if (seqNum !== expectedSeq) {
-                addMgmtLog(`[Error] Sequence number mismatch on OrderResponse. Expected ${expectedSeq}, got ${seqNum}`);
-                onNotification?.('rejected', 'Sequence Error', `Expected ${expectedSeq}, got ${seqNum}`);
-              }
-              serverSeqNumRef.current = seqNum;
+            const expectedSeq = serverSeqNumRef.current + 1n;
+            const seqNum = orderResp.msgSeqNum();
+            if (seqNum !== expectedSeq) {
+              addMgmtLog(`[Error] Sequence number mismatch on OrderResponse. Expected ${expectedSeq}, got ${seqNum}`);
+              onNotification?.('rejected', 'Sequence Error', `Expected ${expectedSeq}, got ${seqNum}`);
             }
+            serverSeqNumRef.current = seqNum;
             handleOrderResponse(orderResp);
           }
         } else if (dataType === ClientResponseData.PositionResponse) {
@@ -524,10 +523,18 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
           }
         } else if (dataType === ClientResponseData.AdminResponse) {
           const adminResp = response.data(new AdminResponse()) as AdminResponse;
-          if (adminResp && adminResp.type() === AdminResponseType.Ready) {
-            serverSeqNumRef.current = adminResp.msgSeqNum();
-            setConnected(prev => ({ ...prev, mgmtReady: true }));
-            if (!mgmtReadyNotifiedRef.current) {
+          if (adminResp) {
+            const expectedSeq = serverSeqNumRef.current + 1n;
+            const seqNum = adminResp.msgSeqNum();
+            if (seqNum !== expectedSeq) {
+              addMgmtLog(`[Error] Sequence number mismatch on AdminResponse. Expected ${expectedSeq}, got ${seqNum}`);
+              onNotification?.('rejected', 'Sequence Error', `Expected ${expectedSeq}, got ${seqNum}`);
+            }
+            serverSeqNumRef.current = seqNum;
+
+            if (adminResp.type() === AdminResponseType.Ready) {
+              setConnected(prev => ({ ...prev, mgmtReady: true }));
+              if (!mgmtReadyNotifiedRef.current) {
               if (isInitialLoginRef.current) {
                 onNotification?.('info', 'System', 'Log in success');
                 isInitialLoginRef.current = false;
@@ -535,7 +542,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
               mgmtReadyNotifiedRef.current = true;
             }
 
-            addMgmtLog(`Admin Ready received. Requesting open orders and positions...`);
+            addMgmtLog(`[I_Seq=${seqNum}] Admin Ready received. Requesting open orders and positions...`);
             
             const builder = new flatbuffers.Builder(256);
             
@@ -570,15 +577,15 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
                builder.finish(crOffset);
                ws.send(builder.asUint8Array() as any);
             }
-          } else if (adminResp && adminResp.type() === AdminResponseType.Reject) {
+          } else if (adminResp.type() === AdminResponseType.Reject) {
             const reasonCode = adminResp.rejectCode();
-            addMgmtLog(`Admin Login Rejected: code=${RejectCode[reasonCode] || reasonCode}`);
+            addMgmtLog(`[I_Seq=${seqNum}] Admin Login Rejected: code=${RejectCode[reasonCode] || reasonCode}`);
             
             if (reasonCode === RejectCode.InvalidSequenceNumber) {
                 clientSeqNumRef.current = adminResp.expectedMsgSeqNum();
                 serverSeqNumRef.current = adminResp.expectedAckSeqNum();
                 
-                addMgmtLog(`Resyncing seq numbers to Msg=${clientSeqNumRef.current}, Ack=${serverSeqNumRef.current} and retrying LogOn`);
+                addMgmtLog(`[O_Seq=${clientSeqNumRef.current}] Resyncing seq numbers to Msg=${clientSeqNumRef.current}, Ack=${serverSeqNumRef.current} and retrying LogOn`);
                 const builder = new flatbuffers.Builder(256);
                 const usernameOffset = builder.createString(clientId);
                 AdminRequest.startAdminRequest(builder);
@@ -603,6 +610,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
                 onForceLogout?.();
                 ws.close();
             }
+          }
           }
         }
       } catch (err) { addMgmtLog(`Decode Error: ${err}`); }
@@ -820,7 +828,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     ClientRequest.addData(builder, off);
     builder.finish(ClientRequest.endClientRequest(builder));
     try {
-      addMgmtLog(`Sending ${Side[side]} ${OrderType[type]} order: ClientID=${clientId}(${numericClientId}) P=${price} (raw=${pVal}) Q=${quantity} ID=${orderId} ExecID=${execId}`);
+      addMgmtLog(`[O_Seq=${clientSeqNumRef.current}] Sending ${Side[side]} ${OrderType[type]} order: ClientID=${clientId}(${numericClientId}) P=${price} (raw=${pVal}) Q=${quantity} ID=${orderId} ExecID=${execId}`);
       sentRequestsRef.current.set(execId.toString(), performance.now());
       mgmtWsRef.current.send(builder.asUint8Array() as any);
     } catch (err) { addMgmtLog(`Order send error: ${err}`); }
@@ -848,7 +856,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     ClientRequest.addDataType(builder, ClientReqData.OrderRequest);
     ClientRequest.addData(builder, off);
     builder.finish(ClientRequest.endClientRequest(builder));
-    addMgmtLog(`Cancelling Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} ExecID=${execId}`)
+    addMgmtLog(`[O_Seq=${clientSeqNumRef.current}] Cancelling Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} ExecID=${execId}`)
     sentRequestsRef.current.set(execId.toString(), performance.now());
     mgmtWsRef.current.send(builder.asUint8Array() as any)
   }, [addMgmtLog]);
@@ -888,7 +896,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     ClientRequest.addDataType(builder, ClientReqData.OrderRequest);
     ClientRequest.addData(builder, off);
     builder.finish(ClientRequest.endClientRequest(builder));
-    addMgmtLog(`Modifying Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} NewP=${newPrice} (raw=${pVal}) NewQ=${newQty} ExecID=${execId}`)
+    addMgmtLog(`[O_Seq=${clientSeqNumRef.current}] Modifying Order: ClientID=${clientId}(${numericClientId}) ID=${order.orderId} NewP=${newPrice} (raw=${pVal}) NewQ=${newQty} ExecID=${execId}`)
     sentRequestsRef.current.set(execId.toString(), performance.now());
     mgmtWsRef.current.send(builder.asUint8Array() as any)
   }, [addMgmtLog, symbolInfos]);

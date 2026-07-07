@@ -21,7 +21,7 @@ function App() {
   const [orderType, setOrderType] = useState<OrderType>(OrderType.Limit);
   const [peggedLevel, setPeggedLevel] = useState<number | null>(null);
   const [hasLoggedIn, setHasLoggedIn] = useState(false);
-  const [activeTab, setActiveTab] = useState<'orders' | 'positions'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'positions' | 'activity'>('orders');
   const [expandedSymbols, setExpandedSymbols] = useState<Set<number>>(new Set());
   
   const notifRef = useRef<NotificationSystemRef>(null);
@@ -172,11 +172,13 @@ function App() {
       const symbols = new Set<number>();
       openOrders.forEach(o => symbols.add(o.symbolId));
       return Array.from(symbols);
-    } else {
+    } else if (activeTab === 'positions') {
       return Array.from(positions.keys()).filter(sid => {
         const p = positions.get(sid);
         return p && (p.totalQuantity !== 0n || p.realizedPnL !== 0n);
       });
+    } else {
+      return [];
     }
   }, [activeTab, openOrders, positions]);
 
@@ -241,6 +243,12 @@ function App() {
                     >
                       POSITIONS
                     </button>
+                    <button 
+                      className={`tab-item ${activeTab === 'activity' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('activity')}
+                    >
+                      ACTIVITY LOG
+                    </button>
                   </div>
                   
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -250,13 +258,23 @@ function App() {
                         {totalValue.toFixed(2)}
                       </span>
                     </div>
-                    <button 
-                      className="modern-button btn-secondary" 
-                      onClick={handleToggleExpandAll}
-                      style={{ padding: '2px 8px', fontSize: '10px', height: '22px', minWidth: '85px' }}
-                    >
-                      {isAllExpanded ? 'Collapse All' : 'Expand All'}
-                    </button>
+                    {activeTab === 'activity' ? (
+                      <button 
+                        className="modern-button btn-secondary" 
+                        onClick={clearMgmtLogs}
+                        style={{ padding: '2px 8px', fontSize: '10px', height: '22px', minWidth: '85px' }}
+                      >
+                        Clear Log
+                      </button>
+                    ) : (
+                      <button 
+                        className="modern-button btn-secondary" 
+                        onClick={handleToggleExpandAll}
+                        style={{ padding: '2px 8px', fontSize: '10px', height: '22px', minWidth: '85px' }}
+                      >
+                        {isAllExpanded ? 'Collapse All' : 'Expand All'}
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="tab-content">
@@ -272,7 +290,7 @@ function App() {
                       symbolInfos={symbolInfos}
                       onSymbolSelect={(id) => setSymbolId(id.toString())}
                     />
-                  ) : (
+                  ) : activeTab === 'positions' ? (
                     <Positions 
                       positions={Array.from(positions.entries())} 
                       prices={prices} 
@@ -284,6 +302,8 @@ function App() {
                       symbolInfos={symbolInfos}
                       onSymbolSelect={(id) => setSymbolId(id.toString())}
                     />
+                  ) : (
+                    <EmbeddedLog logs={mgmtLogs} onClear={clearMgmtLogs} noWrapper />
                   )}
                 </div>
               </div>
@@ -306,9 +326,6 @@ function App() {
                   sortedBids={sortedBids}
                   sortedAsks={sortedAsks}
                 />
-              </div>
-              <div className="embedded-log-wrapper">
-                <EmbeddedLog logs={mgmtLogs} onClear={clearMgmtLogs} />
               </div>
             </div>
           </div>

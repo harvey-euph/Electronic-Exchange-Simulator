@@ -1,6 +1,6 @@
 ## Summary
 
-It all started as a simple practice exercise to build a C++ matching engine. However, the relentless pursuit of lower latency and higher throughput quickly escalated the scope. What began as a single component has evolved into a complete, high-performance exchange ecosystem.
+It all started as a simple practice to build a C++ matching engine. However, the relentless pursuit of lower latency and higher throughput quickly escalated the scope. What began as a single component has evolved into a complete, high-performance exchange ecosystem.
 
 Designed with a strong emphasis on low-latency architecture and systematic observability, the project now features a comprehensive suite of components:
 - **Core Engine & Gateways:** A highly optimized Matching Engine decoupled from the Client Manager and HTTP Acceptors via lock-free Shared Memory (SHM) Ring Buffers.

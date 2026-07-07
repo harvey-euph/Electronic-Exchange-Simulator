@@ -3,9 +3,10 @@ import React, { useEffect, useRef } from 'react';
 interface EmbeddedLogProps {
   logs: string[];
   onClear: () => void;
+  noWrapper?: boolean;
 }
 
-export const EmbeddedLog: React.FC<EmbeddedLogProps> = ({ logs, onClear }) => {
+export const EmbeddedLog: React.FC<EmbeddedLogProps> = ({ logs, onClear, noWrapper }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -49,27 +50,31 @@ export const EmbeddedLog: React.FC<EmbeddedLogProps> = ({ logs, onClear }) => {
     return { borderColor, bgColor, textColor };
   };
 
-  return (
-    <div className="modern-card" style={{ height: '240px', display: 'flex', flexDirection: 'column', padding: '12px' }}>
-      <div className="block-header" style={{ marginBottom: '12px' }}>
-        <h2 className="block-title">Activity Log</h2>
-        <button
-          className="modern-button btn-secondary"
-          onClick={onClear}
-          style={{
-            padding: '2px 8px',
-            fontSize: '10px',
-            height: '20px',
-            lineHeight: '14px',
-            minWidth: 'auto',
-            borderRadius: '4px',
-            border: '1px solid var(--border-color)',
-            cursor: 'pointer'
-          }}
-        >
-          Clear
-        </button>
-      </div>
+
+  const content = (
+    <>
+      {!noWrapper && (
+        <div className="block-header" style={{ marginBottom: '12px' }}>
+          <h2 className="block-title">Activity Log</h2>
+          <button
+            className="modern-button btn-secondary"
+            onClick={onClear}
+            style={{
+              padding: '2px 8px',
+              fontSize: '10px',
+              height: '20px',
+              lineHeight: '14px',
+              minWidth: 'auto',
+              borderRadius: '4px',
+              border: '1px solid var(--border-color)',
+              cursor: 'pointer'
+            }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       <div 
         ref={scrollRef}
         className="custom-scroll" 
@@ -111,6 +116,20 @@ export const EmbeddedLog: React.FC<EmbeddedLogProps> = ({ logs, onClear }) => {
           </div>
         )}
       </div>
+    </>
+  );
+
+  if (noWrapper) {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '12px', minHeight: 0 }}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="modern-card" style={{ height: '240px', display: 'flex', flexDirection: 'column', padding: '12px' }}>
+      {content}
     </div>
   );
 };
