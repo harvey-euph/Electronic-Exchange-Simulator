@@ -43,7 +43,7 @@ public:
     // Open Orders
     virtual void addOrUpdateOpenOrder(const OrderResponseT* resp) = 0;
     virtual void removeOpenOrder(uint32_t client_id, uint64_t order_id) = 0;
-    virtual std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) = 0;
+    virtual std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) = 0;
 
     // Execution processing
     virtual void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) = 0;
@@ -168,16 +168,14 @@ public:
         appendResponseLog(client_id, *resp, msg_seq_num);
     }
 
-    std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) override {
-        std::vector<std::vector<uint8_t>> result;
+    std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) override {
+        std::vector<OrderResponseT> result;
         auto it = open_orders_.find(client_id);
         if (it != open_orders_.end()) {
             for (auto const& [order_id, resp] : it->second) {
-                flatbuffers::FlatBufferBuilder fbb(256);
-                auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp.order_id, resp.client_id, resp.exec_id, resp.symbol_id, resp.side, resp.p, resp.q, resp.reject_code);
-                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), 0);
-                fbb.Finish(client_resp);
-                result.push_back(std::vector<uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize()));
+                OrderResponseT order_resp = resp;
+                order_resp.exec_type = ExecType_OrderStatus;
+                result.push_back(order_resp);
             }
         }
         return result;
@@ -224,7 +222,7 @@ public:
 
     void addOrUpdateOpenOrder(const OrderResponseT* resp) override;
     void removeOpenOrder(uint32_t client_id, uint64_t order_id) override;
-    std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) override;
+    std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) override;
 
     void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) override;
 

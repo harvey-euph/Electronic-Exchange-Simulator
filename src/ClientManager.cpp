@@ -237,11 +237,8 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
             uint32_t client_id = open_req->client_id();
 
             auto open_orders = db_->getOpenOrders(client_id);
-            LOG_INFO("[ClientManager] Sending %d open orders on request.", open_orders.size());
-            for (auto& order_data : open_orders) {
-                auto orig_resp = flatbuffers::GetRoot<ClientResponse>(order_data.data());
-                OrderResponseT order_resp_t;
-                orig_resp->data_as_OrderResponse()->UnPackTo(&order_resp_t);
+            LOG_INFO("[ClientManager] Sending %zu open orders on request.", open_orders.size());
+            for (auto& order_resp_t : open_orders) {
                 client->send(&order_resp_t);
             }
             break;

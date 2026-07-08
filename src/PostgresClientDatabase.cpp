@@ -275,7 +275,7 @@ void PostgresClientDatabase::removeOpenOrder(uint32_t client_id, uint64_t order_
     w.commit();
 }
 
-std::vector<std::vector<uint8_t>> PostgresClientDatabase::getOpenOrders(uint32_t client_id) {
+std::vector<OrderResponseT> PostgresClientDatabase::getOpenOrders(uint32_t client_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
@@ -283,7 +283,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::getOpenOrders(uint32_t
         "SELECT order_id, symbol_id, side, price_mantissa, qty FROM open_orders WHERE client_id = $1",
         pqxx::params{client_id}
     );
-    std::vector<std::vector<uint8_t>> result;
+    std::vector<OrderResponseT> result;
     for (auto const& row : r) {
         uint64_t order_id = row[0].as<uint64_t>();
         uint32_t symbol_id = row[1].as<uint32_t>();
@@ -291,14 +291,18 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::getOpenOrders(uint32_t
         int64_t price = row[3].as<int64_t>();
         uint64_t qty = row[4].as<uint64_t>();
 
-        flatbuffers::FlatBufferBuilder fbb(256);
-        auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, static_cast<uint32_t>(order_id & 0xFFFFFFFF), client_id, 0 /* exec_id */, symbol_id, static_cast<Side>(side), price, qty, RejectCode_None);
-        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
-        fbb.Finish(client_resp);
+        OrderResponseT resp;
+        resp.exec_type = ExecType_OrderStatus;
+        resp.order_id = static_cast<uint32_t>(order_id & 0xFFFFFFFF);
+        resp.client_id = client_id;
+        resp.exec_id = 0;
+        resp.symbol_id = symbol_id;
+        resp.side = static_cast<Side>(side);
+        resp.p = price;
+        resp.q = qty;
+        resp.reject_code = RejectCode_None;
 
-        uint8_t* buf = fbb.GetBufferPointer();
-        size_t sz = fbb.GetSize();
-        result.push_back(std::vector<uint8_t>(buf, buf + sz));
+        result.push_back(resp);
     }
     return result;
 }
