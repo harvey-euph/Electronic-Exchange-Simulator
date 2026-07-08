@@ -59,8 +59,7 @@ int main(int argc, char* argv[]) {
                         req->client_id = 1;
                         req->symbol_id = 1;
                         req->timestamp = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                        req->msg_seq_num = TEST_MSG_SEQ_BASE + next_exec_id;
-                        req->exec_id = req->msg_seq_num;
+                        req->exec_id = TEST_MSG_SEQ_BASE + next_exec_id;
                         next_exec_id++;
                         
                         if (phase == INSERTING) {

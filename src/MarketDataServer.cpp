@@ -307,8 +307,9 @@ void MarketDataServer::__update(std::shared_ptr<L3Book> book, const OrderRespons
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(resp->client_id) << 32) | resp->order_id;
     auto updates = book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q);
-    publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, resp->msg_seq_num, timestamp);
-    publish_l2_update(resp->symbol_id, updates, resp->msg_seq_num, timestamp);
+    uint64_t md_seq_num = ++md_seq_nums_[resp->symbol_id];
+    publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, md_seq_num, timestamp);
+    publish_l2_update(resp->symbol_id, updates, md_seq_num, timestamp);
 }
 
 } // namespace Exchange

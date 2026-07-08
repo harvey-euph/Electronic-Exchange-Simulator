@@ -19,14 +19,14 @@ PostgresClientDatabase::PostgresClientDatabase(const std::string& conn_str)
 
 PostgresClientDatabase::~PostgresClientDatabase() = default;
 
-void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderResponseT& resp) {
+void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) {
     std::lock_guard<std::mutex> lock(mutex_);
     uint64_t exec_id = resp.exec_id;
-    uint64_t o_seq_num = resp.msg_seq_num;
+    uint64_t o_seq_num = msg_seq_num;
     
     flatbuffers::FlatBufferBuilder fbb(256);
     auto resp_offset = OrderResponse::Pack(fbb, &resp);
-    auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
+    auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), msg_seq_num);
     fbb.Finish(client_resp);
 
     reconnect_if_needed();
@@ -42,10 +42,10 @@ void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderRe
     w.commit();
 }
 
-std::vector<OrderResponseT> PostgresClientDatabase::popPendingResponses(uint32_t client_id) {
+std::vector<std::vector<uint8_t>> PostgresClientDatabase::popPendingResponses(uint32_t client_id) {
     std::lock_guard<std::mutex> lock(mutex_);
     reconnect_if_needed();
-    std::vector<OrderResponseT> result;
+    std::vector<std::vector<uint8_t>> result;
     pqxx::work w(*conn_);
     pqxx::result r = w.exec(
         "SELECT serialized_data FROM pending_responses WHERE client_id = $1 ORDER BY response_id ASC",
@@ -56,12 +56,7 @@ std::vector<OrderResponseT> PostgresClientDatabase::popPendingResponses(uint32_t
     
     for (auto const& row : r) {
         auto bytes = row[0].as<pqxx::bytes>();
-        auto client_resp = flatbuffers::GetRoot<ClientResponse>(bytes.data());
-        if (client_resp->data_type() == ClientResponseData_OrderResponse) {
-            OrderResponseT resp;
-            client_resp->data_as_OrderResponse()->UnPackTo(&resp);
-            result.push_back(std::move(resp));
-        }
+        result.emplace_back(bytes.begin(), bytes.end());
     }
     return result;
 }
@@ -117,10 +112,10 @@ void PostgresClientDatabase::setClientOSeqNum(uint32_t client_id, uint64_t seq_n
     w.commit();
 }
 
-std::vector<OrderResponseT> PostgresClientDatabase::getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) {
+std::vector<std::vector<uint8_t>> PostgresClientDatabase::getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) {
     std::lock_guard<std::mutex> lock(mutex_);
     reconnect_if_needed();
-    std::vector<OrderResponseT> result;
+    std::vector<std::vector<uint8_t>> result;
     pqxx::work w(*conn_);
     pqxx::result r = w.exec(
         "SELECT serialized_data FROM pending_responses WHERE client_id = $1 AND o_seq_num > $2 ORDER BY o_seq_num ASC",
@@ -128,12 +123,7 @@ std::vector<OrderResponseT> PostgresClientDatabase::getResponsesSince(uint32_t c
     );
     for (auto const& row : r) {
         auto bytes = row[0].as<pqxx::bytes>();
-        auto client_resp = flatbuffers::GetRoot<ClientResponse>(bytes.data());
-        if (client_resp->data_type() == ClientResponseData_OrderResponse) {
-            OrderResponseT resp;
-            client_resp->data_as_OrderResponse()->UnPackTo(&resp);
-            result.push_back(std::move(resp));
-        }
+        result.emplace_back(bytes.begin(), bytes.end());
     }
     return result;
 }
@@ -229,17 +219,17 @@ void PostgresClientDatabase::updatePosition(const OrderResponseT* resp) {
     w.commit();
 }
 
-void PostgresClientDatabase::update_on_execution(const OrderResponseT* resp, bool not_sent) {
-    uint32_t client_id = resp->client_id;
-    if ((EXEC_MASK_TRADE >> resp->exec_type) & 1) {
-        updatePosition(resp);
-    }
-    if ((EXEC_MASK_ALIVE >> resp->exec_type) & 1) {
-        addOrUpdateOpenOrder(resp);
-        } else if ((EXEC_MASK_TERM >> resp->exec_type) & 1) {
-        removeOpenOrder(client_id, resp->order_id);
-    }
-    appendResponseLog(client_id, *resp);
+void PostgresClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) {
+    // uint32_t client_id = resp->client_id;
+    // if ((EXEC_MASK_TRADE >> resp->exec_type) & 1) {
+    //     updatePosition(resp);
+    // }
+    // if ((EXEC_MASK_ALIVE >> resp->exec_type) & 1) {
+    //     addOrUpdateOpenOrder(resp);
+    //     } else if ((EXEC_MASK_TERM >> resp->exec_type) & 1) {
+    //     removeOpenOrder(client_id, resp->order_id);
+    // }
+    // appendResponseLog(client_id, *resp, msg_seq_num);
 }
 
 void PostgresClientDatabase::addOrUpdateOpenOrder(const OrderResponseT* resp) {

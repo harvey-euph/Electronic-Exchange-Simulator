@@ -25,7 +25,7 @@ int OrderEntryClient::start_oe() {
         if (resp->data_type() == ClientResponseData_AdminResponse) {
             auto admin_resp = resp->data_as_AdminResponse();
             if (admin_resp->type() == AdminResponseType_Ready) {
-                i_seq_num_ = admin_resp->msg_seq_num();
+                i_seq_num_ = resp->msg_seq_num();
                 // Request initial state explicitly
                 request_open_orders();
                 for (auto sym : config_.symbol_ids) {
@@ -45,29 +45,29 @@ int OrderEntryClient::start_oe() {
                     // Send new LogOn with resynced seq numbers
                     flatbuffers::FlatBufferBuilder fbb(128);
                     auto username = fbb.CreateString("client_" + std::to_string(config_.client_id));
-                    auto req = CreateAdminRequest(fbb, AdminAction_LogOn, config_.client_id, username, o_seq_num_, admin_resp->expected_ack_seq_num());
-                    auto client_req = CreateClientRequest(fbb, ClientRequestData_AdminRequest, req.Union());
+                    auto req = CreateAdminRequest(fbb, AdminAction_LogOn, config_.client_id, username, resp->msg_seq_num());
+                    auto client_req = CreateClientRequest(fbb, ClientRequestData_AdminRequest, req.Union(), o_seq_num_);
                     fbb.Finish(client_req);
                     mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
-                    LOG_INFO("[OrderEntryClient] Sent resynced LogOn request with MSG=%d, ACK=%d", o_seq_num_, admin_resp->expected_ack_seq_num());
+                    LOG_INFO("[OrderEntryClient] Sent resynced LogOn request with MSG=%lu, ACK=%lu", o_seq_num_, resp->msg_seq_num());
                 } else if (reason == RejectCode_LoginAtOtherSession) {
                     LOG_ERROR("[OrderEntryClient] Logged in at another session. Disconnecting.");
                     stop_oe();
                 }
             }
             return;
-        } else if (resp->data_type() == ClientResponseData_OrderResponse) {
-            auto order_resp = resp->data_as_OrderResponse();
-            if (order_resp->exec_type() != ExecType_OrderStatus) {
-                if (order_resp->msg_seq_num() != i_seq_num_ + 1) {
-                    LOG_ERROR("[OrderEntryClient] Sequence number mismatch. Expected %lu, got %lu", i_seq_num_ + 1, order_resp->msg_seq_num());
-                    throw std::runtime_error("Sequence number mismatch on OrderResponse");
-                }
-                i_seq_num_ = order_resp->msg_seq_num();
+        } else {
+            if (resp->msg_seq_num() != i_seq_num_ + 1) {
+                LOG_ERROR("[OrderEntryClient] Sequence number mismatch. Expected %lu, got %lu", i_seq_num_ + 1, resp->msg_seq_num());
+                throw std::runtime_error("Sequence number mismatch");
             }
-            on_order_response(order_resp);
-        } else if (resp->data_type() == ClientResponseData_PositionResponse) {
-            on_position_response(resp->data_as_PositionResponse());
+            i_seq_num_ = resp->msg_seq_num();
+
+            if (resp->data_type() == ClientResponseData_OrderResponse) {
+                on_order_response(resp->data_as_OrderResponse());
+            } else if (resp->data_type() == ClientResponseData_PositionResponse) {
+                on_position_response(resp->data_as_PositionResponse());
+            }
         }
     });
 
@@ -76,8 +76,8 @@ int OrderEntryClient::start_oe() {
         flatbuffers::FlatBufferBuilder fbb(128);
         auto username = fbb.CreateString("client_" + std::to_string(config_.client_id));
         ++o_seq_num_;
-        auto admin_req = CreateAdminRequest(fbb, AdminAction_LogOn, config_.client_id, username, o_seq_num_, 0);
-        auto client_req = CreateClientRequest(fbb, ClientRequestData_AdminRequest, admin_req.Union());
+        auto admin_req = CreateAdminRequest(fbb, AdminAction_LogOn, config_.client_id, username, 0);
+        auto client_req = CreateClientRequest(fbb, ClientRequestData_AdminRequest, admin_req.Union(), o_seq_num_);
         fbb.Finish(client_req);
         mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
     }
@@ -143,7 +143,7 @@ void OrderEntryClient::cancel_order(uint32_t order_id, uint32_t symbol_id, Side 
 void OrderEntryClient::request_open_orders() {
     flatbuffers::FlatBufferBuilder fbb(128);
     auto req = CreateOpenOrderRequest(fbb, config_.client_id);
-    auto client_req = CreateClientRequest(fbb, ClientRequestData_OpenOrderRequest, req.Union());
+    auto client_req = CreateClientRequest(fbb, ClientRequestData_OpenOrderRequest, req.Union(), ++o_seq_num_);
     fbb.Finish(client_req);
     mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
 }
@@ -151,7 +151,7 @@ void OrderEntryClient::request_open_orders() {
 void OrderEntryClient::request_position(uint32_t symbol_id) {
     flatbuffers::FlatBufferBuilder fbb(128);
     auto req = CreatePositionRequest(fbb, config_.client_id, symbol_id);
-    auto client_req = CreateClientRequest(fbb, ClientRequestData_PositionRequest, req.Union());
+    auto client_req = CreateClientRequest(fbb, ClientRequestData_PositionRequest, req.Union(), ++o_seq_num_);
     fbb.Finish(client_req);
     mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
 }
@@ -179,7 +179,7 @@ void OrderEntryClient::send_order_request(OrderRequestT& order) {
         order.exec_id = next_id_++;
     }
 
-    order.msg_seq_num = ++o_seq_num_;
+    uint64_t msg_seq_num = ++o_seq_num_;
 
     order.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::system_clock::now().time_since_epoch()
@@ -187,7 +187,7 @@ void OrderEntryClient::send_order_request(OrderRequestT& order) {
 
     flatbuffers::FlatBufferBuilder fbb(256);
     auto order_offset = OrderRequest::Pack(fbb, &order);
-    auto client_req = CreateClientRequest(fbb, ClientRequestData_OrderRequest, order_offset.Union());
+    auto client_req = CreateClientRequest(fbb, ClientRequestData_OrderRequest, order_offset.Union(), msg_seq_num);
     fbb.Finish(client_req);
     mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
 }
@@ -195,7 +195,7 @@ void OrderEntryClient::send_order_request(OrderRequestT& order) {
 void OrderEntryClient::query_position(uint32_t symbol_id) {
     flatbuffers::FlatBufferBuilder fbb(128);
     auto pos_req = CreatePositionRequest(fbb, config_.client_id, symbol_id);
-    auto client_req = CreateClientRequest(fbb, ClientRequestData_PositionRequest, pos_req.Union());
+    auto client_req = CreateClientRequest(fbb, ClientRequestData_PositionRequest, pos_req.Union(), ++o_seq_num_);
     fbb.Finish(client_req);
     mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
 }

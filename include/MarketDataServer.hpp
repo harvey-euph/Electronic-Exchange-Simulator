@@ -44,6 +44,7 @@ private:
     
     std::mutex books_mutex_;
     std::map<uint32_t, std::pair<std::shared_ptr<L3Book>, OrderResponseT>> books_;
+    std::map<uint32_t, uint64_t> md_seq_nums_;
 
     std::mutex subs_mutex_;
     

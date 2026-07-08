@@ -103,7 +103,6 @@ int main(int argc, char* argv[]) {
             req->client_id = client_id;
             req->symbol_id = symbol_id;
             req->timestamp = timestamp;
-            req->msg_seq_num = req_id;
             req->exec_id = req_id;
             req->order_id = order_id;
             req->p = price;

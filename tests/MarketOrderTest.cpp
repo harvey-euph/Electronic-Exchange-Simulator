@@ -35,8 +35,7 @@ protected:
         req.p = price;
         req.q = quantity;
         req.visible_qty = 0;
-        req.timestamp = 1000000000ULL;
-        req.msg_seq_num = 0;
+        req.timestamp = 0;
         return req;
     }
 

@@ -40,15 +40,14 @@ def main():
             book[p] = []
         book[p].append(combined)
 
-    def send_resp(exec_type, order_id, client_id, side, p, q, msg_seq_num=0):
+    def send_resp(exec_type, order_id, client_id, side, p, q):
         responses.append({
             'exec_type': exec_type,
             'order_id': order_id,
             'client_id': client_id,
             'side': side,
             'p': p,
-            'q': q,
-            'msg_seq_num': msg_seq_num
+            'q': q
         })
 
     def match(taker):
@@ -193,7 +192,7 @@ def main():
         p_aligned = p_str.rjust(max_p_len)
         q_aligned = q_str.rjust(max_q_len)
         side_str = 'BID' if r['side'] == 'Buy' else 'ASK' if r['side'] == 'Sell' else 'NON'
-        print(f"[ExecutionStdout] [{r['exec_type']}] [{side_str}] @ {p_aligned} x {q_aligned} | order_id: {r['order_id']}, client_id: {r['client_id']}, symbol_id: 1, msg_seq_num: {r['msg_seq_num']}")
+        print(f"[ExecutionStdout] [{r['exec_type']}] [{side_str}] @ {p_aligned} x {q_aligned} | order_id: {r['order_id']}, client_id: {r['client_id']}, symbol_id: 1")
 
     if len(sys.argv) >= 3:
         book_file = sys.argv[2]

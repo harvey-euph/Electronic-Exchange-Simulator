@@ -30,9 +30,9 @@ public:
     virtual uint64_t incrementAndGetClientOSeqNum(uint32_t client_id) = 0;
 
     // Unsent OrderResponse lists
-    virtual void appendResponseLog(uint32_t client_id, const OrderResponseT& resp) = 0;
-    virtual std::vector<OrderResponseT> popPendingResponses(uint32_t client_id) = 0;
-    virtual std::vector<OrderResponseT> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) = 0;
+    virtual void appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) = 0;
+    virtual std::vector<std::vector<uint8_t>> popPendingResponses(uint32_t client_id) = 0;
+    virtual std::vector<std::vector<uint8_t>> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) = 0;
     virtual void acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) = 0;
 
     // Positions
@@ -46,7 +46,7 @@ public:
     virtual std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) = 0;
 
     // Execution processing
-    virtual void update_on_execution(const OrderResponseT* resp, bool not_sent) = 0;
+    virtual void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) = 0;
 };
 
 /**
@@ -76,23 +76,27 @@ public:
         return ++o_seq_nums_[client_id];
     }
 
-    void appendResponseLog(uint32_t client_id, const OrderResponseT& resp) override {
-        uint64_t o_seq = resp.msg_seq_num;
-        response_log_[client_id][o_seq] = resp;
+    void appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) override {
+        uint64_t o_seq = msg_seq_num;
+        flatbuffers::FlatBufferBuilder fbb(256);
+        auto resp_offset = OrderResponse::Pack(fbb, &resp);
+        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), msg_seq_num);
+        fbb.Finish(client_resp);
+        response_log_[client_id][o_seq] = std::vector<uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
     }
 
-    std::vector<OrderResponseT> popPendingResponses([[maybe_unused]] uint32_t client_id) override {
+    std::vector<std::vector<uint8_t>> popPendingResponses([[maybe_unused]] uint32_t client_id) override {
         // Obsolete, use getResponsesSince
         return {};
     }
 
-    std::vector<OrderResponseT> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) override {
-        std::vector<OrderResponseT> result;
+    std::vector<std::vector<uint8_t>> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) override {
+        std::vector<std::vector<uint8_t>> result;
         auto it = response_log_.find(client_id);
         if (it != response_log_.end()) {
-            for (auto const& [seq, resp] : it->second) {
+            for (auto const& [seq, resp_bytes] : it->second) {
                 if (seq > ack_seq_num) {
-                    result.push_back(resp);
+                    result.push_back(resp_bytes);
                 }
             }
         }
@@ -151,7 +155,7 @@ public:
         }
     }
 
-    void update_on_execution(const OrderResponseT* resp, [[maybe_unused]] bool not_sent) override {
+    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, [[maybe_unused]] bool not_sent) override {
         uint32_t client_id = resp->client_id;
         if (check_exec(resp->exec_type, EXEC_TRADE)) {
             updatePosition(resp);
@@ -161,7 +165,7 @@ public:
         } else if (check_exec(resp->exec_type, EXEC_ANN)) {
             removeOpenOrder(client_id, resp->order_id);
         }
-        appendResponseLog(client_id, *resp);
+        appendResponseLog(client_id, *resp, msg_seq_num);
     }
 
     std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) override {
@@ -171,7 +175,7 @@ public:
             for (auto const& [order_id, resp] : it->second) {
                 flatbuffers::FlatBufferBuilder fbb(256);
                 auto resp_offset = CreateOrderResponse(fbb, ExecType_OrderStatus, resp.order_id, resp.client_id, resp.exec_id, resp.symbol_id, resp.side, resp.p, resp.q, resp.reject_code);
-                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union());
+                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), 0);
                 fbb.Finish(client_resp);
                 result.push_back(std::vector<uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize()));
             }
@@ -193,7 +197,7 @@ protected:
 
     std::map<uint32_t, uint64_t> i_seq_nums_;
     std::map<uint32_t, uint64_t> o_seq_nums_;
-    std::map<uint32_t, std::map<uint64_t, OrderResponseT>> response_log_;
+    std::map<uint32_t, std::map<uint64_t, std::vector<uint8_t>>> response_log_;
     std::map<uint32_t, std::map<uint32_t, int64_t>> positions_;
     std::map<uint32_t, std::map<uint64_t, OrderResponseT>> open_orders_;
 };
@@ -203,15 +207,15 @@ public:
     PostgresClientDatabase(const std::string& conn_str);
     ~PostgresClientDatabase() override;
 
-    void appendResponseLog(uint32_t client_id, const OrderResponseT& resp) override;
-    std::vector<OrderResponseT> popPendingResponses(uint32_t client_id) override;
+    void appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) override;
+    std::vector<std::vector<uint8_t>> popPendingResponses(uint32_t client_id) override;
 
     uint64_t getClientISeqNum(uint32_t client_id) override;
     void setClientISeqNum(uint32_t client_id, uint64_t seq_num) override;
     uint64_t getClientOSeqNum(uint32_t client_id) override;
     void setClientOSeqNum(uint32_t client_id, uint64_t seq_num) override;
     uint64_t incrementAndGetClientOSeqNum(uint32_t client_id) override;
-    std::vector<OrderResponseT> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) override;
+    std::vector<std::vector<uint8_t>> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) override;
     void acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) override;
 
     int64_t getPosition(uint32_t client_id, uint32_t symbol_id) override;
@@ -222,7 +226,7 @@ public:
     void removeOpenOrder(uint32_t client_id, uint64_t order_id) override;
     std::vector<std::vector<uint8_t>> getOpenOrders(uint32_t client_id) override;
 
-    void update_on_execution(const OrderResponseT* resp, bool not_sent) override;
+    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) override;
 
 private:
     void reconnect_if_needed();

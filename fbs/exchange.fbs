@@ -22,7 +22,6 @@ table OrderRequest
     q: ulong;
     visible_qty: ulong = 0;   // For Iceberg
     timestamp: ulong;         // microseconds
-    msg_seq_num: ulong;
 }
 
 table OrderResponse
@@ -36,8 +35,6 @@ table OrderResponse
     p: long;
     q: ulong;
     reject_code: RejectCode;
-    msg_seq_num: ulong;
-    orig_msg_seq_num: ulong;
 }
 
 enum AdminAction : byte { LogOn = 0, LogOut = 1 }
@@ -48,16 +45,13 @@ table AdminResponse {
     type: AdminResponseType;
     client_id: uint;
     expected_msg_seq_num: ulong;
-    expected_ack_seq_num: ulong;
     reject_code: RejectCode;
-    msg_seq_num: ulong;
 }
 
 table AdminRequest {
     action: AdminAction;
     client_id: uint;
     username: string;
-    msg_seq_num: ulong;
     ack_seq_num: ulong;
 }
 
@@ -85,6 +79,7 @@ union ClientRequestData {
 
 table ClientRequest {
     data: ClientRequestData;
+    msg_seq_num: ulong;
 }
 
 table PositionResponse {
@@ -101,6 +96,7 @@ union ClientResponseData {
 
 table ClientResponse {
     data: ClientResponseData;
+    msg_seq_num: ulong;
 }
 
 table L2Update

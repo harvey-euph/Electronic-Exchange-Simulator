@@ -30,7 +30,7 @@ public:
 
     void handle_execution_response(const OrderResponseT* resp);
     void process_client_request(CMClientPtr client, const void* data, size_t size);
-    void handle_client_logon(CMClientPtr client, const AdminRequest* admin_req);
+    void handle_client_logon(CMClientPtr client, const AdminRequest* admin_req, uint64_t msg_seq_num);
     void handle_client_logout(CMClientPtr client);
     
     int poll_client();
