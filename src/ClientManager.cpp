@@ -263,7 +263,6 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
 {
     DTRACE_PROBE1(exchange, exec_resp_entry, resp->exec_id);
     uint32_t client_id = resp->client_id;
-    bool not_sent = true;
 
     CMClientPtr client;
     {
@@ -274,25 +273,17 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
         }
     }
 
-    uint64_t msg_seq_num = 0;
-    if (client) {
-        msg_seq_num = client->increment_outbound_seq_num();
-    } else {
-        msg_seq_num = db_->incrementAndGetClientOSeqNum(client_id);
-    }
-
     if (client) {
         flatbuffers::FlatBufferBuilder fbb(256);
         auto resp_offset = OrderResponse::Pack(fbb, resp);
-        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), msg_seq_num);
+        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), client->increment_outbound_seq_num());
         fbb.Finish(client_resp);
 
         client->send(fbb.GetBufferPointer(), fbb.GetSize());
-        not_sent = false;
         DTRACE_PROBE1(exchange, exec_resp_before_db, resp->exec_id);
     }    
 
-    db_->update_on_execution(resp, msg_seq_num, not_sent);
+    db_->update_on_execution(resp, db_->incrementAndGetClientOSeqNum(client_id), !client);
 }
 
 int ClientManager::poll_client()
