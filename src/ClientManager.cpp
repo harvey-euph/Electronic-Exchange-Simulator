@@ -178,7 +178,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
         auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client->client_id(), expected_i_seq, RejectCode_InvalidSequenceNumber);
         auto client_resp = CreateClientResponse(fbb, ClientResponseData_AdminResponse, admin_resp.Union(), new_o_seq);
         fbb.Finish(client_resp);
-        ws->send(fbb.GetBufferPointer(), fbb.GetSize());
+        client->send(fbb.GetBufferPointer(), fbb.GetSize());
         return;
     }
     client->increment_inbound_seq_num();
@@ -230,7 +230,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
             auto new_o_seq = client->increment_outbound_seq_num();
             auto client_resp = CreateClientResponse(fbb, ClientResponseData_PositionResponse, pos_resp.Union(), new_o_seq);
             fbb.Finish(client_resp);
-            ws->send(fbb.GetBufferPointer(), fbb.GetSize());
+            client->send(fbb.GetBufferPointer(), fbb.GetSize());
             break;
         }
         case ClientRequestData_OpenOrderRequest: {
@@ -251,7 +251,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
                 auto new_o_seq = client->increment_outbound_seq_num();
                 auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, new_order_resp.Union(), new_o_seq);
                 fbb.Finish(client_resp);
-                ws->send(fbb.GetBufferPointer(), fbb.GetSize());
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
             }
             break;
         }
