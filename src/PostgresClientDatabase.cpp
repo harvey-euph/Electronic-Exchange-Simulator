@@ -12,7 +12,7 @@ PostgresClientDatabase::PostgresClientDatabase(const std::string& conn_str)
     try {
         conn_ = std::make_unique<pqxx::connection>(conn_str_);
     } catch (const std::exception& e) {
-        LOG_ERROR("[PostgresClientDatabase] Connection failed: %d", e.what());
+        LOG_ERROR("[PostgresClientDatabase] Connection failed: %s", e.what());
         throw;
     }
 }

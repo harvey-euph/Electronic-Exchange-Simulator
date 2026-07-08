@@ -93,7 +93,7 @@ CSVDataReader::~CSVDataReader() {
 bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
     std::ifstream file(csv_filename);
     if (!file.is_open()) {
-        LOG_ERROR("[Error] Cannot open CSV file: %d", csv_filename);
+        LOG_ERROR("[Error] Cannot open CSV file: %s", csv_filename);
         return false;
     }
 
@@ -173,11 +173,11 @@ bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
             requests_.push_back(req);
 
         } catch (const std::exception& e) {
-            LOG_ERROR("[Error] Line %d: %d", line_num, e.what());
+            LOG_ERROR("[Error] Line %d: %s", line_num, e.what());
         }
     }
 
-    LOG_INFO("[Info] Successfully loaded %d orders from %d", requests_.size(), csv_filename);
+    LOG_INFO("[Info] Successfully loaded %zu orders from %s", requests_.size(), csv_filename);
     return true;
 }
 

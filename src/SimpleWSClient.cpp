@@ -50,7 +50,7 @@ public:
             ws_.handshake(host_, "/");
             return true;
         } catch (std::exception const& e) {
-            LOG_ERROR("[SimpleWSClient] Connect error: %d", e.what());
+            LOG_ERROR("[SimpleWSClient] Connect error: %s", e.what());
             return false;
         }
     }

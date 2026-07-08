@@ -11,7 +11,7 @@ PostgresSymbolDatabase::PostgresSymbolDatabase(const std::string& conn_str)
     try {
         conn_ = std::make_unique<pqxx::connection>(conn_str_);
     } catch (const std::exception& e) {
-        LOG_ERROR("[PostgresSymbolDatabase] Connection failed: %d", e.what());
+        LOG_ERROR("[PostgresSymbolDatabase] Connection failed: %s", e.what());
         throw;
     }
 }
@@ -38,7 +38,7 @@ bool PostgresSymbolDatabase::getSymbolInfo(uint32_t symbol_id, DbSymbolInfo& inf
             return true;
         }
     } catch (const std::exception& e) {
-        LOG_ERROR("[PostgresSymbolDatabase] Query failed: %d", e.what());
+        LOG_ERROR("[PostgresSymbolDatabase] Query failed: %s", e.what());
         conn_.reset(); // Force reconnect next time
     }
     return false;
