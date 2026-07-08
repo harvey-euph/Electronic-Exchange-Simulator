@@ -7,6 +7,8 @@
 
 namespace Exchange {
 
+struct OrderResponseT;
+
 class CMClient;
 using CMClientPtr = std::shared_ptr<CMClient>;
 
@@ -19,6 +21,7 @@ public:
     void set_message_handler(MessageHandler handler);
     void on_message(const void* data, size_t size);
     void send(const void* data, size_t size);
+    void send(const OrderResponseT* resp);
 
     uint32_t client_id() const;
     void set_client_id(uint32_t id);

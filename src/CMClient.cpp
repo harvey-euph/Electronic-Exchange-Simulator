@@ -1,4 +1,5 @@
 #include "CMClient.hpp"
+#include "fbs/exchange_generated.h"
 
 namespace Exchange {
 
@@ -19,6 +20,17 @@ void CMClient::send(const void* data, size_t size) {
     if (conn_) {
         conn_->send(data, size);
     }
+}
+
+void CMClient::send(const OrderResponseT* resp) {
+    if (!conn_) return;
+    
+    flatbuffers::FlatBufferBuilder fbb(256);
+    auto resp_offset = OrderResponse::Pack(fbb, resp);
+    auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), increment_outbound_seq_num());
+    fbb.Finish(client_resp);
+    
+    send(fbb.GetBufferPointer(), fbb.GetSize());
 }
 
 uint32_t CMClient::client_id() const { return client_id_; }

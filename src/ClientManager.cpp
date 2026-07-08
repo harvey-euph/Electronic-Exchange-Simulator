@@ -241,17 +241,9 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
             LOG_INFO("[ClientManager] Sending %d open orders on request.", open_orders.size());
             for (auto& order_data : open_orders) {
                 auto orig_resp = flatbuffers::GetRoot<ClientResponse>(order_data.data());
-                auto order_resp = orig_resp->data_as_OrderResponse();
-                
-                flatbuffers::FlatBufferBuilder fbb(256);
-                auto new_order_resp = CreateOrderResponse(fbb, 
-                    order_resp->exec_type(), order_resp->order_id(), order_resp->client_id(), 
-                    order_resp->exec_id(), order_resp->symbol_id(), order_resp->side(), 
-                    order_resp->p(), order_resp->q(), order_resp->reject_code());
-                auto new_o_seq = client->increment_outbound_seq_num();
-                auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, new_order_resp.Union(), new_o_seq);
-                fbb.Finish(client_resp);
-                client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                OrderResponseT order_resp_t;
+                orig_resp->data_as_OrderResponse()->UnPackTo(&order_resp_t);
+                client->send(&order_resp_t);
             }
             break;
         }
@@ -274,12 +266,7 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
     }
 
     if (client) {
-        flatbuffers::FlatBufferBuilder fbb(256);
-        auto resp_offset = OrderResponse::Pack(fbb, resp);
-        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), client->increment_outbound_seq_num());
-        fbb.Finish(client_resp);
-
-        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        client->send(resp);
         DTRACE_PROBE1(exchange, exec_resp_before_db, resp->exec_id);
     }    
 
