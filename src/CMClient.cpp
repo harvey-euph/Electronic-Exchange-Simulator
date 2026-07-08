@@ -33,6 +33,17 @@ void CMClient::send(const OrderResponseT* resp) {
     send(fbb.GetBufferPointer(), fbb.GetSize());
 }
 
+void CMClient::send(const PositionResponseT* resp) {
+    if (!conn_) return;
+    
+    flatbuffers::FlatBufferBuilder fbb(128);
+    auto resp_offset = PositionResponse::Pack(fbb, resp);
+    auto client_resp = CreateClientResponse(fbb, ClientResponseData_PositionResponse, resp_offset.Union(), increment_outbound_seq_num());
+    fbb.Finish(client_resp);
+    
+    send(fbb.GetBufferPointer(), fbb.GetSize());
+}
+
 uint32_t CMClient::client_id() const { return client_id_; }
 void CMClient::set_client_id(uint32_t id) { client_id_ = id; }
 

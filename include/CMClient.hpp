@@ -8,6 +8,7 @@
 namespace Exchange {
 
 struct OrderResponseT;
+struct PositionResponseT;
 
 class CMClient;
 using CMClientPtr = std::shared_ptr<CMClient>;
@@ -22,6 +23,7 @@ public:
     void on_message(const void* data, size_t size);
     void send(const void* data, size_t size);
     void send(const OrderResponseT* resp);
+    void send(const PositionResponseT* resp);
 
     uint32_t client_id() const;
     void set_client_id(uint32_t id);

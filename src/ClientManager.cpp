@@ -225,12 +225,11 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
             auto post_req = request->data_as_PositionRequest();
             int64_t pos = db_->getPosition(post_req->client_id(), post_req->symbol_id());
             
-            flatbuffers::FlatBufferBuilder fbb(128);
-            auto pos_resp = CreatePositionResponse(fbb, post_req->client_id(), post_req->symbol_id(), pos);
-            auto new_o_seq = client->increment_outbound_seq_num();
-            auto client_resp = CreateClientResponse(fbb, ClientResponseData_PositionResponse, pos_resp.Union(), new_o_seq);
-            fbb.Finish(client_resp);
-            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+            PositionResponseT pos_resp_t;
+            pos_resp_t.client_id = post_req->client_id();
+            pos_resp_t.symbol_id = post_req->symbol_id();
+            pos_resp_t.position = pos;
+            client->send(&pos_resp_t);
             break;
         }
         case ClientRequestData_OpenOrderRequest: {
