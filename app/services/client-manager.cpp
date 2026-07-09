@@ -23,13 +23,22 @@ int main()
     auto sym_db = std::make_shared<Exchange::CSVSymbolDatabase>("data/symbols.csv");
 #endif
 
+    db->start_polling();
+
     std::unique_ptr<mmaplog::MmapReader> response;
-    std::map<int32_t, std::unique_ptr<Exchange::SHMRingBuffer>> request_rings;
+    std::vector<std::unique_ptr<Exchange::SHMRingBuffer>> request_rings;
     try {
         response = std::make_unique<mmaplog::MmapReader>(EXECUTION_JOURNAL_DIR);
         auto cores = sym_db->getAllCores();
+        int32_t max_core = -1;
         for (int32_t core_id : cores) {
-            std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(core_id);
+            if (core_id > max_core) max_core = core_id;
+        }
+        if (max_core >= 0) {
+            request_rings.resize(max_core + 1);
+        }
+        for (int32_t core_id : cores) {
+            std::string ring_name = ORDER_REQUEST "_" + std::to_string(core_id);
             request_rings[core_id] = std::make_unique<Exchange::SHMRingBuffer>(ring_name.c_str(), ORDER_REQUEST_SIZE);
             LOG_INFO("[ClientManager] Initialized request ring %s for core %d", ring_name.c_str(), core_id);
         }

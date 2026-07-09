@@ -5,11 +5,12 @@
 #include <algorithm>
 #include <new>
 #include <sys/sdt.h>
+#include "define.hpp"
 
 namespace Exchange {
 
 ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor, 
-                             std::map<int32_t, std::unique_ptr<SHMRingBuffer>> request_rings, 
+                             std::vector<std::unique_ptr<SHMRingBuffer>> request_rings, 
                              std::unique_ptr<mmaplog::MmapReader> response_ring, 
                              std::shared_ptr<ClientDatabase> db,
                              std::shared_ptr<SymbolDatabase> sym_db) 
@@ -20,6 +21,7 @@ ClientManager::ClientManager(std::shared_ptr<WSAdaptor> ws_adaptor,
     , sym_db_(sym_db)
 {
     LOG_INFO("[ClientManager] Initializing");
+    pending_order_clients_.resize(request_rings_.size());
 
     CMClient::bind_adaptor(
         ws_adaptor_,
@@ -46,12 +48,9 @@ void ClientManager::handle_client_logon(CMClientPtr new_client, const AdminReque
 
     CMClientPtr old_client;
 
-    {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        auto it = clients_.find(client_id);
-        if (it != clients_.end()) {
-            old_client = it->second;
-        }
+    auto it = clients_.find(client_id);
+    if (it != clients_.end()) {
+        old_client = it->second;
     }
 
     if (old_client) {
@@ -78,29 +77,27 @@ void ClientManager::handle_client_logon(CMClientPtr new_client, const AdminReque
 
     uint64_t shared_msg_seq_num = 0;
 
-    {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        if (old_client) {
-            shared_msg_seq_num = old_client->increment_outbound_seq_num();
-            WSClientPtr old_ws = old_client->get_conn();
-            if (old_ws && old_ws != new_client->get_conn()) {
-                flatbuffers::FlatBufferBuilder fbb(128);
-                auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client_id, expected_msg_seq_num, RejectCode_LoginAtOtherSession);
-                auto client_resp = CreateClientResponse(fbb, ClientResponseData_AdminResponse, admin_resp.Union(), shared_msg_seq_num);
-                fbb.Finish(client_resp);
-                old_client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                
-                old_ws->close();
-            }
-        } else {
-            shared_msg_seq_num = expected_ack_seq_num + 1;
+    if (old_client) {
+        shared_msg_seq_num = old_client->increment_outbound_seq_num();
+        WSClientPtr old_ws = old_client->get_conn();
+        if (old_ws && old_ws != new_client->get_conn()) {
+            flatbuffers::FlatBufferBuilder fbb(128);
+            auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client_id, expected_msg_seq_num, RejectCode_LoginAtOtherSession);
+            auto client_resp = CreateClientResponse(fbb, ClientResponseData_AdminResponse, admin_resp.Union(), shared_msg_seq_num);
+            fbb.Finish(client_resp);
+            old_client->send(fbb.GetBufferPointer(), fbb.GetSize());
+            
+            old_ws->close();
         }
-        
-        new_client->set_client_id(client_id);
-        new_client->set_inbound_seq_num(client_msg_seq_num);
-        new_client->set_outbound_seq_num(shared_msg_seq_num);
-        clients_[client_id] = new_client;
+    } else {
+        shared_msg_seq_num = expected_ack_seq_num + 1;
     }
+    
+    new_client->set_client_id(client_id);
+    new_client->set_inbound_seq_num(client_msg_seq_num);
+    new_client->set_outbound_seq_num(shared_msg_seq_num);
+    clients_[client_id] = new_client;
+
     LOG_INFO("[ClientManager] Client %d connected.", client_id);
     
     // Send missed executions (OrderResponse)
@@ -130,7 +127,6 @@ void ClientManager::handle_client_logout(CMClientPtr client)
     uint32_t client_id = client->client_id();
     if (client_id == 0) return; // Unauthenticated client, nothing to remove from DB or map
 
-    std::lock_guard<std::mutex> lock(clients_mutex_);
     auto it = clients_.find(client_id);
     if (it != clients_.end() && it->second == client) {
         db_->setClientISeqNum(client_id, client->inbound_seq_num());
@@ -138,6 +134,10 @@ void ClientManager::handle_client_logout(CMClientPtr client)
         clients_.erase(it);
     }
     
+    if (last_popped_client_ == client) {
+        last_popped_client_ = nullptr;
+    }
+
     LOG_INFO("[ClientManager] Client %d disconnected.", client_id);
 }
 
@@ -193,17 +193,17 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
                 core_id = info.core_id;
             }
 
-            auto it = request_rings_.find(core_id);
-            if (it == request_rings_.end()) {
+            if (core_id < 0 || core_id >= static_cast<int32_t>(request_rings_.size()) || !request_rings_[core_id]) {
                 LOG_WARN("[ClientManager] No request ring for core_id %d", core_id);
                 return;
             }
 
-            auto token = it->second->reserve(sizeof(OrderRequestT));
+            auto token = request_rings_[core_id]->reserve(sizeof(OrderRequestT));
             if (!token) {
                 // TODO: Send some alert
                 return;
             }
+            pending_order_clients_[core_id].push(client);
             new (token->payload) OrderRequestT {
                 .action      = order_req->action(),
                 .exec_id     = order_req->exec_id(),
@@ -217,7 +217,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
                 .visible_qty = order_req->visible_qty(),
                 .timestamp   = order_req->timestamp(),
             };
-            it->second->commit(*token);
+            request_rings_[core_id]->commit(*token);
             DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
             break;
         }
@@ -253,8 +253,38 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
     uint32_t client_id = resp->client_id;
 
     CMClientPtr client;
-    {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
+    if (check_exec(resp->exec_type, EXEC_RESP)) {
+        DbSymbolInfo info;
+        int32_t core_id = 1; // default
+        if (sym_db_->getSymbolInfo(resp->symbol_id, info)) { // TODO: impl a fast sym -> core 
+            core_id = info.core_id;
+        }
+
+        if (core_id < 0 || core_id >= static_cast<int32_t>(pending_order_clients_.size())) {
+            LOG_ERROR("[ClientManager] Queue bounds mismatch for core_id %d", core_id);
+        } else {
+            // TODO: Compare with/without queueing client
+            auto& q = pending_order_clients_[core_id]; // TODO: impl a fast core -> queue 
+            if (!q.empty()) {
+                client = q.front();
+                q.pop();
+                if (client->client_id() != client_id) {
+                    LOG_ERROR("[ClientManager] Queue mismatch! expected %u, got %u", client_id, client->client_id());
+                    client = nullptr; 
+                } else {
+                    last_popped_client_ = client;
+                }
+            } else {
+                LOG_ERROR("[ClientManager] Queue empty but got queue response for client %u", client_id);
+            }
+        }
+    } else {
+        if (last_popped_client_ && last_popped_client_->client_id() == client_id) {
+            client = last_popped_client_;
+        }
+    }
+
+    if (!client) {
         auto it = clients_.find(client_id);
         if (it != clients_.end()) {
             client = it->second;
@@ -265,8 +295,6 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
         client->send(resp);
         DTRACE_PROBE1(exchange, exec_resp_before_db, resp->exec_id);
     }    
-
-    db_->update_on_execution(resp, db_->incrementAndGetClientOSeqNum(client_id), !client);
 }
 
 int ClientManager::poll_client()
