@@ -3,7 +3,7 @@
 It all started as a simple practice to build a C++ matching engine. However, the relentless pursuit of lower latency and higher throughput quickly escalated the scope. What began as a single component has evolved into a complete, high-performance exchange ecosystem.
 
 Designed with a strong emphasis on low-latency architecture and systematic observability, the project now features a comprehensive suite of components:
-- **Core Engine & Gateways:** A highly optimized Matching Engine decoupled from the Client Manager and HTTP Acceptors via lock-free Shared Memory (SHM) Ring Buffers.
+- **Core Engine & Gateways:** A highly optimized, multi-core Matching Engine architecture where symbols are partitioned across multiple parallel instances, communicating with the Client Manager via dedicated lock-free Shared Memory (SHM) Ring Buffers per core. The Database also decouples itself from synchronous updates by performing independent background polling of execution journals.
 - **Client & Market Data Protocols:** WebSocket-based streaming for L2/L3 order book updates and execution reports, utilizing zero-allocation FlatBuffers for ultra-fast serialization.
 - **Observability (eBPF):** A custom Linux eBPF latency tracer (`lat-tracer`) that hooks into kernel network stacks (`tcp_recvmsg`/`tcp_sendmsg`) and user-space C++ functions (`uprobes`). It measures end-to-end latency at the microsecond level, mathematically isolating kernel network overhead from application processing time.
 - **Automated Trading Agents:** A built-in C++ algorithmic trading ecosystem, including a Market Maker for liquidity provision and a Stress Trader for simulating high-frequency market chaos and load testing.
@@ -60,18 +60,22 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Client[Client API/APP] -->|1. HTTP /order| HTTP[http_accepter]
-    Client -->|1. WS OrderRequest| CM[client_manager]
+    Client[Client API/APP] -->|1. WS OrderRequest| CM[client_manager]
     Client -->|1. HTTP /v1/symbol| PD[public_data]
     
-    HTTP -->|2. Enqueue| RB_REQ[ORDER_REQUEST SHM Ring Buffer]
-    CM -->|2. Enqueue| RB_REQ
+    subgraph Core[Per-Core Partition x N]
+        RB_REQ[ORDER_REQUEST SHM Ring] -->|3. Dequeue| OC[Matching Engine Instance]
+    end
     
-    RB_REQ -->|3. Dequeue| OC[Matching Engine]
+    CM -->|2. Enqueue to mapped ring| RB_REQ
+    
     OC -->|4. ExecutionReport| MMAP_LOG[execution-journals MmapLog]
     
     MMAP_LOG -->|5. Read| CM
-    CM -->|6. WS ClientResponse / DB| Client
+    CM -->|6. WS ClientResponse| Client
+    
+    MMAP_LOG -->|5. Background Polling| DB[Client Database]
+    CM <-->|Query Client Data| DB
     
     MMAP_LOG -->|5. Read| MDS[market_data_server]
     MDS -->|6. WS L2/L3 Update| Client
@@ -142,7 +146,7 @@ sequenceDiagram
     Note over CM: Stage 5: Response Encoding & Pre-DB
     MmapLog->>CM: [usdt] exec_resp_entry
     
-    Note over CM: Stage 6: Database & Send Prepare
+    Note over CM: Stage 6: Client Dispatch
     CM->>CM: [usdt] exec_resp_before_db
     
     Note over CM, Kernel: Stage 7: Kernel Network Tx
