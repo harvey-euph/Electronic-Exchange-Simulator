@@ -21,7 +21,7 @@ int main()
     setup_signals();
 
     std::vector<std::string> ring_names = {
-        ORDER_REQUEST "_1"
+        ORDER_REQUEST "_0"
     };
 
     std::vector<RingInfo> rings;

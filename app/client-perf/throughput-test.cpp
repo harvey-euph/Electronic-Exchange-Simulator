@@ -19,7 +19,7 @@ int main(int argc, char* argv[]) {
         N = std::stoi(argv[1]);
     }
 
-    SHMRingBuffer request_ring(ORDER_REQUEST "_1", ORDER_REQUEST_SIZE);
+    SHMRingBuffer request_ring(ORDER_REQUEST "_0", ORDER_REQUEST_SIZE);
     mmaplog::MmapReader response_ring(EXECUTION_JOURNAL_DIR);
     
     // wait for matching engine to init SHM

@@ -186,24 +186,23 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
     switch (type) {
         case ClientRequestData_OrderRequest: {
             auto order_req = request->data_as_OrderRequest();
-
             DbSymbolInfo info;
-            int32_t core_id = 1; // default
-            if (sym_db_->getSymbolInfo(order_req->symbol_id(), info)) {
-                core_id = info.core_id;
+            int32_t core_offset = 0; // default
+            if (sym_db_->getSymbolInfo(order_req->symbol_id(), info)) { // TODO: impl a fast sym -> core 
+                core_offset = info.core_offset;
             }
 
-            if (core_id < 0 || core_id >= static_cast<int32_t>(request_rings_.size()) || !request_rings_[core_id]) {
-                LOG_WARN("[ClientManager] No request ring for core_id %d", core_id);
+            if (core_offset < 0 || core_offset >= static_cast<int32_t>(request_rings_.size()) || !request_rings_[core_offset]) {
+                LOG_WARN("[ClientManager] No request ring for core_offset %d", core_offset);
                 return;
             }
 
-            auto token = request_rings_[core_id]->reserve(sizeof(OrderRequestT));
+            auto token = request_rings_[core_offset]->reserve(sizeof(OrderRequestT));
             if (!token) {
                 // TODO: Send some alert
                 return;
             }
-            pending_order_clients_[core_id].push(client);
+            pending_order_clients_[core_offset].push(client);
             new (token->payload) OrderRequestT {
                 .action      = order_req->action(),
                 .exec_id     = order_req->exec_id(),
@@ -217,7 +216,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
                 .visible_qty = order_req->visible_qty(),
                 .timestamp   = order_req->timestamp(),
             };
-            request_rings_[core_id]->commit(*token);
+            request_rings_[core_offset]->commit(*token);
             DTRACE_PROBE1(exchange, req_enqueue, order_req->exec_id());
             break;
         }
@@ -255,16 +254,16 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
     CMClientPtr client;
     if (check_exec(resp->exec_type, EXEC_RESP)) {
         DbSymbolInfo info;
-        int32_t core_id = 1; // default
+        int32_t core_offset = 0; // default
         if (sym_db_->getSymbolInfo(resp->symbol_id, info)) { // TODO: impl a fast sym -> core 
-            core_id = info.core_id;
+            core_offset = info.core_offset;
         }
 
-        if (core_id < 0 || core_id >= static_cast<int32_t>(pending_order_clients_.size())) {
-            LOG_ERROR("[ClientManager] Queue bounds mismatch for core_id %d", core_id);
+        if (core_offset < 0 || core_offset >= static_cast<int32_t>(pending_order_clients_.size())) {
+            LOG_ERROR("[ClientManager] Queue bounds mismatch for core_offset %d", core_offset);
         } else {
             // TODO: Compare with/without queueing client
-            auto& q = pending_order_clients_[core_id]; // TODO: impl a fast core -> queue 
+            auto& q = pending_order_clients_[core_offset]; // TODO: impl a fast core -> queue  
             if (!q.empty()) {
                 client = q.front();
                 q.pop();

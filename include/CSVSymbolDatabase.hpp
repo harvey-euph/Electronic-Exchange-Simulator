@@ -14,7 +14,7 @@ public:
     ~CSVSymbolDatabase() override = default;
 
     bool getSymbolInfo(uint32_t symbol_id, DbSymbolInfo& info) override;
-    std::vector<uint32_t> getSymbolsForCore(int32_t core_id) override;
+    std::vector<uint32_t> getSymbolsForCore(int32_t core_offset) override;
     std::set<int32_t> getAllCores() override;
 
 private:

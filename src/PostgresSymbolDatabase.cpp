@@ -44,17 +44,17 @@ bool PostgresSymbolDatabase::getSymbolInfo(uint32_t symbol_id, DbSymbolInfo& inf
     return false;
 }
 
-std::vector<uint32_t> PostgresSymbolDatabase::getSymbolsForCore(int32_t core_id) {
+std::vector<uint32_t> PostgresSymbolDatabase::getSymbolsForCore(int32_t core_offset) {
     std::vector<uint32_t> result;
     try {
         reconnect_if_needed();
         if (!conn_ || !conn_->is_open()) return result;
         pqxx::work w(*conn_);
         pqxx::result r = w.exec(
-            "SELECT symbol_id FROM symbols" // Fallback query if core_id column doesn't exist? Actually let's assume it exists, or just query all and filter if we don't know
+            "SELECT symbol_id FROM symbols" // Fallback query if core_offset column doesn't exist? Actually let's assume it exists, or just query all and filter if we don't know
         );
-        // "由於現在的 symbol 數量不多，讓所有 symbol 都先用同一個 core 運作" -> Just return all for core 1
-        if (core_id == 1) {
+        // "由於現在的 symbol 數量不多，讓所有 symbol 都先用同一個 core 運作" -> Just return all for core 0
+        if (core_offset == 0) {
             for (auto row : r) {
                 result.push_back(row[0].as<uint32_t>());
             }
@@ -72,10 +72,10 @@ std::set<int32_t> PostgresSymbolDatabase::getAllCores() {
         reconnect_if_needed();
         if (!conn_ || !conn_->is_open()) return result;
         pqxx::work w(*conn_);
-        // Assuming core_id exists in postgres schema. If not, fallback to {1}.
-        // But let's just return {1} for now since we said "due to few symbols they all use core 1".
-        // A true query would be: pqxx::result r = w.exec("SELECT DISTINCT core_id FROM symbols");
-        result.insert(1);
+        // Assuming core_offset exists in postgres schema. If not, fallback to {0}.
+        // But let's just return {0} for now since we said "due to few symbols they all use core 0".
+        // A true query would be: pqxx::result r = w.exec("SELECT DISTINCT core_offset FROM symbols");
+        result.insert(0);
     } catch (const std::exception& e) {
         LOG_ERROR("[PostgresSymbolDatabase] Query failed: %s", e.what());
         conn_.reset();

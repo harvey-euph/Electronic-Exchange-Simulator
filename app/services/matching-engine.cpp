@@ -15,7 +15,7 @@
 
 int main(int argc, char* argv[])
 {
-    int32_t target_core_offset = 1;
+    int32_t target_core_offset = 0;
     if (argc > 1) {
         target_core_offset = std::stoi(argv[1]);
     }

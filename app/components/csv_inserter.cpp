@@ -32,9 +32,9 @@ int main(int argc, char* argv[]) {
     std::unordered_map<int32_t, std::unique_ptr<Exchange::SHMRingBuffer>> request_rings;
 
     auto cores = sym_db.getAllCores();
-    for (int32_t core_id : cores) {
-        std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(core_id);
-        request_rings[core_id] = std::make_unique<Exchange::SHMRingBuffer>(ring_name.c_str(), ORDER_REQUEST_SIZE);
+    for (int32_t core_offset : cores) {
+        std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(core_offset);
+        request_rings[core_offset] = std::make_unique<Exchange::SHMRingBuffer>(ring_name.c_str(), ORDER_REQUEST_SIZE);
         // We only wait for capacity later, on demand, or not at all since the ME might not be running for all cores in testing
     }
 
@@ -80,9 +80,9 @@ int main(int argc, char* argv[]) {
                 continue;
             }
 
-            auto it = request_rings.find(info.core_id);
+            auto it = request_rings.find(info.core_offset);
             if (it == request_rings.end()) {
-                std::cerr << "Warning: no ring for core " << info.core_id << "\n";
+                std::cerr << "Warning: no ring for core " << info.core_offset << "\n";
                 continue;
             }
 
