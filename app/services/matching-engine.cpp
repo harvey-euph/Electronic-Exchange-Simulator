@@ -15,19 +15,19 @@
 
 int main(int argc, char* argv[])
 {
-    int32_t target_core_id = 1;
+    int32_t target_core_offset = 1;
     if (argc > 1) {
-        target_core_id = std::stoi(argv[1]);
+        target_core_offset = std::stoi(argv[1]);
     }
 
-    std::string logger_name = "ME" + std::to_string(target_core_id);
+    std::string logger_name = "ME" + std::to_string(target_core_offset);
     Exchange::initLogger(logger_name.c_str());
 
     setup_signals();
 
-    int main_core = ME_CORE;
-    if (main_core >= 0) {
-        Exchange::set_thread_affinity(main_core, "MatchingEngine");
+    int main_core_base = ME_CORE;
+    if (main_core_base >= 0) {
+        Exchange::set_thread_affinity(main_core_base + target_core_offset, "MatchingEngine");
     }
 
     LOG_INFO("[OrderCore] Starting matching engine...");
@@ -39,13 +39,13 @@ int main(int argc, char* argv[])
     db = std::make_shared<Exchange::CSVSymbolDatabase>("data/symbols.csv");
 #endif
 
-    auto symbol_ids = db->getSymbolsForCore(target_core_id);
+    auto symbol_ids = db->getSymbolsForCore(target_core_offset);
     if (symbol_ids.empty()) {
-        LOG_ERROR("[OrderCore] No symbols found for core %d. Shutting down.", target_core_id);
+        LOG_ERROR("[OrderCore] No symbols found for core %d. Shutting down.", target_core_offset);
         return 0;
     }
 
-    LOG_INFO("[OrderCore] Core %d will handle %zu symbols", target_core_id, symbol_ids.size());
+    LOG_INFO("[OrderCore] Core %d will handle %zu symbols", target_core_offset, symbol_ids.size());
 
     mmaplog::MmapWriter response_ring(EXECUTION_JOURNAL_DIR);
     
@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(target_core_id);
+    std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(target_core_offset);
     Exchange::SHMRingBuffer request_ring(ring_name.c_str(), ORDER_REQUEST_SIZE);
 
     LOG_INFO("[OrderCore] Listening for requests on %s...", ring_name.c_str());
