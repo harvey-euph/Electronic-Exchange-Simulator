@@ -20,7 +20,7 @@ mkdir -p "$LOG_DIR"
 JOURNAL_DIR="$PROJECT_ROOT/log/execution-journals"
 mkdir -p "$JOURNAL_DIR"
 rm -f "$JOURNAL_DIR"/*
-rm -f /dev/shm/ORDER_REQUEST_1 /dev/shm/ORDER_RESPONSE 2>/dev/null
+rm -f /dev/shm/ORDER_REQUEST_* /dev/shm/ORDER_RESPONSE 2>/dev/null
 
 apply_system_tuning
 

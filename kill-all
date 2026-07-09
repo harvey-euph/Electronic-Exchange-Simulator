@@ -33,7 +33,7 @@ $SUDO_CMD pkill -x "lat-tracer" || true
 $SUDO_CMD pkill -x "ebpf-msg-flow" || true
 
 echo "=== Cleaning up shared memory files ==="
-$SUDO_CMD rm -f /dev/shm/ORDER_REQUEST \
+$SUDO_CMD rm -f /dev/shm/ORDER_REQUEST_* \
         /dev/shm/ORDER_RESPONSE \
         /dev/shm/MARKET_DATA_RING \
         /dev/shm/EXCHANGE_TELEMETRY \
