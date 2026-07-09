@@ -196,29 +196,6 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     }
   }, [activeSymbolId, connected.l2, symbolInfos]);
 
-  useEffect(() => {
-    if (activeSymbolId > 0 && !isNaN(activeSymbolId) && connected.mgmt) {
-      if (mgmtWsRef.current?.readyState === WebSocket.OPEN) {
-        const numericClientId = parseInt(lastClientIdRef.current || '101', 10);
-        if (!isNaN(numericClientId)) {
-          const builder = new flatbuffers.Builder(128);
-          PositionRequest.startPositionRequest(builder);
-          PositionRequest.addClientId(builder, numericClientId);
-          PositionRequest.addSymbolId(builder, activeSymbolId);
-          const posReqOffset = PositionRequest.endPositionRequest(builder);
-          
-          clientSeqNumRef.current += 1n;
-          ClientRequest.startClientRequest(builder);
-          ClientRequest.addDataType(builder, ClientReqData.PositionRequest);
-          ClientRequest.addData(builder, posReqOffset);
-          ClientRequest.addMsgSeqNum(builder, clientSeqNumRef.current);
-          const crOffset = ClientRequest.endClientRequest(builder);
-          builder.finish(crOffset);
-          mgmtWsRef.current.send(builder.asUint8Array() as any);
-        }
-      }
-    }
-  }, [activeSymbolId, connected.mgmt]);
 
   const subscribeL2 = useCallback((sId: number) => {
     setSubscribedSymbols(prev => {
@@ -538,9 +515,8 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
                   };
                 } else {
                   // Re-sync logic: server provides net position. 
-                  // If we're reconnecting, we maintain the net total but consolidate into a single 'sync' lot 
-                  // because we can't reliably reconcile multiple lots from a net position sync.
                   if (current.totalQuantity !== absQty || current.side !== side) {
+                    current = { ...current };
                     current.totalQuantity = absQty;
                     current.side = side;
                     current.lots = qty !== 0n ? [{ price: current.averagePrice, quantity: absQty, timestamp: Date.now(), orderId: 'sync' }] : [];
