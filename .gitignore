@@ -12,7 +12,7 @@ tests/*/*.csv
 *.pyc
 !tests/*/requests.csv
 .run_service.pid
-
+data/*.db*
 # eBPF Generated Files
 vmlinux.h
 *.skel.h

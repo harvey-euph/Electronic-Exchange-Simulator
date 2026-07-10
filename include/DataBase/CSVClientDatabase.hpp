@@ -1,6 +1,7 @@
 #pragma once
 
-#include "ClientDatabase.hpp"
+#include "define.hpp"
+#include "InMemoryClientDatabase.hpp"
 #include <string>
 
 namespace Exchange {

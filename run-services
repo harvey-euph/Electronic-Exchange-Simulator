@@ -55,7 +55,7 @@ if [ ! -x "$ME_EXE" ]; then
     exit 1
 fi
 
-CORES=(1)
+CORES=(0)
 for core in "${CORES[@]}"; do
     run_cmd="chrt -f 99 $ME_EXE $core"
     nohup bash -c "while true; do $run_cmd >/dev/null 2>&1; sleep 2; done" "exchange_core_service_matching-engine_${core}" >/dev/null 2>&1 &

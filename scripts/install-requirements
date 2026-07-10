@@ -17,6 +17,7 @@ sudo apt-get install -y \
   libboost-all-dev \
   libpq-dev \
   libpqxx-dev \
+  libsqlite3-dev \
   flatbuffers-compiler \
   libflatbuffers-dev \
   libgtest-dev \

@@ -2,7 +2,8 @@
 #include "mmap_log.h"
 #include "define.hpp"
 #include "fbs/exchange_generated.h"
-#include "CSVSymbolDatabase.hpp"
+#include "DataBase/common.hpp"
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -28,12 +29,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Exchange::CSVSymbolDatabase sym_db("data/symbols.csv");
+    auto sym_db = Exchange::DBFactory::createSymbolDatabase();
     std::unordered_map<int32_t, std::unique_ptr<Exchange::SHMRingBuffer>> request_rings;
 
-    auto cores = sym_db.getAllCores();
+    auto cores = sym_db->getAllCores();
     for (int32_t core_offset : cores) {
-        std::string ring_name = std::string(ORDER_REQUEST) + "_" + std::to_string(core_offset);
+        std::string ring_name = ORDER_REQUEST "_" + std::to_string(core_offset);
         request_rings[core_offset] = std::make_unique<Exchange::SHMRingBuffer>(ring_name.c_str(), ORDER_REQUEST_SIZE);
         // We only wait for capacity later, on demand, or not at all since the ME might not be running for all cores in testing
     }
@@ -75,7 +76,7 @@ int main(int argc, char* argv[]) {
             uint32_t symbol_id = std::stoul(cols[10]);
 
             Exchange::DbSymbolInfo info;
-            if (!sym_db.getSymbolInfo(symbol_id, info)) {
+            if (!sym_db->getSymbolInfo(symbol_id, info)) {
                 std::cerr << "Warning: unknown symbol_id " << symbol_id << "\n";
                 continue;
             }

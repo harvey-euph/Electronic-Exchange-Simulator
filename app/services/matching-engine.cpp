@@ -1,14 +1,13 @@
 #include "LogUtil.hpp"
 #include "MatchingEngine.hpp"
-#include "DbUtil.hpp"
+
 #include "ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
 #include "SignalHandler.hpp"
 #include <iostream>
 #include "mmap_log.h"
 
-#include "SymbolDatabase.hpp"
-#include "CSVSymbolDatabase.hpp"
+#include "DataBase/common.hpp"
 #include <unordered_map>
 #include <memory>
 #include <string>
@@ -32,12 +31,7 @@ int main(int argc, char* argv[])
 
     LOG_INFO("[OrderCore] Starting matching engine...");
 
-    std::shared_ptr<Exchange::SymbolDatabase> db;
-#ifdef USE_PGSQL
-    db = std::make_shared<Exchange::PostgresSymbolDatabase>(Exchange::DbUtil::getConnectionString());
-#else
-    db = std::make_shared<Exchange::CSVSymbolDatabase>("data/symbols.csv");
-#endif
+    std::shared_ptr<Exchange::SymbolDatabase> db = Exchange::DBFactory::createSymbolDatabase();
 
     auto symbol_ids = db->getSymbolsForCore(target_core_offset);
     if (symbol_ids.empty()) {

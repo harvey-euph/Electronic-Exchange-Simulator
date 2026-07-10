@@ -1,5 +1,6 @@
 #include "LogUtil.hpp"
-#include "SymbolDatabase.hpp"
+#include "DataBase/PostgresSymbolDatabase.hpp"
+#include "csv_util.hpp"
 #include <pqxx/pqxx>
 #include <iostream>
 
@@ -10,9 +11,59 @@ PostgresSymbolDatabase::PostgresSymbolDatabase(const std::string& conn_str)
 {
     try {
         conn_ = std::make_unique<pqxx::connection>(conn_str_);
+        init_tables();
     } catch (const std::exception& e) {
         LOG_ERROR("[PostgresSymbolDatabase] Connection failed: %s", e.what());
         throw;
+    }
+}
+
+void PostgresSymbolDatabase::init_tables() {
+    try {
+        pqxx::work w(*conn_);
+        w.exec(R"(
+            CREATE TABLE IF NOT EXISTS symbols (
+                symbol_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                p_exp INTEGER NOT NULL,
+                min_step_raw BIGINT NOT NULL,
+                min_price_raw BIGINT NOT NULL,
+                max_price_raw BIGINT NOT NULL,
+                core_offset INTEGER NOT NULL DEFAULT 0
+            );
+        )");
+        w.commit();
+        
+        // Always use symbols.csv as the source of truth
+        LOG_INFO("[PostgresSymbolDatabase] Loading symbols from data/symbols.csv");
+        auto data = readCSV("data/symbols.csv");
+        if (!data.empty()) {
+            pqxx::work w3(*conn_);
+            w3.exec("DELETE FROM symbols;");
+            for (size_t i = 1; i < data.size(); ++i) {
+                const auto& row = data[i];
+                if (row.size() < 6) continue;
+                try {
+                    uint32_t symbol_id = std::stoul(row[0]);
+                    std::string name = row[1];
+                    int p_exp = std::stoi(row[2]);
+                    int64_t min_step = std::stoll(row[3]);
+                    int64_t min_price = std::stoll(row[4]);
+                    int64_t max_price = std::stoll(row[5]);
+                    int core_offset = (row.size() > 6) ? std::stoi(row[6]) : 0;
+                    
+                    [[maybe_unused]] auto _res = w3.exec_params(
+                        "INSERT INTO symbols (symbol_id, name, p_exp, min_step_raw, min_price_raw, max_price_raw, core_offset) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        symbol_id, name, p_exp, min_step, min_price, max_price, core_offset
+                    );
+                } catch (const std::exception& e) {
+                    LOG_ERROR("[PostgresSymbolDatabase] Failed to parse CSV row %zu: %s", i, e.what());
+                }
+            }
+            w3.commit();
+        }
+    } catch (const std::exception& e) {
+        LOG_ERROR("[PostgresSymbolDatabase] init_tables failed: %s", e.what());
     }
 }
 

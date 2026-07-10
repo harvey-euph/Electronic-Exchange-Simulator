@@ -1,5 +1,5 @@
 #include "LogUtil.hpp"
-#include "ClientDatabase.hpp"
+#include "DataBase/PostgresClientDatabase.hpp"
 #include "define.hpp"
 #include <iostream>
 #include <pqxx/pqxx>
@@ -56,7 +56,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::popPendingResponses(ui
     
     for (auto const& row : r) {
         auto bytes = row[0].as<pqxx::bytes>();
-        result.emplace_back(bytes.begin(), bytes.end());
+        result.emplace_back(reinterpret_cast<const uint8_t*>(bytes.data()), reinterpret_cast<const uint8_t*>(bytes.data()) + bytes.size());
     }
     return result;
 }
@@ -123,7 +123,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::getResponsesSince(uint
     );
     for (auto const& row : r) {
         auto bytes = row[0].as<pqxx::bytes>();
-        result.emplace_back(bytes.begin(), bytes.end());
+        result.emplace_back(reinterpret_cast<const uint8_t*>(bytes.data()), reinterpret_cast<const uint8_t*>(bytes.data()) + bytes.size());
     }
     return result;
 }
@@ -220,6 +220,9 @@ void PostgresClientDatabase::updatePosition(const OrderResponseT* resp) {
 }
 
 void PostgresClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) {
+    (void)resp;
+    (void)msg_seq_num;
+    (void)not_sent;
     // uint32_t client_id = resp->client_id;
     // if ((EXEC_MASK_TRADE >> resp->exec_type) & 1) {
     //     updatePosition(resp);

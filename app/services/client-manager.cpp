@@ -1,9 +1,7 @@
 #include "LogUtil.hpp"
 #include "ClientManager.hpp"
 #include "ring/SHMRingBuffer.hpp"
-#include "CSVClientDatabase.hpp"
-#include "CSVSymbolDatabase.hpp"
-#include "DbUtil.hpp"
+#include "DataBase/common.hpp"
 #include "ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
 #include "SignalHandler.hpp"
@@ -15,13 +13,8 @@ int main()
     Exchange::initLogger("CM");
     setup_signals();
 
-#ifdef USE_PGSQL
-    auto db = std::make_shared<Exchange::PostgresClientDatabase>(Exchange::DbUtil::getConnectionString());
-    auto sym_db = std::make_shared<Exchange::PostgresSymbolDatabase>(Exchange::DbUtil::getConnectionString());
-#else
-    auto db = std::make_shared<Exchange::CSVClientDatabase>("data/clients.csv");
-    auto sym_db = std::make_shared<Exchange::CSVSymbolDatabase>("data/symbols.csv");
-#endif
+    auto db = Exchange::DBFactory::createClientDatabase();
+    auto sym_db = Exchange::DBFactory::createSymbolDatabase();
 
     db->start_polling();
 

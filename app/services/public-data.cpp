@@ -7,9 +7,8 @@
 #include "define.hpp"
 #include "ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
-#include "DbUtil.hpp"
-#include "SymbolDatabase.hpp"
-#include "CSVSymbolDatabase.hpp"
+
+#include "DataBase/common.hpp"
 #include "HttpServer.hpp"
 
 using namespace Exchange;
@@ -25,11 +24,7 @@ int main()
             set_thread_affinity(main_core, "PublicData");
         }
         
-#ifdef USE_PGSQL
-        auto db = std::make_shared<PostgresSymbolDatabase>(DbUtil::getConnectionString());
-#else
-        auto db = std::make_shared<CSVSymbolDatabase>("data/symbols.csv");
-#endif
+        auto db = Exchange::DBFactory::createSymbolDatabase();
 
         auto handler = [db](const http::request<http::vector_body<char>>& req) -> http::response<http::string_body> {
             auto const version = req.version();

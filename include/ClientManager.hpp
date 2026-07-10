@@ -5,7 +5,7 @@
 #include "fbs/exchange_generated.h"
 #include "mmap_log.h"
 #include "WSAdaptor.hpp"
-#include "ClientDatabase.hpp"
+#include "DataBase/common.hpp"
 #include "Worker.hpp"
 #include <memory>
 #include <map>
@@ -15,7 +15,7 @@
 #include <unordered_map>
 #include <atomic>
 
-#include "SymbolDatabase.hpp"
+// SymbolDatabase is included via DataBase/common.hpp
 
 #include <queue>
 
