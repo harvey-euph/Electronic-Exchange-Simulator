@@ -3,11 +3,6 @@
 #include "DataBase/ClientDatabase.hpp"
 #include "DataBase/SymbolDatabase.hpp"
 
-#pragma once
-
-#include "DataBase/ClientDatabase.hpp"
-#include "DataBase/SymbolDatabase.hpp"
-
 #if defined(USE_PGSQL)
 #include "DataBase/PostgresClientDatabase.hpp"
 #include "DataBase/PostgresSymbolDatabase.hpp"
