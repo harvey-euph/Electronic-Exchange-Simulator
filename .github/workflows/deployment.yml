@@ -54,13 +54,12 @@ jobs:
           key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
           port: 22
           script: |
-            # date >> ~/test_github_cd
             cd /home/${{ secrets.GCP_VM_USER }}/exchange
             git fetch origin main
             git reset --hard origin/main
+            sudo ./kill-all
             # ./scripts/install-requirements
             make -j$(nproc)
-            sudo ./kill-all
             sudo ./run-services
             sudo nohup ./performance/ebpf/total-lat > log/latency.log 2>&1 &
             ./run-mm-native
