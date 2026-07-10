@@ -11,7 +11,7 @@
 #include <syncstream>
 #include <thread>
 #include <random>
-#include "ring/SHMRingBuffer.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 
 using namespace std;
 using namespace Exchange;

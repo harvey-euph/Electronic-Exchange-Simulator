@@ -1,5 +1,5 @@
-#include "LogUtil.hpp"
-#include "SimpleWSClient.hpp"
+#include "util/LogUtil.hpp"
+#include "client/SimpleWSClient.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/connect.hpp>

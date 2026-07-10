@@ -1,13 +1,13 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include "ring/SHMRingBuffer.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 #include "fbs/exchange_generated.h"
-#include "LogUtil.hpp"
+#include "util/LogUtil.hpp"
 #include "define.hpp"
-#include "ThreadUtil.hpp"
+#include "util/ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
-#include "HttpServer.hpp"
+#include "service/HttpServer.hpp"
 
 using namespace Exchange;
 

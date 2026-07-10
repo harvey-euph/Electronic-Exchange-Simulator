@@ -5,9 +5,9 @@
 #include <cstdint>
 #include <unordered_map>
 #include "fbs/exchange_generated.h"
-#include "ring/SHMRingBuffer.hpp"
-#include "mmap_log.h"
-#include "Order.hpp"
+#include "ipc/SHMRingBuffer.hpp"
+#include "ipc/mmap_log.h"
+#include "service/Order.hpp"
 
 #include "gtest/gtest_prod.h"
 

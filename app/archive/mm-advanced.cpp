@@ -1,6 +1,6 @@
-#include "AlgoTradingClient.hpp"
-#include "L2Book.hpp"
-#include "ClientAccount.hpp"
+#include "client/AlgoTradingClient.hpp"
+#include "service/L2Book.hpp"
+#include "client/ClientAccount.hpp"
 #include <iostream>
 #include <iomanip>
 #include <chrono>

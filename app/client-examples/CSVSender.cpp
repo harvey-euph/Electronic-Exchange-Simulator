@@ -1,6 +1,6 @@
-#include "OrderEntryClient.hpp"
-#include "csv_util.hpp"
-#include "LogUtil.hpp"
+#include "client/OrderEntryClient.hpp"
+#include "util/csv_util.hpp"
+#include "util/LogUtil.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>

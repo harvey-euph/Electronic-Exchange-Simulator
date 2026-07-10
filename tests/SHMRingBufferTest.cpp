@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
-#include "ring/SHMRingBuffer.hpp"
-#include "JsonUtil.hpp"
+#include "ipc/SHMRingBuffer.hpp"
+#include "util/JsonUtil.hpp"
 #include <vector>
 #include <thread>
 #include <atomic>

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "ring/SHMRingBuffer.hpp"
-#include "OrderBook.hpp"
-#include "Worker.hpp"
+#include "ipc/SHMRingBuffer.hpp"
+#include "service/OrderBook.hpp"
+#include "service/Worker.hpp"
 #include <cstdint>
 #include <unordered_map>
 #include <memory>

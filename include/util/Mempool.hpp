@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ring/SHMRingBuffer.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 #include <string>
 #include <stdexcept>
 #include <new>

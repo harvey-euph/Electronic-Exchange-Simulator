@@ -1,6 +1,6 @@
-#include "DataBase/SQLiteSymbolDatabase.hpp"
-#include "LogUtil.hpp"
-#include "csv_util.hpp"
+#include "database/SQLiteSymbolDatabase.hpp"
+#include "util/LogUtil.hpp"
+#include "util/csv_util.hpp"
 #include <sqlite3.h>
 #include <iostream>
 

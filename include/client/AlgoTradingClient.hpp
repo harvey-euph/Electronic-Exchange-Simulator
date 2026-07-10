@@ -1,6 +1,6 @@
 #pragma once
-#include "OrderEntryClient.hpp"
-#include "MarketDataClient.hpp"
+#include "client/OrderEntryClient.hpp"
+#include "client/MarketDataClient.hpp"
 
 namespace Exchange {
 

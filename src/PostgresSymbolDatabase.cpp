@@ -1,6 +1,6 @@
-#include "LogUtil.hpp"
-#include "DataBase/PostgresSymbolDatabase.hpp"
-#include "csv_util.hpp"
+#include "util/LogUtil.hpp"
+#include "database/PostgresSymbolDatabase.hpp"
+#include "util/csv_util.hpp"
 #include <pqxx/pqxx>
 #include <iostream>
 

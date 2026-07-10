@@ -1,12 +1,12 @@
-#include "LogUtil.hpp"
-#include "ClientManager.hpp"
-#include "ring/SHMRingBuffer.hpp"
-#include "DataBase/common.hpp"
-#include "ThreadUtil.hpp"
+#include "util/LogUtil.hpp"
+#include "client/ClientManager.hpp"
+#include "ipc/SHMRingBuffer.hpp"
+#include "database/common.hpp"
+#include "util/ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
-#include "SignalHandler.hpp"
+#include "util/SignalHandler.hpp"
 #include <iostream>
-#include "mmap_log.h"
+#include "ipc/mmap_log.h"
 
 int main()
 {

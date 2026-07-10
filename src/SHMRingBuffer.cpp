@@ -1,6 +1,6 @@
-#include "LogUtil.hpp"
+#include "util/LogUtil.hpp"
 // SHMRing.cpp
-#include "ring/SHMRingBuffer.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 #include <sys/stat.h>
 #include <iostream>
 

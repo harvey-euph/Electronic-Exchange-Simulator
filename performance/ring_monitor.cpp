@@ -1,6 +1,6 @@
-#include "ring/SHMRingBuffer.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 #include "define.hpp"
-#include "TimeUtil.hpp"
+#include "util/TimeUtil.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -9,7 +9,7 @@
 #include <iomanip>
 #include <csignal>
 #include <atomic>
-#include "SignalHandler.hpp"
+#include "util/SignalHandler.hpp"
 
 struct RingInfo {
     std::string name;

@@ -1,6 +1,6 @@
-#include "DataBase/CSVClientDatabase.hpp"
-#include "csv_util.hpp"
-#include "LogUtil.hpp"
+#include "database/CSVClientDatabase.hpp"
+#include "util/csv_util.hpp"
+#include "util/LogUtil.hpp"
 #include <stdexcept>
 
 namespace Exchange {

@@ -3,13 +3,13 @@
 #include <string>
 #include <vector>
 #include "fbs/exchange_generated.h"
-#include "LogUtil.hpp"
+#include "util/LogUtil.hpp"
 #include "define.hpp"
-#include "ThreadUtil.hpp"
+#include "util/ThreadUtil.hpp"
 #include "AffinityConfig.hpp"
 
-#include "DataBase/common.hpp"
-#include "HttpServer.hpp"
+#include "database/common.hpp"
+#include "service/HttpServer.hpp"
 
 using namespace Exchange;
 

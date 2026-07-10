@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "mmap_log.h"
+#include "ipc/mmap_log.h"
 #include <sys/stat.h>
 #include <unistd.h>
 #include <string>

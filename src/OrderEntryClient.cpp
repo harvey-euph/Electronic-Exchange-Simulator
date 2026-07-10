@@ -1,5 +1,5 @@
-#include "OrderEntryClient.hpp"
-#include "LogUtil.hpp"
+#include "client/OrderEntryClient.hpp"
+#include "util/LogUtil.hpp"
 #include <chrono>
 #include <thread>
 

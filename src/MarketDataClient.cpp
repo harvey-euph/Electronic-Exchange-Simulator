@@ -1,5 +1,5 @@
-#include "MarketDataClient.hpp"
-#include "LogUtil.hpp"
+#include "client/MarketDataClient.hpp"
+#include "util/LogUtil.hpp"
 #include <chrono>
 #include <thread>
 

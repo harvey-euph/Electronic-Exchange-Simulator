@@ -1,6 +1,6 @@
-#include "TradingClientBase.hpp"
-#include "PublicDataClient.hpp"
-#include "LogUtil.hpp"
+#include "client/TradingClientBase.hpp"
+#include "client/PublicDataClient.hpp"
+#include "util/LogUtil.hpp"
 
 namespace Exchange {
 

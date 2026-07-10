@@ -1,18 +1,18 @@
 #pragma once
 
-#include "DataBase/ClientDatabase.hpp"
-#include "DataBase/SymbolDatabase.hpp"
+#include "database/ClientDatabase.hpp"
+#include "database/SymbolDatabase.hpp"
 
 #if defined(USE_PGSQL)
-#include "DataBase/PostgresClientDatabase.hpp"
-#include "DataBase/PostgresSymbolDatabase.hpp"
-#include "DataBase/DbUtil.hpp"
+#include "database/PostgresClientDatabase.hpp"
+#include "database/PostgresSymbolDatabase.hpp"
+#include "database/DbUtil.hpp"
 #elif defined(USE_CSV)
-#include "DataBase/CSVClientDatabase.hpp"
-#include "DataBase/CSVSymbolDatabase.hpp"
+#include "database/CSVClientDatabase.hpp"
+#include "database/CSVSymbolDatabase.hpp"
 #else
-#include "DataBase/SQLiteClientDatabase.hpp"
-#include "DataBase/SQLiteSymbolDatabase.hpp"
+#include "database/SQLiteClientDatabase.hpp"
+#include "database/SQLiteSymbolDatabase.hpp"
 #endif
 
 

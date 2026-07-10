@@ -1,8 +1,8 @@
 #pragma once
 
 #include "SymbolDatabase.hpp"
-#include "csv_util.hpp"
-#include "LogUtil.hpp"
+#include "util/csv_util.hpp"
+#include "util/LogUtil.hpp"
 #include <unordered_map>
 #include <vector>
 #include <set>

@@ -1,6 +1,6 @@
-#include "AlgoTradingClient.hpp"
-#include "L2Book.hpp"
-#include "DisplayUtil.hpp"
+#include "client/AlgoTradingClient.hpp"
+#include "service/L2Book.hpp"
+#include "util/DisplayUtil.hpp"
 #include <iostream>
 #include <random>
 #include <thread>

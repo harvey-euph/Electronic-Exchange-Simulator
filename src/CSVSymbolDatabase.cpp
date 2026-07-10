@@ -1,4 +1,4 @@
-#include "DataBase/CSVSymbolDatabase.hpp"
+#include "database/CSVSymbolDatabase.hpp"
 
 namespace Exchange {
 // CSVSymbolDatabase is now a simple alias for InMemorySymbolDatabase which handles the CSV loading internally

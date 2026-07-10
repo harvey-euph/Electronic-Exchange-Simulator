@@ -1,5 +1,5 @@
 #pragma once
-#include "AlgoTradingConfig.hpp"
+#include "client/AlgoTradingConfig.hpp"
 #include "fbs/exchange_generated.h"
 #include <unordered_map>
 #include <string>

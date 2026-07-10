@@ -1,6 +1,6 @@
 #pragma once
-#include "TradingClientBase.hpp"
-#include "SimpleWSClient.hpp"
+#include "client/TradingClientBase.hpp"
+#include "client/SimpleWSClient.hpp"
 
 namespace Exchange {
 

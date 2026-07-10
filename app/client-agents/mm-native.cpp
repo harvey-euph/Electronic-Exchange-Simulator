@@ -1,6 +1,6 @@
-#include "AlgoTradingClient.hpp"
-#include "HttpUtil.hpp"
-#include "JsonUtil.hpp"
+#include "client/AlgoTradingClient.hpp"
+#include "util/HttpUtil.hpp"
+#include "util/JsonUtil.hpp"
 #include <iostream>
 #include <iomanip>
 #include <random>

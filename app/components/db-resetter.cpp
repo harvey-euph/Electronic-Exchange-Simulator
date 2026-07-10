@@ -1,10 +1,10 @@
 #include <iostream>
-#include "LogUtil.hpp"
-#include "DataBase/common.hpp"
+#include "util/LogUtil.hpp"
+#include "database/common.hpp"
 
 #if defined(USE_PGSQL)
 #include <pqxx/pqxx>
-#include "DataBase/DbUtil.hpp"
+#include "database/DbUtil.hpp"
 #elif defined(USE_SQLITE)
 #include <sqlite3.h>
 #endif

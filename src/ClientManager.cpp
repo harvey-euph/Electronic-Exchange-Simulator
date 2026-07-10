@@ -1,6 +1,6 @@
-#include "ClientManager.hpp"
-#include "LogUtil.hpp"
-#include "TimeUtil.hpp"
+#include "client/ClientManager.hpp"
+#include "util/LogUtil.hpp"
+#include "util/TimeUtil.hpp"
 #include <iostream>
 #include <algorithm>
 #include <new>

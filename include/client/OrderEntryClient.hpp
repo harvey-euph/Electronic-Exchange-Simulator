@@ -1,7 +1,7 @@
 #pragma once
-#include "TradingClientBase.hpp"
-#include "SimpleWSClient.hpp"
-#include "ClientAccount.hpp"
+#include "client/TradingClientBase.hpp"
+#include "client/SimpleWSClient.hpp"
+#include "client/ClientAccount.hpp"
 #include <mutex>
 #include <condition_variable>
 #include <atomic>

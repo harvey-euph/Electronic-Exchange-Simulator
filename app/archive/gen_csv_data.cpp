@@ -3,7 +3,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "csv_util.hpp"
+#include "util/csv_util.hpp"
 
 int main(int argc, char** argv)
 {

@@ -1,12 +1,12 @@
 #pragma once
 
-#include "CMClient.hpp"
-#include "ring/SHMRingBuffer.hpp"
+#include "service/CMClient.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 #include "fbs/exchange_generated.h"
-#include "mmap_log.h"
-#include "WSAdaptor.hpp"
-#include "DataBase/common.hpp"
-#include "Worker.hpp"
+#include "ipc/mmap_log.h"
+#include "service/WSAdaptor.hpp"
+#include "database/common.hpp"
+#include "service/Worker.hpp"
 #include <memory>
 #include <map>
 #include <set>

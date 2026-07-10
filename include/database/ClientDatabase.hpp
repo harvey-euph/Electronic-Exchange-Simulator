@@ -10,9 +10,9 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
-#include "mmap_log.h"
+#include "ipc/mmap_log.h"
 #include "AffinityConfig.hpp"
-#include "ThreadUtil.hpp"
+#include "util/ThreadUtil.hpp"
 
 namespace pqxx {
 class connection;

@@ -1,5 +1,5 @@
-#include "DataBase/SQLiteClientDatabase.hpp"
-#include "LogUtil.hpp"
+#include "database/SQLiteClientDatabase.hpp"
+#include "util/LogUtil.hpp"
 #include "define.hpp"
 #include <sqlite3.h>
 #include <iostream>

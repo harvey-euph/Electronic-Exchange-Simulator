@@ -1,5 +1,5 @@
-#include "AlgoTradingClient.hpp"
-#include "LogUtil.hpp"
+#include "client/AlgoTradingClient.hpp"
+#include "util/LogUtil.hpp"
 #include <iostream>
 
 namespace Exchange {

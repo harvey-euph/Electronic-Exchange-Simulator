@@ -1,7 +1,7 @@
-#include "AlgoTradingClient.hpp"
-#include "ring/SHMRingBuffer.hpp"
+#include "client/AlgoTradingClient.hpp"
+#include "ipc/SHMRingBuffer.hpp"
 #include "define.hpp"
-#include "TimeUtil.hpp"
+#include "util/TimeUtil.hpp"
 #include <iostream>
 #include <fstream>
 #include <string>
