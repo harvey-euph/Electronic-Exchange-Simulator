@@ -8,12 +8,13 @@ interface OrderBookProps {
   bids: { price: bigint; quantity: bigint }[];
   asks: { price: bigint; quantity: bigint }[];
   onPriceClick?: (price: string, side: Side, peggedLevel?: number | null) => void;
+  onMidPriceClick?: () => void;
   onReconnectL2?: () => void;
   priceExp?: number;
   symbolInfos?: Map<number, any>;
 }
 
-export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, bids, asks, onPriceClick, onReconnectL2, priceExp, symbolInfos }) => {
+export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, bids, asks, onPriceClick, onMidPriceClick, onReconnectL2, priceExp, symbolInfos }) => {
   const [midColor, setMidColor] = useState('var(--text-primary)');
   const prevMidRef = useRef<bigint | null>(null);
 
@@ -128,14 +129,17 @@ export const OrderBook: React.FC<OrderBookProps> = ({ symbolId, onSymbolChange, 
               })}
               
               <tr style={{ height: '36px', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)' }}>
-                <td colSpan={3} style={{ 
-                  textAlign: 'center', 
-                  color: midColor, 
-                  fontSize: '18px', 
-                  verticalAlign: 'middle', 
-                  fontWeight: 700,
-                  transition: 'color 0.2s ease'
-                }}>
+                <td colSpan={3} 
+                  onClick={onMidPriceClick}
+                  style={{ 
+                    textAlign: 'center', 
+                    color: midColor, 
+                    fontSize: '18px', 
+                    verticalAlign: 'middle', 
+                    fontWeight: 700,
+                    transition: 'color 0.2s ease',
+                    cursor: onMidPriceClick ? 'pointer' : 'default'
+                  }}>
                   {currentMid !== null ? formatPrice(currentMid, priceExp) : '-'}
                 </td>
               </tr>

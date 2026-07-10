@@ -94,6 +94,12 @@ function App() {
     setPrice(newPrice);
     setSide(newSide);
     setPeggedLevel(level);
+    setOrderType(OrderType.Limit);
+  };
+
+  const handleMidPriceClick = () => {
+    setOrderType(OrderType.Market);
+    setPeggedLevel(null);
   };
 
   const handleSendOrder = (orderSide: Side) => {
@@ -199,7 +205,7 @@ function App() {
       <header className="header-container">
         <div className="header-left">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '28px', height: '28px', backgroundColor: 'var(--accent-blue)', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold', fontSize: '16px' }}>H</div>
+            <img src="/favicon.svg" alt="Logo" style={{ width: '28px', height: '28px' }} />
             <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700, letterSpacing: '-0.5px' }}>Harvey Exchange</h1>
           </div>
         </div>
@@ -220,6 +226,7 @@ function App() {
         <OrderBook 
           symbolId={symbolId} onSymbolChange={setSymbolId}
           bids={sortedBids} asks={sortedAsks} onPriceClick={handlePriceClick} 
+          onMidPriceClick={handleMidPriceClick}
           onReconnectL2={connectL2}
           priceExp={symbolInfo?.priceExp}
           symbolInfos={symbolInfos}
