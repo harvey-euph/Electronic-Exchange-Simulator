@@ -1,17 +1,16 @@
-#include "service/L3Book.hpp"
+#include "client/L3Book.hpp"
 #include <fstream>
 
 namespace Exchange {
 
-std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty) {
-    std::vector<L2UpdateT> updates;
+void L3Book::update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty) {
     std::lock_guard<std::mutex> lock(mutex);
     
     if (side == Side_None) {
         orders.clear();
         bids.clear();
         asks.clear();
-        return updates;
+        return;
     }
     
     switch (type) {
@@ -21,12 +20,12 @@ std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side sid
             level.total_qty += qty;
             orders[order_id] = {order_id, side, price, qty, qty, std::prev(level.queue.end())};
             
-            updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
+            on_level_updated(side, price, level.total_qty);
             break;
         }
         case ExecType_Fill:
         case ExecType_Cancelled: {
-            remove_from_queues(order_id, updates);
+            remove_from_queues(order_id);
             orders.erase(order_id);
             break;
         }
@@ -48,7 +47,7 @@ std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side sid
                     }
                 }
                 it->second.qty_rem -= qty;
-                updates.emplace_back(L2UpdateT{ .side = it->second.side, .p = it->second.price, .q = new_total });
+                on_level_updated(it->second.side, it->second.price, new_total);
             }
             break;
         }
@@ -59,14 +58,14 @@ std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side sid
                 uint64_t new_rem = it->second.qty_rem + qty_diff;
 
                 if (it->second.price != price || it->second.side != side || qty > it->second.qty_req) {
-                    remove_from_queues(order_id, updates);
+                    remove_from_queues(order_id);
                     if (new_rem > 0) {
                         auto& level = (side == Side_Buy) ? bids[price] : asks[price];
                         level.queue.push_back(order_id);
                         level.total_qty += new_rem;
                         it->second = {order_id, side, price, qty, new_rem, std::prev(level.queue.end())};
                         
-                        updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
+                        on_level_updated(side, price, level.total_qty);
                     } else {
                         orders.erase(it);
                     }
@@ -76,10 +75,10 @@ std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side sid
                     it->second.qty_req = qty;
                     it->second.qty_rem = new_rem;
                     
-                    updates.emplace_back(L2UpdateT{ .side = side, .p = price, .q = level.total_qty });
+                    on_level_updated(side, price, level.total_qty);
                     
                     if (new_rem == 0) {
-                        remove_from_queues(order_id, updates);
+                        remove_from_queues(order_id);
                         orders.erase(it);
                     }
                 }
@@ -89,10 +88,9 @@ std::vector<L2UpdateT> L3Book::update(ExecType type, uint64_t order_id, Side sid
         default:
             break;
     }
-    return updates;
 }
 
-void L3Book::remove_from_queues(uint64_t order_id, std::vector<L2UpdateT>& updates) {
+void L3Book::remove_from_queues(uint64_t order_id) {
     auto it = orders.find(order_id);
     if (it == orders.end()) return;
 
@@ -125,8 +123,7 @@ void L3Book::remove_from_queues(uint64_t order_id, std::vector<L2UpdateT>& updat
             if (level_it->second.queue.empty()) asks.erase(level_it);
         }
     }
-    
-    updates.emplace_back(L2UpdateT{ .side = old_side, .p = old_price, .q = new_total });
+    on_level_updated(old_side, old_price, new_total);
 }
 
 void L3Book::display(int depth_limit) {

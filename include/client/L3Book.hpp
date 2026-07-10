@@ -9,6 +9,7 @@
 #include <vector>
 #include <sstream>
 #include <string>
+#include <chrono>
 #include "fbs/exchange_generated.h"
 
 namespace Exchange {
@@ -37,11 +38,15 @@ struct L3Book {
     
     std::mutex mutex;
 
-    std::vector<L2UpdateT> update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty);
-    void remove_from_queues(uint64_t order_id, std::vector<L2UpdateT>& updates);
+    virtual ~L3Book() = default;
+
+    virtual void on_level_updated(Side /*side*/, int64_t /*price*/, uint64_t /*total_qty*/) {}
+
+    void update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty);
+    void remove_from_queues(uint64_t order_id);
     void display(int depth_limit = 10);
     void dump_raw(const char* filepath);
-    void clear();
+    virtual void clear();
 };
 
 } // namespace Exchange

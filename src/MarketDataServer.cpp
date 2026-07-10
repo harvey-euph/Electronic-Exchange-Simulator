@@ -46,6 +46,7 @@ int MarketDataServer::poll_client() {
 
 int MarketDataServer::poll_server()
 {
+    int has_task = 0;
     const void* data = nullptr;
     uint32_t len = 0;
     if (response_ring_->read_next(data, len)) {
@@ -53,22 +54,24 @@ int MarketDataServer::poll_server()
             const OrderResponseT* resp = reinterpret_cast<const OrderResponseT*>(data);
             process_market_update(resp);
         }
-        return 1;
+        has_task = 1;
     }
-    return 0;
+
+    check_l2_publish_timers();
+
+    return has_task;
 }
 
-std::pair<std::shared_ptr<L3Book>, OrderResponseT>& MarketDataServer::get_or_create_book(uint32_t symbol_id)
+std::shared_ptr<MDOrderBook>& MarketDataServer::get_or_create_book(uint32_t symbol_id)
 {
     std::lock_guard<std::mutex> lock(books_mutex_);
     auto it = books_.find(symbol_id);
     if (it == books_.end()) {
-        auto book = std::make_shared<L3Book>();
+        auto book = std::make_shared<MDOrderBook>();
         book->symbol_id = symbol_id;
-        auto& state = books_[symbol_id];
-        state.first = book;
-        state.second.order_id = 0;
-        return state;
+        book->pending_order.order_id = 0;
+        books_[symbol_id] = book;
+        return books_[symbol_id];
     }
     return it->second;
 }
@@ -97,7 +100,7 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     }
 
     if (sub_type == SubType_subscribe) {
-        auto& [book, pending] = get_or_create_book(symbol_id);
+        auto& book = get_or_create_book(symbol_id);
 
         {
             std::lock_guard<std::mutex> lock(subs_mutex_);
@@ -205,7 +208,7 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     }
 }
 
-bool MarketDataServer::crosses(Side side, int64_t price, const std::shared_ptr<L3Book>& book) const 
+bool MarketDataServer::crosses(Side side, int64_t price, const std::shared_ptr<MDOrderBook>& book) const 
 {
     if (side == Side_Buy) {
         if (book->asks.empty()) return false;
@@ -267,7 +270,8 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
 {
     if (!check_exec(resp->exec_type, EXEC_MD)) return;
 
-    auto& [book, pending] = get_or_create_book(resp->symbol_id);
+    auto& book = get_or_create_book(resp->symbol_id);
+    auto& pending = book->pending_order;
 
     uint64_t timestamp = 0; // Or whatever timestamp we have
     
@@ -303,18 +307,28 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
     pending.order_id = 0;
 }
 
-void MarketDataServer::__update(std::shared_ptr<L3Book> book, const OrderResponseT* resp, uint64_t timestamp)
+void MarketDataServer::__update(std::shared_ptr<MDOrderBook> book, const OrderResponseT* resp, uint64_t timestamp)
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(resp->client_id) << 32) | resp->order_id;
-    auto updates = book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q);
+    book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q);
     uint64_t md_seq_num = ++md_seq_nums_[resp->symbol_id];
     publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, md_seq_num, timestamp);
-    publish_l2_update(resp->symbol_id, updates, md_seq_num, timestamp);
+}
+
+void MarketDataServer::check_l2_publish_timers() {
+    auto now = std::chrono::steady_clock::now();
+    for (auto& [symbol_id, book] : books_) {
+        auto updates = book->extract_pending_l2_updates(now, 100);
+        if (!updates.empty()) {
+            uint64_t msg_seq_num = md_seq_nums_[symbol_id];
+            publish_l2_update(symbol_id, updates, msg_seq_num, 0);
+        }
+    }
 }
 
 } // namespace Exchange
 
 void Exchange::MarketDataServer::gdb_dump_book(uint32_t symbol_id, const char* filepath) {
-    auto state = get_or_create_book(symbol_id);
-    state.first->dump_raw(filepath);
+    auto book = get_or_create_book(symbol_id);
+    book->dump_raw(filepath);
 }
