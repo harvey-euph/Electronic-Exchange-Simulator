@@ -102,6 +102,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
   const asksRef = useRef<Map<bigint, bigint>>(new Map());
   const pricesRef = useRef<Map<number, bigint>>(new Map());
   const lastBookSymbolIdRef = useRef<number>(0);
+  const activeSubscribedL2Ref = useRef<number>(0);
   const activeSymbolIdRef = useRef<number>(activeSymbolId);
 
   useEffect(() => {
@@ -166,37 +167,6 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     fetchSymbolInfo(activeSymbolId);
   }, [activeSymbolId, fetchSymbolInfo]);
 
-  // 2. Clear bids/asks and subscribe to L2 when activeSymbolId, connected.l2, or symbolInfos changes
-  useEffect(() => {
-    if (lastBookSymbolIdRef.current !== activeSymbolId) {
-      setBids(new Map());
-      setAsks(new Map());
-      bidsRef.current.clear();
-      asksRef.current.clear();
-      lastBookSymbolIdRef.current = activeSymbolId;
-    }
-
-    if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
-
-    if (connected.l2 && symbolInfos.has(activeSymbolId)) {
-      if (l2WsRef.current?.readyState === WebSocket.OPEN) {
-        setSubscribedSymbols(prev => {
-          if (prev.has(activeSymbolId)) return prev;
-          const builder = new flatbuffers.Builder(128);
-          MarketDataRequest.startMarketDataRequest(builder);
-          MarketDataRequest.addSymbolId(builder, activeSymbolId);
-          MarketDataRequest.addMdType(builder, MDType.L2);
-          MarketDataRequest.addSubType(builder, SubType.subscribe);
-          const offset = MarketDataRequest.endMarketDataRequest(builder);
-          MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
-          l2WsRef.current!.send(builder.asUint8Array() as any);
-          return new Set(prev).add(activeSymbolId);
-        });
-      }
-    }
-  }, [activeSymbolId, connected.l2, symbolInfos]);
-
-
   const subscribeL2 = useCallback((sId: number) => {
     setSubscribedSymbols(prev => {
       if (prev.has(sId)) return prev;
@@ -213,6 +183,53 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       return new Set(prev).add(sId);
     });
   }, []);
+
+  const unsubscribeL2 = useCallback((sId: number) => {
+    setSubscribedSymbols(prev => {
+      if (!prev.has(sId)) return prev;
+      if (l2WsRef.current?.readyState === WebSocket.OPEN) {
+        const builder = new flatbuffers.Builder(128);
+        MarketDataRequest.startMarketDataRequest(builder);
+        MarketDataRequest.addSymbolId(builder, sId);
+        MarketDataRequest.addMdType(builder, MDType.L2);
+        MarketDataRequest.addSubType(builder, SubType.unsubscribe);
+        const offset = MarketDataRequest.endMarketDataRequest(builder);
+        MarketDataRequest.finishMarketDataRequestBuffer(builder, offset);
+        l2WsRef.current.send(builder.asUint8Array() as any);
+      }
+      const next = new Set(prev);
+      next.delete(sId);
+      return next;
+    });
+  }, []);
+
+  // 2. Clear bids/asks and subscribe to L2 when activeSymbolId, connected.l2, or symbolInfos changes
+  useEffect(() => {
+    if (lastBookSymbolIdRef.current !== activeSymbolId) {
+      setBids(new Map());
+      setAsks(new Map());
+      bidsRef.current.clear();
+      asksRef.current.clear();
+      lastBookSymbolIdRef.current = activeSymbolId;
+    }
+
+    if (activeSymbolId <= 0 || isNaN(activeSymbolId)) return;
+
+    if (connected.l2 && symbolInfos.has(activeSymbolId)) {
+      if (l2WsRef.current?.readyState === WebSocket.OPEN) {
+        if (activeSubscribedL2Ref.current !== activeSymbolId) {
+          const oldSub = activeSubscribedL2Ref.current;
+          if (oldSub !== 0 && oldSub !== activeSymbolId) {
+            unsubscribeL2(oldSub);
+          }
+          subscribeL2(activeSymbolId);
+          activeSubscribedL2Ref.current = activeSymbolId;
+        }
+      }
+    }
+  }, [activeSymbolId, connected.l2, symbolInfos, subscribeL2, unsubscribeL2]);
+
+
 
   const handleOrderResponse = useCallback((resp: OrderResponse, msgSeqNum: bigint) => {
     const execType = resp.execType();
@@ -527,7 +544,6 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
               });
             }
             addMgmtLog(`Position Sync: Sym=${sId} Qty=${qty}`);
-            if (sId !== 0) subscribeL2(sId);
           }
         } else if (dataType === ClientResponseData.AdminResponse) {
           const adminResp = response.data(new AdminResponse()) as AdminResponse;
