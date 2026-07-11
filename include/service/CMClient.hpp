@@ -17,7 +17,7 @@ class CMClient : public std::enable_shared_from_this<CMClient> {
 public:
     using MessageHandler = std::function<void(CMClientPtr, const void*, size_t)>;
 
-    explicit CMClient(WSClientPtr ws, uint32_t client_id = 0);
+    explicit CMClient(Server::WSClientPtr ws, uint32_t client_id = 0);
 
     void set_message_handler(MessageHandler handler);
     void on_message(const void* data, size_t size);
@@ -36,7 +36,7 @@ public:
     void set_outbound_seq_num(uint64_t seq);
     uint64_t increment_outbound_seq_num();
 
-    WSClientPtr get_conn() const;
+    Server::WSClientPtr get_conn() const;
 
     bool is_ready() const;
     void set_ready(bool ready);
@@ -47,7 +47,7 @@ public:
                              std::function<void(CMClientPtr, const void*, size_t)> on_message);
 
 private:
-    WSClientPtr conn_;
+    Server::WSClientPtr conn_;
     MessageHandler msg_handler_;
     
     uint32_t client_id_{0};

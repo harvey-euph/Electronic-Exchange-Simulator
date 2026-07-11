@@ -1,5 +1,5 @@
 #include "util/LogUtil.hpp"
-#include "client/SimpleWSClient.hpp"
+#include "client/WSClient.hpp"
 #include <boost/beast/core.hpp>
 #include <boost/beast/websocket.hpp>
 #include <boost/asio/connect.hpp>
@@ -16,8 +16,9 @@ namespace net = boost::asio;
 using tcp = boost::asio::ip::tcp;
 
 namespace Exchange {
+namespace Client {
 
-class SimpleWSClientImpl : public SimpleWSClient {
+class WSClientImpl : public WSClient {
     net::io_context ioc_;
     tcp::resolver resolver_;
     websocket::stream<beast::tcp_stream> ws_;
@@ -32,10 +33,10 @@ class SimpleWSClientImpl : public SimpleWSClient {
     bool writing_ = false;
 
 public:
-    SimpleWSClientImpl(const std::string& host, const std::string& port)
+    WSClientImpl(const std::string& host, const std::string& port)
         : resolver_(ioc_), ws_(ioc_), host_(host), port_(port) {}
 
-    ~SimpleWSClientImpl() {
+    ~WSClientImpl() {
         stop();
     }
 
@@ -50,7 +51,7 @@ public:
             ws_.handshake(host_, "/");
             return true;
         } catch (std::exception const& e) {
-            LOG_ERROR("[SimpleWSClient] Connect error: %s", e.what());
+            LOG_ERROR("[WSClient] Connect error: %s", e.what());
             return false;
         }
     }
@@ -123,8 +124,9 @@ private:
     }
 };
 
-std::unique_ptr<SimpleWSClient> SimpleWSClient::create(const std::string& host, const std::string& port) {
-    return std::make_unique<SimpleWSClientImpl>(host, port);
+std::unique_ptr<WSClient> WSClient::create(const std::string& host, const std::string& port) {
+    return std::make_unique<WSClientImpl>(host, port);
 }
 
+} // namespace Client
 } // namespace Exchange

@@ -3,7 +3,7 @@
 
 namespace Exchange {
 
-CMClient::CMClient(WSClientPtr ws, uint32_t client_id) 
+CMClient::CMClient(Server::WSClientPtr ws, uint32_t client_id) 
     : conn_(ws), client_id_(client_id) {}
 
 void CMClient::set_message_handler(MessageHandler handler) { 
@@ -55,7 +55,7 @@ uint64_t CMClient::outbound_seq_num() const { return outbound_seq_num_.load(std:
 void CMClient::set_outbound_seq_num(uint64_t seq) { outbound_seq_num_.store(seq, std::memory_order_relaxed); }
 uint64_t CMClient::increment_outbound_seq_num() { return outbound_seq_num_.fetch_add(1, std::memory_order_relaxed) + 1; }
 
-WSClientPtr CMClient::get_conn() const { return conn_; }
+Server::WSClientPtr CMClient::get_conn() const { return conn_; }
 
 bool CMClient::is_ready() const { return ready_; }
 void CMClient::set_ready(bool ready) { ready_ = ready; }
@@ -65,7 +65,7 @@ void CMClient::bind_adaptor(std::shared_ptr<WSAdaptor> adaptor,
                             std::function<void(CMClientPtr)> on_close,
                             std::function<void(CMClientPtr, const void*, size_t)> on_message) 
 {
-    adaptor->set_open_handler([on_open, on_close, on_message](WSClientPtr ws) {
+    adaptor->set_open_handler([on_open, on_close, on_message](Server::WSClientPtr ws) {
         auto client = std::make_shared<CMClient>(ws);
 
         if (on_message) {

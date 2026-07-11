@@ -4,17 +4,15 @@
 #include <memory>
 
 namespace Exchange {
+namespace Client {
 
-/**
- * @brief 抽象的 WebSocket 客戶端 (用於 cli_*)
- */
-class SimpleWSClient {
+class WSClient {
 public:
     using MessageHandler = std::function<void(const void* data, size_t size)>;
 
-    static std::unique_ptr<SimpleWSClient> create(const std::string& host, const std::string& port);
+    static std::unique_ptr<WSClient> create(const std::string& host, const std::string& port);
 
-    virtual ~SimpleWSClient() = default;
+    virtual ~WSClient() = default;
 
     virtual bool connect() = 0;
     virtual void run_async(MessageHandler on_message) = 0;
@@ -25,4 +23,5 @@ public:
     virtual void stop() = 0;
 };
 
+} // namespace Client
 } // namespace Exchange

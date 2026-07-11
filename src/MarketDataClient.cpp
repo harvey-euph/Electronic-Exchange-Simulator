@@ -6,7 +6,7 @@
 namespace Exchange {
 
 MarketDataClient::MarketDataClient(const Config& config) : TradingClientBase(config) {
-    md_client_ = SimpleWSClient::create(config.host, config.l2_port);
+    md_client_ = Client::WSClient::create(config.host, config.l2_port);
 }
 
 MarketDataClient::~MarketDataClient() {

@@ -1,6 +1,6 @@
 #pragma once
 #include "client/TradingClientBase.hpp"
-#include "client/SimpleWSClient.hpp"
+#include "client/WSClient.hpp"
 
 namespace Exchange {
 
@@ -17,7 +17,7 @@ public:
     void stop_md();
 
 protected:
-    std::unique_ptr<SimpleWSClient> md_client_;
+    std::unique_ptr<Client::WSClient> md_client_;
     bool md_running_ = true;
 };
 

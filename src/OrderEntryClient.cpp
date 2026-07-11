@@ -6,7 +6,7 @@
 namespace Exchange {
 
 OrderEntryClient::OrderEntryClient(const Config& config) : TradingClientBase(config) {
-    mgmt_client_ = SimpleWSClient::create(config.host, config.mgmt_port);
+    mgmt_client_ = Client::WSClient::create(config.host, config.mgmt_port);
 }
 
 OrderEntryClient::~OrderEntryClient() {

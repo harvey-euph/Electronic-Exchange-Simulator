@@ -26,7 +26,7 @@ using tcp = boost::asio::ip::tcp;
 
 namespace Exchange {
 
-class WSSession : public WSClient, public std::enable_shared_from_this<WSSession> {
+class WSSession : public Server::WSClient, public std::enable_shared_from_this<WSSession> {
     websocket::stream<beast::tcp_stream> ws_;
     beast::flat_buffer buffer_;
     
@@ -288,7 +288,7 @@ void WSAdaptor::set_open_handler(OpenHandler handler) {
     pimpl_->listener->set_open_handler(handler);
 }
 
-void WSAdaptor::send(WSClientPtr client, const void* data, size_t size) {
+void WSAdaptor::send(Server::WSClientPtr client, const void* data, size_t size) {
     if (client) client->send(data, size);
 }
 

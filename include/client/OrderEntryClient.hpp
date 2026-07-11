@@ -1,6 +1,6 @@
 #pragma once
 #include "client/TradingClientBase.hpp"
-#include "client/SimpleWSClient.hpp"
+#include "client/WSClient.hpp"
 #include "client/ClientAccount.hpp"
 #include <mutex>
 #include <condition_variable>
@@ -40,7 +40,7 @@ public:
     void wait_until_ready();
 
 protected:
-    std::unique_ptr<SimpleWSClient> mgmt_client_;
+    std::unique_ptr<Client::WSClient> mgmt_client_;
     bool oe_running_ = true;
     uint32_t next_id_ = 1000001;
     uint64_t o_seq_num_ = 0;

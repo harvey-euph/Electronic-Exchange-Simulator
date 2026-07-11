@@ -79,7 +79,7 @@ void ClientManager::handle_client_logon(CMClientPtr new_client, const AdminReque
 
     if (old_client) {
         shared_msg_seq_num = old_client->increment_outbound_seq_num();
-        WSClientPtr old_ws = old_client->get_conn();
+        Server::WSClientPtr old_ws = old_client->get_conn();
         if (old_ws && old_ws != new_client->get_conn()) {
             flatbuffers::FlatBufferBuilder fbb(128);
             auto admin_resp = CreateAdminResponse(fbb, AdminResponseType_Reject, client_id, expected_msg_seq_num, RejectCode_LoginAtOtherSession);
@@ -165,7 +165,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
         return;
     }
 
-    WSClientPtr ws = client->get_conn();
+    Server::WSClientPtr ws = client->get_conn();
     if (!client->is_ready()) {
         LOG_WARN("[ClientManager] Received non-admin request before logon completed.");
         return;

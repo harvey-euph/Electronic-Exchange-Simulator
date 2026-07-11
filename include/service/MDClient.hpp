@@ -13,8 +13,7 @@ class MDClient : public std::enable_shared_from_this<MDClient> {
 public:
     using MessageHandler = std::function<void(MDClientPtr, const void*, size_t)>;
 
-    explicit MDClient(WSClientPtr ws);
-
+    explicit MDClient(Server::WSClientPtr ws) : ws_(ws) {}
     void set_message_handler(MessageHandler handler);
     void on_message(const void* data, size_t size);
     void send(const void* data, size_t size);
@@ -25,7 +24,7 @@ public:
                              std::function<void(MDClientPtr, const void*, size_t)> on_message);
 
 private:
-    WSClientPtr conn_;
+    Server::WSClientPtr ws_;
     MessageHandler msg_handler_;
 };
 

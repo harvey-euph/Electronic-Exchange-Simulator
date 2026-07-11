@@ -2,7 +2,6 @@
 
 namespace Exchange {
 
-MDClient::MDClient(WSClientPtr ws) : conn_(ws) {}
 
 void MDClient::set_message_handler(MessageHandler handler) {
     msg_handler_ = handler;
@@ -15,8 +14,8 @@ void MDClient::on_message(const void* data, size_t size) {
 }
 
 void MDClient::send(const void* data, size_t size) {
-    if (conn_) {
-        conn_->send(data, size);
+    if (ws_) {
+        ws_->send(data, size);
     }
 }
 
@@ -25,7 +24,7 @@ void MDClient::bind_adaptor(std::shared_ptr<WSAdaptor> adaptor,
                             std::function<void(MDClientPtr)> on_close,
                             std::function<void(MDClientPtr, const void*, size_t)> on_message) 
 {
-    adaptor->set_open_handler([on_open, on_close, on_message](WSClientPtr ws) {
+    adaptor->set_open_handler([on_open, on_close, on_message](Server::WSClientPtr ws) {
         auto client = std::make_shared<MDClient>(ws);
 
         if (on_message) {

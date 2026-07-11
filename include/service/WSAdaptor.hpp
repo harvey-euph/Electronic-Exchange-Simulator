@@ -6,6 +6,7 @@
 #include <atomic>
 
 namespace Exchange {
+namespace Server {
 
 class WSClient {
 public:
@@ -21,6 +22,8 @@ public:
 
 using WSClientPtr = std::shared_ptr<WSClient>;
 
+} // namespace Server
+
 class WSAdaptor {
 public:
     WSAdaptor(int port);
@@ -28,14 +31,14 @@ public:
 
     size_t poll();
 
-    using OpenHandler = std::function<void(WSClientPtr client)>;
-    using MessageHandler = std::function<void(WSClientPtr client, const void* data, size_t size)>;
-    using CloseHandler = std::function<void(WSClientPtr client)>;
+    using OpenHandler = std::function<void(Server::WSClientPtr client)>;
+    using MessageHandler = std::function<void(Server::WSClientPtr client, const void* data, size_t size)>;
+    using CloseHandler = std::function<void(Server::WSClientPtr client)>;
     
     void set_open_handler(OpenHandler handler);
     void set_message_handler(MessageHandler handler);
     void set_close_handler(CloseHandler handler);
-    void send(WSClientPtr client, const void* data, size_t size);
+    void send(Server::WSClientPtr client, const void* data, size_t size);
     void broadcast(const void* data, size_t size);
 
 private:
