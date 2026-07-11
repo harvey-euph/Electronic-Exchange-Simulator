@@ -13,18 +13,15 @@ MarketDataServer::MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, std::u
         ws_adaptor_,
         nullptr, // on_open
         [this](MDClientPtr client) { // on_close
-            std::lock_guard<std::mutex> lock(subs_mutex_);
-            auto it = client_subs_.find(client);
-            if (it != client_subs_.end()) {
-                for (const auto& [md_type, symbol_id] : it->second) {
-                    if (md_type == MDType_L2) {
-                        l2_clients_[symbol_id].erase(client);
-                    } else if (md_type == MDType_L3) {
-                        l3_clients_[symbol_id].erase(client);
-                    }
+
+            for (const auto& [md_type, symbol_id] : client->subs_) {
+                if (md_type == MDType_L2) {
+                    l2_clients_[symbol_id].erase(client);
+                } else if (md_type == MDType_L3) {
+                    l3_clients_[symbol_id].erase(client);
                 }
-                client_subs_.erase(it);
             }
+            client->subs_.clear();
         },
         [this](MDClientPtr client, const void* data, size_t size) { // on_message
             flatbuffers::Verifier verifier(reinterpret_cast<const uint8_t*>(data), size);
@@ -64,7 +61,6 @@ int MarketDataServer::poll_server()
 
 std::shared_ptr<MDOrderBook>& MarketDataServer::get_or_create_book(uint32_t symbol_id)
 {
-    std::lock_guard<std::mutex> lock(books_mutex_);
     auto it = books_.find(symbol_id);
     if (it == books_.end()) {
         auto book = std::make_shared<MDOrderBook>();
@@ -80,129 +76,123 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
 {
     uint32_t symbol_id = req->symbol_id();
     MDType md_type = req->md_type();
-    SubType sub_type = req->sub_type();
 
-    if (sub_type == SubType_unsubscribe) {
-        std::lock_guard<std::mutex> lock(subs_mutex_);
+    if (req->sub_type() == SubType_unsubscribe) {
         if (md_type == MDType_L2) {
             l2_clients_[symbol_id].erase(client);
         } else if (md_type == MDType_L3) {
             l3_clients_[symbol_id].erase(client);
         }
 
-        auto it = client_subs_.find(client);
-        if (it != client_subs_.end()) {
-            auto& subs = it->second;
-            subs.erase(std::remove(subs.begin(), subs.end(), std::make_pair(md_type, symbol_id)), subs.end());
-        }
-        LOG_INFO("[MarketDataServer] Client unsubscribed %d for symbol %d", (int)md_type, symbol_id);
+        auto& subs = client->subs_;
+        subs.erase(std::remove(subs.begin(), subs.end(), std::make_pair(md_type, symbol_id)), subs.end());
+        LOG_INFO("[MarketDataServer] Client unsubscribed L%d data for symbol %d", (int)md_type, symbol_id);
         return;
     }
 
-    if (sub_type == SubType_subscribe) {
+    if (req->sub_type() == SubType_subscribe) {
         auto& book = get_or_create_book(symbol_id);
 
-        {
-            std::lock_guard<std::mutex> lock(subs_mutex_);
-            if (md_type == MDType_L2) {
-                l2_clients_[symbol_id].insert(client);
-            } else if (md_type == MDType_L3) {
-                l3_clients_[symbol_id].insert(client);
-            }
-
-            auto& subs = client_subs_[client];
-            auto tag = std::make_pair(md_type, symbol_id);
-            if (std::find(subs.begin(), subs.end(), tag) == subs.end()) {
-                subs.push_back(tag);
-            }
-        }
-        LOG_INFO("[MarketDataServer] Client subscribed %d for symbol %d", (int)md_type, symbol_id);
-
         if (md_type == MDType_L2) {
-
-            // Send snapshot
-            flatbuffers::FlatBufferBuilder fbb(1024);
-
-            // 1. Send empty L2 frame (Side=None) to clear old data
-            {
-                auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_None, 0, 0, 0);
-                auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
-                fbb.Finish(md_update);
-                client->send(fbb.GetBufferPointer(), fbb.GetSize());
-            }
-
-            // 2. Send active levels
-            {
-                std::lock_guard<std::mutex> lock(book->mutex);
-                for (auto const& [price, level] : book->bids) {
-                    fbb.Clear();
-                    auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Buy, price, level.total_qty, 0);
-                    auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
-                    fbb.Finish(md_update);
-                    client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                }
-                for (auto const& [price, level] : book->asks) {
-                    fbb.Clear();
-                    auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Sell, price, level.total_qty, 0);
-                    auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
-                    fbb.Finish(md_update);
-                    client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                }
-            }
+            send_l2_snapshot(client, symbol_id, book);
+            l2_clients_[symbol_id].insert(client);
         } else if (md_type == MDType_L3) {
+            send_l3_snapshot(client, symbol_id, book);
+            l3_clients_[symbol_id].insert(client);
+        }
 
-            // Send snapshot
-            flatbuffers::FlatBufferBuilder fbb(1024);
+        auto& subs = client->subs_;
+        auto tag = std::make_pair(md_type, symbol_id);
+        if (std::find(subs.begin(), subs.end(), tag) == subs.end()) {
+            subs.push_back(tag);
+        }
+        LOG_INFO("[MarketDataServer] Client subscribed L%d data for symbol %d", (int)md_type, symbol_id);
+    }
+}
 
-            // 1. Send empty L3 frame (ExecType=Complete, Side=None) to clear old data
-            {
-                auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_Complete, 0, 0, Side_None, 0, 0, 0);
+void MarketDataServer::send_l2_snapshot(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book)
+{
+    flatbuffers::FlatBufferBuilder fbb(1024);
+
+    // 1. Send empty L2 frame (Side=None) to clear old data
+    {
+        auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_None, 0, 0, 0);
+        auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
+        fbb.Finish(md_update);
+        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+    }
+
+    // 2. Send active levels
+    {
+        std::lock_guard<std::mutex> lock(book->mutex);
+        for (auto const& [price, level] : book->bids) {
+            fbb.Clear();
+            auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Buy, price, level.total_qty, 0);
+            auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
+            fbb.Finish(md_update);
+            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        }
+        for (auto const& [price, level] : book->asks) {
+            fbb.Clear();
+            auto l2_update = CreateL2Update(fbb, symbol_id, 0, Side_Sell, price, level.total_qty, 0);
+            auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Update, l2_update.Union());
+            fbb.Finish(md_update);
+            client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        }
+    }
+}
+
+void MarketDataServer::send_l3_snapshot(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book)
+{
+    flatbuffers::FlatBufferBuilder fbb(1024);
+
+    // 1. Send empty L3 frame (ExecType=Complete, Side=None) to clear old data
+    {
+        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_Complete, 0, 0, Side_None, 0, 0, 0);
+        auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
+        fbb.Finish(md_update);
+        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+    }
+
+    // 2. Send active orders
+    {
+        std::lock_guard<std::mutex> lock(book->mutex);
+        // Bids (highest to lowest)
+        for (auto it = book->bids.rbegin(); it != book->bids.rend(); ++it) {
+            for (uint64_t order_id : it->second.queue) {
+                auto const& order = book->orders.at(order_id);
+                fbb.Clear();
+                auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty_req, 0);
                 auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
                 fbb.Finish(md_update);
                 client->send(fbb.GetBufferPointer(), fbb.GetSize());
+
+                if (order.qty_req > order.qty_rem) continue;
+
+                fbb.Clear();
+                auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
+                auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
+                fbb.Finish(md_fill);
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
             }
+        }
+        // Asks (lowest to highest)
+        for (auto const& [price, level] : book->asks) {
+            for (uint64_t order_id : level.queue) {
+                auto const& order = book->orders.at(order_id);
+                fbb.Clear();
+                auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty_req, 0);
+                auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
+                fbb.Finish(md_update);
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
 
-            // 2. Send active orders
-            {
-                std::lock_guard<std::mutex> lock(book->mutex);
-                // Bids (highest to lowest)
-                for (auto it = book->bids.rbegin(); it != book->bids.rend(); ++it) {
-                    for (uint64_t order_id : it->second.queue) {
-                        auto const& order = book->orders.at(order_id);
-                        fbb.Clear();
-                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty_req, 0);
-                        auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
-                        fbb.Finish(md_update);
-                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
+                if (order.qty_req == order.qty_rem) continue;
 
-                        if (order.qty_req > order.qty_rem) continue;
-
-                        fbb.Clear();
-                        auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
-                        auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
-                        fbb.Finish(md_fill);
-                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                    }
-                }
-                // Asks (lowest to highest)
-                for (auto const& [price, level] : book->asks) {
-                    for (uint64_t order_id : level.queue) {
-                        auto const& order = book->orders.at(order_id);
-                        fbb.Clear();
-                        auto l3_update = CreateL3Update(fbb, symbol_id, ExecType_New, 0, order.order_id, order.side, order.price, order.qty_req, 0);
-                        auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, l3_update.Union());
-                        fbb.Finish(md_update);
-                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
-
-                        if (order.qty_req == order.qty_rem) continue;
-
-                        fbb.Clear();
-                        auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
-                        auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
-                        fbb.Finish(md_fill);
-                        client->send(fbb.GetBufferPointer(), fbb.GetSize());
-                    }
-                }
+                fbb.Clear();
+                auto fill_update = CreateL3Update(fbb, symbol_id, ExecType_PartialFill, 0, order.order_id, order.side, order.price, order.qty_req - order.qty_rem, 0);
+                auto md_fill = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Update, fill_update.Union());
+                fbb.Finish(md_fill);
+                client->send(fbb.GetBufferPointer(), fbb.GetSize());
             }
         }
     }
@@ -224,7 +214,6 @@ void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type,
 {
     std::vector<MDClientPtr> target_clients;
     {
-        std::lock_guard<std::mutex> lock(subs_mutex_);
         auto it = l3_clients_.find(symbol_id);
         if (it != l3_clients_.end()) {
             target_clients.assign(it->second.begin(), it->second.end());
@@ -246,7 +235,6 @@ void MarketDataServer::publish_l2_update(uint32_t symbol_id, const std::vector<L
 {
     std::vector<MDClientPtr> target_clients;
     {
-        std::lock_guard<std::mutex> lock(subs_mutex_);
         auto it = l2_clients_.find(symbol_id);
         if (it != l2_clients_.end()) { 
             target_clients.assign(it->second.begin(), it->second.end());
@@ -311,16 +299,16 @@ void MarketDataServer::__update(std::shared_ptr<MDOrderBook> book, const OrderRe
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(resp->client_id) << 32) | resp->order_id;
     book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q);
-    uint64_t md_seq_num = ++md_seq_nums_[resp->symbol_id];
+    uint64_t md_seq_num = ++book->md_seq_num;
     publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, md_seq_num, timestamp);
 }
 
 void MarketDataServer::check_l2_publish_timers() {
     auto now = std::chrono::steady_clock::now();
+    thread_local std::vector<L2UpdateT> updates;
     for (auto& [symbol_id, book] : books_) {
-        auto updates = book->extract_pending_l2_updates(now, 100);
-        if (!updates.empty()) {
-            uint64_t msg_seq_num = md_seq_nums_[symbol_id];
+        if (book->extract_pending_l2_updates(now, 100, updates)) {
+            uint64_t msg_seq_num = book->md_seq_num;
             publish_l2_update(symbol_id, updates, msg_seq_num, 0);
         }
     }

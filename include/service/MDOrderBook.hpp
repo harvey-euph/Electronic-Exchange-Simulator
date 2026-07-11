@@ -1,6 +1,7 @@
 #pragma once
 
 #include "client/L3Book.hpp"
+#include <algorithm>
 
 namespace Exchange {
 
@@ -9,9 +10,11 @@ struct MDOrderBook : public L3Book {
     std::unordered_map<int64_t, uint64_t> pending_l2_asks;
     std::chrono::steady_clock::time_point last_l2_publish_time_;
     OrderResponseT pending_order;
+    uint64_t md_seq_num;
 
     MDOrderBook() {
         pending_order.order_id = 0;
+        md_seq_num = 0;
     }
 
     void on_level_updated(Side side, int64_t price, uint64_t total_qty) override {
@@ -25,23 +28,30 @@ struct MDOrderBook : public L3Book {
         pending_l2_asks.clear();
     }
 
-    std::vector<L2UpdateT> extract_pending_l2_updates(std::chrono::steady_clock::time_point now, int throttle_ms) {
+    bool extract_pending_l2_updates(std::chrono::steady_clock::time_point now, int throttle_ms, std::vector<L2UpdateT>& out_updates) {
         std::lock_guard<std::mutex> lock(mutex);
-        std::vector<L2UpdateT> updates;
         
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_l2_publish_time_).count();
-        if (elapsed < throttle_ms) return updates;
+        if (elapsed < throttle_ms) return false;
 
-        updates.reserve(pending_l2_bids.size() + pending_l2_asks.size());
-        for (auto const& [p, q] : pending_l2_bids) updates.push_back(L2UpdateT{.side = Side_Buy, .p = p, .q = q});
-        for (auto const& [p, q] : pending_l2_asks) updates.push_back(L2UpdateT{.side = Side_Sell, .p = p, .q = q});
+        if (pending_l2_bids.empty() && pending_l2_asks.empty()) return false;
+
+        out_updates.clear();
+        out_updates.reserve(pending_l2_bids.size() + pending_l2_asks.size());
         
-        if (!updates.empty()) {
-            pending_l2_bids.clear();
-            pending_l2_asks.clear();
-            last_l2_publish_time_ = now;
-        }
-        return updates;
+        // Pass 1: qty == 0 (Level removals go first to widen spread and prevent cross)
+        for (auto const& [p, q] : pending_l2_bids) if (!q) out_updates.push_back(L2UpdateT{.side = Side_Buy, .p = p, .q = q});
+        for (auto const& [p, q] : pending_l2_asks) if (!q) out_updates.push_back(L2UpdateT{.side = Side_Sell, .p = p, .q = q});
+        
+        // Pass 2: qty > 0 (Level additions/updates go next)
+        for (auto const& [p, q] : pending_l2_bids) if (q) out_updates.push_back(L2UpdateT{.side = Side_Buy, .p = p, .q = q});
+        for (auto const& [p, q] : pending_l2_asks) if (q) out_updates.push_back(L2UpdateT{.side = Side_Sell, .p = p, .q = q});
+
+        pending_l2_bids.clear();
+        pending_l2_asks.clear();
+        last_l2_publish_time_ = now;
+        
+        return true;
     }
 };
 

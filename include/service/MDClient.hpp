@@ -1,8 +1,11 @@
 #pragma once
 
 #include "service/WSAdaptor.hpp"
+#include "fbs/exchange_generated.h"
 #include <memory>
 #include <functional>
+#include <vector>
+#include <utility>
 
 namespace Exchange {
 
@@ -22,6 +25,8 @@ public:
                              std::function<void(MDClientPtr)> on_open,
                              std::function<void(MDClientPtr)> on_close,
                              std::function<void(MDClientPtr, const void*, size_t)> on_message);
+
+    std::vector<std::pair<MDType, uint32_t>> subs_;
 
 private:
     Server::WSClientPtr ws_;
