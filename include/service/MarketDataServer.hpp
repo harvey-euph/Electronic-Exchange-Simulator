@@ -39,6 +39,8 @@ public:
 private:
     std::shared_ptr<MDOrderBook>& get_or_create_book(uint32_t symbol_id);
     void handle_market_data_request(MDClientPtr client, const MarketDataRequest* req);
+    void send_top_of_book(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book);
+    void __send_top_of_book(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book);
     void send_l2_snapshot(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book);
     void send_l3_snapshot(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book);
     void process_market_update(const OrderResponseT* resp);
@@ -48,7 +50,7 @@ private:
     
     std::map<uint32_t, std::shared_ptr<MDOrderBook>> books_;
     
-    std::unordered_map<uint32_t, std::unordered_set<MDClientPtr>> l2_clients_, l3_clients_;
+    std::unordered_map<uint32_t, std::unordered_set<MDClientPtr>> l1_clients_, l2_clients_, l3_clients_;
 
     bool crosses(Side side, int64_t price, const std::shared_ptr<MDOrderBook>& book) const;
     void __update(std::shared_ptr<MDOrderBook> book, const OrderResponseT* resp, uint64_t timestamp);

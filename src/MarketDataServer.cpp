@@ -78,7 +78,9 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     MDType md_type = req->md_type();
 
     if (req->sub_type() == SubType_unsubscribe) {
-        if (md_type == MDType_L2) {
+        if (md_type == MDType_L1) {
+            l1_clients_[symbol_id].erase(client);
+        } else if (md_type == MDType_L2) {
             l2_clients_[symbol_id].erase(client);
         } else if (md_type == MDType_L3) {
             l3_clients_[symbol_id].erase(client);
@@ -93,7 +95,10 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     if (req->sub_type() == SubType_subscribe) {
         auto& book = get_or_create_book(symbol_id);
 
-        if (md_type == MDType_L2) {
+        if (md_type == MDType_L1) {
+            send_top_of_book(client, symbol_id, book);
+            l1_clients_[symbol_id].insert(client);
+        } else if (md_type == MDType_L2) {
             send_l2_snapshot(client, symbol_id, book);
             l2_clients_[symbol_id].insert(client);
         } else if (md_type == MDType_L3) {
@@ -110,7 +115,13 @@ void MarketDataServer::handle_market_data_request(MDClientPtr client, const Mark
     }
 }
 
-void MarketDataServer::send_l2_snapshot(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book)
+void MarketDataServer::send_top_of_book(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book)
+{
+    std::lock_guard<std::mutex> lock(book->mutex);
+    __send_top_of_book(client, symbol_id, book);
+}
+
+void MarketDataServer::__send_top_of_book(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book)
 {
     flatbuffers::FlatBufferBuilder fbb(2048);
     std::vector<flatbuffers::Offset<L2Update>> updates;
@@ -118,16 +129,51 @@ void MarketDataServer::send_l2_snapshot(MDClientPtr client, uint32_t symbol_id, 
     // 1. Send empty L2 frame (Side=None) to clear old data
     updates.push_back(CreateL2Update(fbb, Side_None, 0, 0));
 
-    // 2. Add active levels
-    {
-        std::lock_guard<std::mutex> lock(book->mutex);
-        for (auto const& [price, level] : book->bids) {
-            updates.push_back(CreateL2Update(fbb, Side_Buy, price, level.total_qty));
-        }
-        for (auto const& [price, level] : book->asks) {
-            updates.push_back(CreateL2Update(fbb, Side_Sell, price, level.total_qty));
+    auto bid_it = book->bids.begin();
+    if (bid_it != book->bids.end()) {
+        updates.push_back(CreateL2Update(fbb, Side_Buy, bid_it->first, bid_it->second.total_qty));
+    }
+
+    auto ask_it = book->asks.begin();
+    if (ask_it != book->asks.end()) {
+        updates.push_back(CreateL2Update(fbb, Side_Sell, ask_it->first, ask_it->second.total_qty));
+    }
+
+    auto updates_vec = fbb.CreateVector(updates);
+    auto l2_batch = CreateL2Batch(fbb, symbol_id, 0, 0, updates_vec);
+    auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L2Batch, l2_batch.Union());
+    fbb.Finish(md_update);
+    client->send(fbb.GetBufferPointer(), fbb.GetSize());
+}
+
+void MarketDataServer::send_l2_snapshot(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book)
+{
+    std::lock_guard<std::mutex> lock(book->mutex);
+
+    // --- Batch 1: Clear old data + Best Bid + Best Ask ---
+    __send_top_of_book(client, symbol_id, book);
+
+    // --- Batch 2: The rest of the book ---
+    flatbuffers::FlatBufferBuilder fbb(2048);
+    std::vector<flatbuffers::Offset<L2Update>> updates;
+
+    auto bid_it = book->bids.begin();
+    if (bid_it != book->bids.end()) {
+        ++bid_it;
+        for (; bid_it != book->bids.end(); ++bid_it) {
+            updates.push_back(CreateL2Update(fbb, Side_Buy, bid_it->first, bid_it->second.total_qty));
         }
     }
+
+    auto ask_it = book->asks.begin();
+    if (ask_it != book->asks.end()) {
+        ++ask_it;
+        for (; ask_it != book->asks.end(); ++ask_it) {
+            updates.push_back(CreateL2Update(fbb, Side_Sell, ask_it->first, ask_it->second.total_qty));
+        }
+    }
+
+    if (updates.empty()) return;
 
     auto updates_vec = fbb.CreateVector(updates);
     auto l2_batch = CreateL2Batch(fbb, symbol_id, 0, 0, updates_vec);
