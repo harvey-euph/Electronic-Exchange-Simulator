@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import * as flatbuffers from 'flatbuffers';
 import { L2Update } from '../fbs/exchange/l2-update';
+import { L2Batch } from '../fbs/exchange/l2-batch';
 import { ClientResponse } from '../fbs/exchange/client-response';
 import { ClientResponseData } from '../fbs/exchange/client-response-data';
 import { Side } from '../fbs/exchange/side';
@@ -109,15 +110,7 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
     activeSymbolIdRef.current = activeSymbolId;
   }, [activeSymbolId]);
 
-  // Periodically flush market data refs to React state (throttle renders)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setBids(new Map(bidsRef.current));
-      setAsks(new Map(asksRef.current));
-      setPrices(new Map(pricesRef.current));
-    }, 500);
-    return () => clearInterval(timer);
-  }, []);
+  // Removed periodic flush; state is updated directly per L2Batch
 
   const addMgmtLog = useCallback((msg: string) => {
     const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
@@ -702,65 +695,72 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
       try {
         const buf = new Uint8Array(event.data);
         const bb = new flatbuffers.ByteBuffer(buf);
-        const update = MarketDataUpdate.getRootAsMarketDataUpdate(bb);
-        if (update.dataType() !== MarketDataUpdateData.L2Update) return;
-        const l2Update = update.data(new L2Update()) as L2Update;
-        if (!l2Update) return;
-        const side = l2Update.side(); 
-        const p = l2Update.p(); 
-        const q = l2Update.q();
-        const sId = l2Update.symbolId();
+        const updateMsg = MarketDataUpdate.getRootAsMarketDataUpdate(bb);
+        if (updateMsg.dataType() !== MarketDataUpdateData.L2Batch) return;
+        const l2Batch = updateMsg.data(new L2Batch()) as L2Batch;
+        if (!l2Batch) return;
+        
+        const sId = l2Batch.symbolId();
+        const updatesLength = l2Batch.updatesLength();
 
         if (sId === activeSymbolIdRef.current && (!symbolInfosRef.current.has(sId))) {
-          addMgmtLog(`[L2] Snapshot/update received but symbol data not yet retrieved. Fetching SymbolInfo...`);
+          addMgmtLog(`[L2] Snapshot/batch received but symbol data not yet retrieved. Fetching SymbolInfo...`);
           fetchSymbolInfo(sId);
         }
 
-        if (side !== Side.None && q !== BigInt(0)) {
-          const info = symbolInfosRef.current.get(sId);
-          if (info) {
-            const valErr = validatePrice(p, info);
-            if (valErr) {
-              addMgmtLog(`[Error] Received invalid L2 price for symbol ${sId}: ${valErr}`);
-              onNotification?.('rejected', 'L2 Price Invalid', valErr);
-            }
-          }
-        }
-
-        if (side === Side.None) { 
-          if (sId === activeSymbolIdRef.current) {
-            setBids(new Map());
-            setAsks(new Map());
-            bidsRef.current.clear();
-            asksRef.current.clear();
-          }
-          return; 
-        }
-
-        if (side === Side.Buy) {
-          if (sId === activeSymbolIdRef.current) {
-            if (q === BigInt(0)) {
-              bidsRef.current.delete(p);
-            } else {
-              bidsRef.current.set(p, q);
-            }
-          }
+        for (let i = 0; i < updatesLength; i++) {
+          const l2Update = l2Batch.updates(i);
+          if (!l2Update) continue;
           
-          // Always update prices for total value calculation
-          if (q > 0n) {
-            pricesRef.current.set(sId, p);
+          const side = l2Update.side(); 
+          const p = l2Update.p(); 
+          const q = l2Update.q();
+
+          if (side !== Side.None && q !== BigInt(0)) {
+            const info = symbolInfosRef.current.get(sId);
+            if (info) {
+              const valErr = validatePrice(p, info);
+              if (valErr) {
+                addMgmtLog(`[Error] Received invalid L2 price for symbol ${sId}: ${valErr}`);
+                onNotification?.('rejected', 'L2 Price Invalid', valErr);
+              }
+            }
           }
-        } else if (side === Side.Sell) {
-          if (sId === activeSymbolIdRef.current) {
-            if (q === BigInt(0)) {
-              asksRef.current.delete(p);
-            } else {
-              asksRef.current.set(p, q);
+
+          if (side === Side.None) { 
+            if (sId === activeSymbolIdRef.current) {
+              setBids(new Map());
+              setAsks(new Map());
+              bidsRef.current.clear();
+              asksRef.current.clear();
+            }
+            continue; 
+          }
+
+          if (side === Side.Buy) {
+            if (sId === activeSymbolIdRef.current) {
+              if (q === BigInt(0)) {
+                bidsRef.current.delete(p);
+              } else {
+                bidsRef.current.set(p, q);
+              }
+            }
+            // Always update prices for total value calculation
+            if (q > 0n) {
+              pricesRef.current.set(sId, p);
+            }
+          } else if (side === Side.Sell) {
+            if (sId === activeSymbolIdRef.current) {
+              if (q === BigInt(0)) {
+                asksRef.current.delete(p);
+              } else {
+                asksRef.current.set(p, q);
+              }
             }
           }
         }
 
-        // Price cross check
+        // Price cross check (done once per batch)
         if (sId === activeSymbolIdRef.current) {
           let bestBid: bigint | null = null;
           for (const price of bidsRef.current.keys()) {
@@ -787,8 +787,12 @@ export function useExchange(activeSymbolId: number, onNotification?: (type: 'ack
             setAsks(new Map());
 
             ws.close();
+          } else {
+            setBids(new Map(bidsRef.current));
+            setAsks(new Map(asksRef.current));
           }
         }
+        setPrices(new Map(pricesRef.current));
       } catch (err) { addL2Log(`Decode Error: ${err}`); }
     };
     ws.onclose = (e) => { 

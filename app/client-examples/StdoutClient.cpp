@@ -8,12 +8,12 @@ class StdoutClient : public AlgoTradingClient {
 public:
     using AlgoTradingClient::AlgoTradingClient;
 
-    void on_l2_update(const L2Update* update) override {
-        logL2Update(update, "[StdoutClient]");
+    void on_l2_update(uint32_t symbol_id, const L2Update* update) override {
+        logL2Update(symbol_id, update, "[StdoutClient]");
     }
 
-    void on_l3_update(const L3Update* update) override {
-        logL3Update(update, "[StdoutClient]");
+    void on_l3_update(uint32_t symbol_id, const L3Update* update) override {
+        logL3Update(symbol_id, update, "[StdoutClient]");
     }
 
     void on_order_response(const OrderResponse* response) override {

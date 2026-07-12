@@ -60,22 +60,22 @@ inline void logPositionResponse(const PositionResponse* resp, const char* prefix
     LOG_INFO("%s client=%d, symbol=%d, position=%d", prefix, resp->client_id(), resp->symbol_id(), resp->position());
 }
 
-inline void logL2Update(const L2Update* update, const char* prefix = "[L2Update]") {
+inline void logL2Update(uint32_t symbol_id, const L2Update* update, const char* prefix = "[L2Update]") {
     if (!update) return;
     if (update->side() == Side_None) {
-        LOG_INFO("%s Snapshot Start | Symbol: %d", prefix, update->symbol_id());
+        LOG_INFO("%s Snapshot Start | Symbol: %d", prefix, symbol_id);
         return;
     }
-    LOG_INFO("%s symbol=%d, side=%s, price=%d, qty=%d, seq=%d, ts=%d", prefix, update->symbol_id(), EnumNameSide(update->side()), update->p(), update->q(), update->seq_num(), update->timestamp());
+    LOG_INFO("%s symbol=%d, side=%s, price=%d, qty=%d", prefix, symbol_id, EnumNameSide(update->side()), update->p(), update->q());
 }
 
-inline void logL3Update(const L3Update* update, const char* prefix = "[L3Update]") {
+inline void logL3Update(uint32_t symbol_id, const L3Update* update, const char* prefix = "[L3Update]") {
     if (!update) return;
     if (update->side() == Side_None) {
-        LOG_INFO("%s Snapshot Start | Symbol: %d", prefix, update->symbol_id());
+        LOG_INFO("%s Snapshot Start | Symbol: %d", prefix, symbol_id);
         return;
     }
-    LOG_INFO("%s symbol=%d, type=%s, order_id=%d, side=%s, price=%d, qty=%d, seq=%d, ts=%d", prefix, update->symbol_id(), EnumNameExecType(update->exec_type()), update->order_id(), EnumNameSide(update->side()), update->p(), update->q(), update->seq_num(), update->timestamp());
+    LOG_INFO("%s symbol=%d, type=%s, order_id=%d, side=%s, price=%d, qty=%d", prefix, symbol_id, EnumNameExecType(update->exec_type()), update->order_id(), EnumNameSide(update->side()), update->p(), update->q());
 }
 
 } // namespace Exchange

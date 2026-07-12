@@ -12,13 +12,16 @@ public:
         }
     }
 
-    void on_l3_update(const L3Update* update) override {
+    void on_l3_update(uint32_t symbol_id, const L3Update* update) override {
         book_.update(update->exec_type(), update->order_id(), update->side(), update->p(), update->q());
+    }
+
+    void on_l3_batch() override {
         book_.display();
     }
 
     // Unused overrides
-    void on_l2_update(const L2Update*) override {}
+    void on_l2_update(uint32_t, const L2Update*) override {}
 
 private:
     L3Book book_;

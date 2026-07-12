@@ -22,13 +22,13 @@ class BookDumperClient : public MarketDataClient {
 public:
     BookDumperClient(const Config& config) : TradingClientBase(config), MarketDataClient(config) {}
 
-    void on_l2_update(const L2Update* update) override {
-        if (update->symbol_id() == g_book.symbol_id) {
+    void on_l2_update(uint32_t symbol_id, const L2Update* update) override {
+        if (symbol_id == g_book.symbol_id) {
             g_book.update(update->side(), update->p(), update->q());
         }
     }
 
-    void on_l3_update(const L3Update*) override {} // Ignore
+    void on_l3_update(uint32_t, const L3Update*) override {} // Ignore
     
     void init() {
         fetch_symbols_info();

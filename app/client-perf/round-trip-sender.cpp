@@ -21,8 +21,8 @@ public:
         }
     }
 
-    void on_l2_update(const L2Update*) override {}
-    void on_l3_update(const L3Update*) override {}
+    void on_l2_update(uint32_t symbol_id, const L2Update*) override {}
+    void on_l3_update(uint32_t symbol_id, const L3Update*) override {}
 
     void on_response_processed([[maybe_unused]] double rtt_us) override {
         if (running_) {

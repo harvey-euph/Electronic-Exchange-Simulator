@@ -1,4 +1,4 @@
-#include "client/AlgoTradingClient.hpp"
+#include "client/OrderEntryClient.hpp"
 #include "util/HttpUtil.hpp"
 #include "util/JsonUtil.hpp"
 #include <iostream>
@@ -24,19 +24,16 @@
 
 namespace Exchange {
 
-class MarketMakerNative : public AlgoTradingClient {
+class MarketMakerNative : public OrderEntryClient {
 public:
     MarketMakerNative(const Config& config, uint32_t target_symbol, const std::string& binance_symbol) 
-        : AlgoTradingClient(config), target_symbol_(target_symbol), binance_symbol_(binance_symbol) {
+        : TradingClientBase(config), OrderEntryClient(config), target_symbol_(target_symbol), binance_symbol_(binance_symbol) {
         std::cout << "[MM-Native] Started. ClientID=" << config_.client_id 
                   << " SymbolID=" << target_symbol_ 
                   << " Binance=" << binance_symbol_ << std::endl;
     }
 
     ~MarketMakerNative() override = default;
-
-    void on_l2_update(const L2Update*) override {}
-    void on_l3_update(const L3Update*) override {}
 
     void on_timer() override {
         tick_count_++;
@@ -247,5 +244,5 @@ int main(int argc, char** argv) {
     config.timer_interval_ms = 100; // Faster tick (100ms)
 
     Exchange::MarketMakerNative mm(config, symbol_id, binance_symbol);
-    return mm.run();
+    return mm.run_oe();
 }

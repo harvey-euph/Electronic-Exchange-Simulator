@@ -99,36 +99,31 @@ table ClientResponse {
     msg_seq_num: ulong;
 }
 
-table L2Update
-{
-    symbol_id: uint;
-    seq_num: ulong;
+table L2Update {
     side: Side;
     p: long;
     q: ulong;
-    timestamp: ulong;
 }
 
-table L2Batch
-{
+table L2Batch {
+    symbol_id: uint;
     seq_num: ulong;
+    timestamp: ulong;
     updates: [L2Update];
 }
 
-table L3Update
-{
-    symbol_id: uint;
+table L3Update {
     exec_type: ExecType;
-    seq_num: ulong;
     order_id: ulong;
     side: Side;
     p: long;
     q: ulong; // filled quantity when filled
-    timestamp: ulong;
 }
 
 table L3Batch {
+    symbol_id: uint;
     seq_num: ulong;
+    timestamp: ulong;
     updates: [L3Update];
 }
 
@@ -148,8 +143,8 @@ table MarketDataRequest {
 }
 
 union MarketDataUpdateData {
-    L2Update,
-    L3Update
+    L2Batch,
+    L3Batch
 }
 
 table MarketDataUpdate {

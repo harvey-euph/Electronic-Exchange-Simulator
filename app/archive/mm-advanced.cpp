@@ -35,8 +35,8 @@ public:
         std::cout << "[MM-Advanced] Initialized for symbol " << target_symbol_ << std::endl;
     }
 
-    void on_l2_update(const L2Update* update) override {
-        if (update->symbol_id() != target_symbol_) return;
+    void on_l2_update(uint32_t symbol_id, const L2Update* update) override {
+        if (symbol_id != target_symbol_) return;
 
         std::lock_guard<std::mutex> lock(state_mtx_);
         local_book_.update(update->side(), update->p(), update->q());
@@ -49,8 +49,8 @@ public:
         fast_cancel_protection();
     }
 
-    void on_l3_update(const L3Update* update) override {
-        if (update->symbol_id() != target_symbol_) return;
+    void on_l3_update(uint32_t symbol_id, const L3Update* update) override {
+        if (symbol_id != target_symbol_) return;
         if (update->exec_type() != ExecType_Fill && update->exec_type() != ExecType_PartialFill) return;
 
         std::lock_guard<std::mutex> lock(state_mtx_);
