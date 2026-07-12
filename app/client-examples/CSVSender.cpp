@@ -59,7 +59,7 @@ public:
             auto now = std::chrono::steady_clock::now();
             if (std::chrono::duration_cast<std::chrono::seconds>(now - finish_start_time_).count() >= 5) {
                 std::cout << "[CSVSender] Stopping." << std::endl;
-                stop_oe();
+                stop();
             }
         }
     }
@@ -86,7 +86,7 @@ int main(int argc, char** argv) {
     
     try {
         Exchange::CSVSender client(config, csv_path);
-        return client.run_oe();
+        return client.run();
     } catch (const std::exception& e) {
         std::cerr << "[CSVSender] Fatal Error: " << e.what() << std::endl;
         return EXIT_FAILURE;

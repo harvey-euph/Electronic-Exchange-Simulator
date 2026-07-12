@@ -10,10 +10,10 @@ MarketDataClient::MarketDataClient(const Config& config) : TradingClientBase(con
 }
 
 MarketDataClient::~MarketDataClient() {
-    stop_md();
+    stop();
 }
 
-int MarketDataClient::start_md() {
+int MarketDataClient::start() {
     if (!md_client_->connect()) {
         LOG_ERROR("Failed to connect to Market Data port %s", config_.l2_port.c_str());
         return 1;
@@ -24,28 +24,26 @@ int MarketDataClient::start_md() {
         auto md_update = flatbuffers::GetRoot<MarketDataUpdate>(data);
         if (md_update->data_type() == MarketDataUpdateData_L2Batch) {
             auto batch = md_update->data_as_L2Batch();
-            if (batch->updates()) {
-                for (const auto* update : *batch->updates()) {
-                    std::string err;
-                    if (update->side() != Side_None && update->p() != 0 && !validate_price(batch->symbol_id(), update->p(), err)) {
-                        LOG_ERROR("[MarketDataClient] ERROR: L2 Batch Update has invalid price: %s", err.c_str());
-                        throw std::runtime_error("L2 Batch Update has invalid price: " + err);
-                    }
-                    on_l2_update(batch->symbol_id(), update);
+            if (!batch->updates()) return;
+            for (const auto* update : *batch->updates()) {
+                std::string err;
+                if (update->side() != Side_None && update->p() != 0 && !validate_price(batch->symbol_id(), update->p(), err)) {
+                    LOG_ERROR("[MarketDataClient] ERROR: L2 Batch Update has invalid price: %s", err.c_str());
+                    throw std::runtime_error("L2 Batch Update has invalid price: " + err);
                 }
+                on_l2_update(batch->symbol_id(), update);
             }
             on_l2_batch();
         } else if (md_update->data_type() == MarketDataUpdateData_L3Batch) {
             auto batch = md_update->data_as_L3Batch();
-            if (batch->updates()) {
-                for (const auto* update : *batch->updates()) {
-                    std::string err;
-                    if (update->side() != Side_None && update->p() != 0 && !validate_price(batch->symbol_id(), update->p(), err)) {
-                        LOG_ERROR("[MarketDataClient] ERROR: L3 Batch Update has invalid price: %s", err.c_str());
-                        throw std::runtime_error("L3 Batch Update has invalid price: " + err);
-                    }
-                    on_l3_update(batch->symbol_id(), update);
+            if (!batch->updates()) return;
+            for (const auto* update : *batch->updates()) {
+                std::string err;
+                if (update->side() != Side_None && update->p() != 0 && !validate_price(batch->symbol_id(), update->p(), err)) {
+                    LOG_ERROR("[MarketDataClient] ERROR: L3 Batch Update has invalid price: %s", err.c_str());
+                    throw std::runtime_error("L3 Batch Update has invalid price: " + err);
                 }
+                on_l3_update(batch->symbol_id(), update);
             }
             on_l3_batch();
         }
@@ -69,18 +67,18 @@ int MarketDataClient::start_md() {
     return 0;
 }
 
-int MarketDataClient::run_md() {
+int MarketDataClient::run() {
     fetch_symbols_info();
-    if (start_md() != 0) return 1;
-    while (md_running_) {
+    if (start() != 0) return 1;
+    while (running_) {
         on_timer();
         std::this_thread::sleep_for(std::chrono::milliseconds(config_.timer_interval_ms));
     }
     return 0;
 }
 
-void MarketDataClient::stop_md() {
-    md_running_ = false;
+void MarketDataClient::stop() {
+    running_ = false;
     if (md_client_) md_client_->stop();
 }
 

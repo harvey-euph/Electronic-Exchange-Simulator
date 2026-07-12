@@ -10,10 +10,10 @@ OrderEntryClient::OrderEntryClient(const Config& config) : TradingClientBase(con
 }
 
 OrderEntryClient::~OrderEntryClient() {
-    stop_oe();
+    stop();
 }
 
-int OrderEntryClient::start_oe() {
+int OrderEntryClient::start() {
     if (!mgmt_client_->connect()) {
         LOG_ERROR("Failed to connect to Management port %s", config_.mgmt_port.c_str());
         return 1;
@@ -24,8 +24,8 @@ int OrderEntryClient::start_oe() {
         auto resp = flatbuffers::GetRoot<ClientResponse>(data);
         if (resp->data_type() == ClientResponseData_AdminResponse) {
             auto admin_resp = resp->data_as_AdminResponse();
+            i_seq_num_ = resp->msg_seq_num();
             if (admin_resp->type() == AdminResponseType_Ready) {
-                i_seq_num_ = resp->msg_seq_num();
                 // Request initial state explicitly
                 request_open_orders();
                 for (auto sym : config_.symbol_ids) {
@@ -52,7 +52,7 @@ int OrderEntryClient::start_oe() {
                     LOG_INFO("[OrderEntryClient] Sent resynced LogOn request with MSG=%lu, ACK=%lu", o_seq_num_, resp->msg_seq_num());
                 } else if (reason == RejectCode_LoginAtOtherSession) {
                     LOG_ERROR("[OrderEntryClient] Logged in at another session. Disconnecting.");
-                    stop_oe();
+                    stop();
                 }
             }
             return;
@@ -85,18 +85,18 @@ int OrderEntryClient::start_oe() {
     return 0;
 }
 
-int OrderEntryClient::run_oe() {
+int OrderEntryClient::run() {
     fetch_symbols_info();
-    if (start_oe() != 0) return 1;
-    while (oe_running_) {
+    if (start() != 0) return 1;
+    while (running_) {
         on_timer();
         std::this_thread::sleep_for(std::chrono::milliseconds(config_.timer_interval_ms));
     }
     return 0;
 }
 
-void OrderEntryClient::stop_oe() {
-    oe_running_ = false;
+void OrderEntryClient::stop() {
+    running_ = false;
     if (mgmt_client_) mgmt_client_->stop();
 }
 

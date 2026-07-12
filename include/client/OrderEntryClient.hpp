@@ -32,16 +32,16 @@ public:
     void request_open_orders();
     void request_position(uint32_t symbol_id);
 
-    int run_oe();
-    int start_oe();
-    void stop_oe();
+    int run();
+    int start();
+    void stop();
 
     bool is_ready() const { return ready_; }
     void wait_until_ready();
 
 protected:
     std::unique_ptr<Client::WSClient> mgmt_client_;
-    bool oe_running_ = true;
+    bool running_ = true;
     uint32_t next_id_ = 1000001;
     uint64_t o_seq_num_ = 0;
     uint64_t i_seq_num_ = 0;

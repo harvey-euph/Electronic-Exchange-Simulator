@@ -14,13 +14,13 @@ public:
     virtual void on_l2_batch() {}
     virtual void on_l3_batch() {}
 
-    int run_md();
-    int start_md();
-    void stop_md();
+    int run();
+    int start();
+    void stop();
 
 protected:
     std::unique_ptr<Client::WSClient> md_client_;
-    bool md_running_ = true;
+    bool running_ = true;
 };
 
 }

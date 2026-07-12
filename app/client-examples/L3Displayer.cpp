@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
 
     try {
         Exchange::L3Displayer client(config);
-        return client.run_md();
+        return client.run();
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;

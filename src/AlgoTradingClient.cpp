@@ -15,8 +15,8 @@ AlgoTradingClient::~AlgoTradingClient() {
 
 int AlgoTradingClient::run() {
     fetch_symbols_info();
-    if (start_oe() != 0) return 1;
-    if (start_md() != 0) return 1;
+    if (OrderEntryClient::start() != 0) return 1;
+    if (MarketDataClient::start() != 0) return 1;
     
     while (running_) {
         on_timer();
@@ -27,8 +27,8 @@ int AlgoTradingClient::run() {
 
 void AlgoTradingClient::stop() {
     running_ = false;
-    stop_oe();
-    stop_md();
+    OrderEntryClient::stop();
+    MarketDataClient::stop();
 }
 
 } // namespace Exchange

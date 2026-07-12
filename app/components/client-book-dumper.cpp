@@ -54,7 +54,7 @@ int main(int argc, char** argv)
         BookDumperClient client(config);
         client.init();
         
-        if (client.start_md() != 0) {
+        if (client.start() != 0) {
             std::cerr << "Failed to start MarketDataClient\n";
             return 1;
         }
@@ -71,7 +71,7 @@ int main(int argc, char** argv)
             std::cerr << "Failed to open output file: " << g_filepath << std::endl;
         }
 
-        client.stop_md();
+        client.stop();
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

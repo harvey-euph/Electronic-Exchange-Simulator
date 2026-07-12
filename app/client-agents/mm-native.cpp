@@ -244,5 +244,5 @@ int main(int argc, char** argv) {
     config.timer_interval_ms = 100; // Faster tick (100ms)
 
     Exchange::MarketMakerNative mm(config, symbol_id, binance_symbol);
-    return mm.run_oe();
+    return mm.run();
 }
