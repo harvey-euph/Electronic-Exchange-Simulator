@@ -1,6 +1,9 @@
 #include "util/LogUtil.hpp"
 #include "service/MarketDataServer.hpp"
+#include "service/Snapshot.hpp"
 #include <iostream>
+#include <fstream>
+#include <filesystem>
 #include "define.hpp"
 
 namespace Exchange {
@@ -31,6 +34,8 @@ MarketDataServer::MarketDataServer(std::shared_ptr<WSAdaptor> ws_adaptor, std::u
             }
         }
     );
+
+    restore(EXECUTION_JOURNAL_DIR);
 }
 
 MarketDataServer::~MarketDataServer() {
@@ -342,6 +347,83 @@ void MarketDataServer::check_l2_publish_timers() {
             publish_l2_update(symbol_id, updates, msg_seq_num, 0);
         }
     }
+}
+
+void MarketDataServer::restore(const std::string& journal_dir)
+{
+    if (!std::filesystem::exists(journal_dir)) {
+        LOG_INFO("[MarketDataServer] Journal directory does not exist, skipping restore.");
+        return;
+    }
+
+    uint32_t max_snapshot_idx = 0;
+    bool found_snapshot = false;
+
+    // 1. Find the latest snapshot index
+    for (const auto& entry : std::filesystem::directory_iterator(journal_dir)) {
+        std::string filename = entry.path().filename().string();
+        if (filename.find("snapshot-") == 0) {
+            size_t last_dash = filename.find_last_of('-');
+            if (last_dash != std::string::npos && last_dash > 8) {
+                try {
+                    uint32_t idx = std::stoul(filename.substr(last_dash + 1));
+                    if (!found_snapshot || idx > max_snapshot_idx) {
+                        max_snapshot_idx = idx;
+                        found_snapshot = true;
+                    }
+                } catch (...) {}
+            }
+        }
+    }
+
+    uint32_t start_idx = 0;
+    if (found_snapshot) {
+        LOG_INFO("[MarketDataServer] Found latest snapshot at index %u, loading...", max_snapshot_idx);
+        
+        // Scan for all files matching snapshot-X-<max_snapshot_idx>
+        for (const auto& entry : std::filesystem::directory_iterator(journal_dir)) {
+            std::string filename = entry.path().filename().string();
+            std::string suffix = "-" + std::to_string(max_snapshot_idx);
+            // Check ends_with properly
+            if (filename.find("snapshot-") == 0 && filename.length() >= suffix.length() && 0 == filename.compare(filename.length() - suffix.length(), suffix.length(), suffix)) {
+                size_t first_dash = filename.find('-');
+                size_t second_dash = filename.find('-', first_dash + 1);
+                if (first_dash != std::string::npos && second_dash != std::string::npos) {
+                    uint32_t sid = std::stoul(filename.substr(first_dash + 1, second_dash - first_dash - 1));
+                    auto book = get_or_create_book(sid);
+                    
+                    std::ifstream ifs(entry.path(), std::ios::binary);
+                    if (ifs) {
+                        OrderSnapshot rec;
+                        while (ifs.read(reinterpret_cast<char*>(&rec), sizeof(rec))) {
+                            book->update(ExecType_New, rec.combined_order_id, rec.side, rec.p, rec.qty_remaining);
+                        }
+                    }
+                }
+            }
+        }
+        start_idx = max_snapshot_idx + 1;
+    } else {
+        LOG_INFO("[MarketDataServer] No snapshots found, replaying from the beginning.");
+    }
+
+    // 2. Replay journal
+    response_ring_->seek((static_cast<uint64_t>(start_idx) << 32));
+
+    const void* data = nullptr;
+    uint32_t len = 0;
+    uint64_t replay_count = 0;
+
+    while (response_ring_->read_next(data, len)) {
+        if (len >= sizeof(OrderResponseT)) {
+            const OrderResponseT* resp = reinterpret_cast<const OrderResponseT*>(data);
+            auto book = get_or_create_book(resp->symbol_id);
+            __update(book, resp, 0); // Replay handles state mutations
+            replay_count++;
+        }
+    }
+
+    LOG_INFO("[MarketDataServer] Recovery complete. Replayed %lu executions.", replay_count);
 }
 
 } // namespace Exchange

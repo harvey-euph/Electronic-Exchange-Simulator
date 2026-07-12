@@ -16,7 +16,6 @@ mkdir -p "$LOG_DIR"
 
 JOURNAL_DIR="$PROJECT_ROOT/log/execution-journals"
 mkdir -p "$JOURNAL_DIR"
-rm -f "$JOURNAL_DIR"/*
 apply_system_tuning
 
 # Check if any service is running (processes are active)

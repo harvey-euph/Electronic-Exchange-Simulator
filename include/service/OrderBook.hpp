@@ -63,6 +63,9 @@ public:
     // Zero-copy path: called by MatchingEngine when the ring carries an
     // OrderRequestT placement-new'd directly by the Gateway.
     __attribute__((noinline)) void processRequest(const OrderRequestT* req);
+    void take_snapshot(const std::string& filepath) const;
+    void load_snapshot(const std::string& filepath);
+    void restore_from_response(const OrderResponseT* resp);
 
 private:
     const uint32_t symbol_id_;
@@ -71,6 +74,7 @@ private:
     const size_t  max_price_levels_;   // price_array_ 大小
     mmaplog::MmapWriter* response_ring_;
     OrderResponseT resp;
+    bool recover_mode_ = false;
 
     size_t price_to_index(const int64_t price) const {
         return price / min_step_ - price_index_offset_;

@@ -274,7 +274,7 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
                     last_popped_client_ = client;
                 }
             } else {
-                LOG_ERROR("[ClientManager] Queue empty but got queue response for client %u", client_id);
+                // LOG_ERROR("[ClientManager] Queue empty but got queue response for client %u", client_id);
             }
         }
     } else {

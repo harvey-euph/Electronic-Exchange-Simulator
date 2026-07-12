@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <atomic>
+#include <functional>
 
 namespace mmaplog {
 
@@ -17,8 +18,7 @@ struct RecordHeader {
 
 class MmapWriter {
 public:
-    // max_file_size is 64MB by default
-    MmapWriter(const std::string& dir, size_t max_file_size = 64 * 1024 * 1024);
+    MmapWriter(const std::string& dir, size_t max_file_size = 1 * 64 * 1024);
     ~MmapWriter();
 
     // Appends data and returns the globally unique offset. (Convenience wrapper)
@@ -32,7 +32,11 @@ public:
     // 'payload_ptr' must be the pointer returned by reserve().
     void commit(void* payload_ptr);
 
+    using RolloverCallback = std::function<void(uint32_t old_file_index, uint32_t new_file_index)>;
+    void set_rollover_callback(RolloverCallback cb) { rollover_cb_ = std::move(cb); }
+
 private:
+    RolloverCallback rollover_cb_;
     void open_file(uint32_t file_index);
 
     std::string dir_;

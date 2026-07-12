@@ -13,7 +13,7 @@ namespace mmaplog {
 
 static std::string get_filename(const std::string& dir, uint32_t index) {
     std::ostringstream oss;
-    oss << dir << "/journal_" << std::setw(8) << std::setfill('0') << index << ".log";
+    oss << dir << "/journal-" << index;
     return oss.str();
 }
 
@@ -23,9 +23,47 @@ MmapWriter::MmapWriter(const std::string& dir, size_t max_file_size)
     std::error_code ec;
     std::filesystem::create_directories(dir_, ec);
     std::filesystem::permissions(dir_, std::filesystem::perms::all, std::filesystem::perm_options::add, ec);
-    // For this simple implementation, we always start at file 0 and overwrite.
-    // In a real system, you'd scan the directory to find the latest file.
-    open_file(0);
+    // Scan directory for max file index
+    uint32_t max_idx = 0;
+    bool found = false;
+    for (const auto& entry : std::filesystem::directory_iterator(dir_)) {
+        std::string filename = entry.path().filename().string();
+        if (filename.find("journal-") == 0) {
+            size_t dash = filename.find('-');
+            if (dash != std::string::npos) {
+                try {
+                    uint32_t idx = std::stoul(filename.substr(dash + 1));
+                    if (!found || idx > max_idx) {
+                        max_idx = idx;
+                        found = true;
+                    }
+                } catch (...) {}
+            }
+        }
+    }
+    
+    if (found) {
+        current_file_index_ = max_idx;
+        open_file(max_idx);
+        
+        // Fast-forward to the end of the file
+        while (current_offset_ + sizeof(RecordHeader) <= max_file_size_) {
+            RecordHeader* header = reinterpret_cast<RecordHeader*>(mapped_addr_ + current_offset_);
+            uint32_t len = header->published_length.load(std::memory_order_relaxed);
+            if (len == 0) {
+                break; // Found the end
+            }
+            if (len == EOF_MARKER) {
+                // The file is fully written, we should roll over
+                current_file_index_++;
+                open_file(current_file_index_);
+                break; // The new file will have offset 0
+            }
+            current_offset_ += sizeof(RecordHeader) + len;
+        }
+    } else {
+        open_file(0);
+    }
 }
 
 MmapWriter::~MmapWriter() {
@@ -68,7 +106,12 @@ void* MmapWriter::reserve(uint32_t len, uint64_t& out_offset) {
         header->published_length.store(EOF_MARKER, std::memory_order_release);
         
         // Rollover to the next file
+        uint32_t old_index = current_file_index_;
         open_file(current_file_index_ + 1);
+
+        if (rollover_cb_) {
+            rollover_cb_(old_index, current_file_index_);
+        }
     }
     
     out_offset = (static_cast<uint64_t>(current_file_index_) << 32) | current_offset_;

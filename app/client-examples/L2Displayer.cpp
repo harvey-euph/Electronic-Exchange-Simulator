@@ -13,6 +13,7 @@ public:
     }
 
     void on_l2_update(uint32_t symbol_id, const L2Update* update) override {
+        (void) symbol_id;
         book_.update(update->side(), update->p(), update->q());
     }
 

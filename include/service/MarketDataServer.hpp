@@ -37,6 +37,7 @@ public:
     void gdb_dump_book(uint32_t symbol_id, const char* filepath);
 
 private:
+    void restore(const std::string& journal_dir);
     std::shared_ptr<MDOrderBook>& get_or_create_book(uint32_t symbol_id);
     void handle_market_data_request(MDClientPtr client, const MarketDataRequest* req);
     void send_top_of_book(MDClientPtr client, uint32_t symbol_id, const std::shared_ptr<MDOrderBook>& book);

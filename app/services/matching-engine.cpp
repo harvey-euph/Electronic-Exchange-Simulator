@@ -61,6 +61,12 @@ int main(int argc, char* argv[])
     LOG_INFO("[OrderCore] Listening for requests on %s...", ring_name.c_str());
 
     Exchange::MatchingEngine engine(&request_ring, std::move(books));
+
+    response_ring.set_rollover_callback([&engine](uint32_t old_idx, uint32_t new_idx) {
+        LOG_INFO("[OrderCore] Rollover from %u to %u, taking snapshot...", old_idx, new_idx);
+        engine.take_snapshot(old_idx);
+    });
+
     engine.run();
 
     LOG_INFO("[OrderCore] Shutting down...");

@@ -12,7 +12,7 @@ public:
         }
     }
 
-    void on_l3_update(uint32_t symbol_id, const L3Update* update) override {
+    void on_l3_update(uint32_t, const L3Update* update) override {
         book_.update(update->exec_type(), update->order_id(), update->side(), update->p(), update->q());
     }
 

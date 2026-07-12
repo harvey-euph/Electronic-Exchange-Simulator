@@ -1,7 +1,5 @@
 #!/bin/bash
 
-
-
 # Enforce running with sudo/root privileges upfront
 if [ "$EUID" -ne 0 ]; then
     echo "Error: This script must be run as root/sudo." >&2

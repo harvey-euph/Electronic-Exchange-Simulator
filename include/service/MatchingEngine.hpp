@@ -15,8 +15,12 @@ public:
 
     int poll_client();
     int poll_server();
+    
+    void take_snapshot(uint32_t file_index);
 
 private:
+    void restore(const std::string& journal_dir);
+    void load_snapshot(uint32_t file_index);
     SHMRingBuffer* request_ring_;
     std::unordered_map<uint32_t, std::unique_ptr<OrderBook>> books_;
 };

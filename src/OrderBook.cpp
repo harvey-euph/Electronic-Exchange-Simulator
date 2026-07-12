@@ -2,8 +2,10 @@
 #include "define.hpp"
 #include "util/LogUtil.hpp"
 #include "util/TimeUtil.hpp"
+#include "service/Snapshot.hpp"
 #include <algorithm>
 #include <random>
+#include <fstream>
 #include <sys/sdt.h>
 
 using namespace Exchange;
@@ -37,14 +39,9 @@ static Order* createOrder(const OrderRequestT* req)
 {
     return new Order {
         (static_cast<uint64_t>(req->client_id) << 32) | req->order_id,
-        req->q,
-        req->q,
-        req->type,
-        nullptr,
-        nullptr,
-        nullptr,
-        req->timestamp,
-        req->symbol_id
+        req->q, req->q, req->type,
+        nullptr, nullptr, nullptr,
+        req->timestamp, req->symbol_id
     };
 }
 
@@ -374,7 +371,7 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
                              uint64_t exec_id, Side side, int64_t p, uint64_t q,
                              RejectCode reject_code)
 {
-    if (!response_ring_) return;
+    if (recover_mode_ || !response_ring_) return;
     
     uint64_t offset;
     void* ptr = response_ring_->reserve(sizeof(OrderResponseT), offset);
@@ -394,4 +391,91 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
     
     DTRACE_PROBE1(exchange, ob_resp_enqueue, exec_id);
     response_ring_->commit(ptr);
+}
+
+void OrderBook::take_snapshot(const std::string& filepath) const
+{
+    std::ofstream ofs(filepath, std::ios::binary | std::ios::trunc);
+    if (!ofs) return;
+
+    for (int side_idx = 0; side_idx < 2; ++side_idx) {
+        Side side = static_cast<Side>(side_idx);
+        for (const auto& [price_idx, pl] : active_levels_[side_idx]) {
+            int64_t price = pl_to_price(pl);
+            Order* o = pl->dummy_head.next;
+            while (o != &pl->dummy_tail) {
+                OrderSnapshot rec;
+                rec.combined_order_id = o->order_id;
+                rec.qty_original = o->qty_original;
+                rec.qty_remaining = o->qty_remaining;
+                rec.type = o->type;
+                rec.side = side;
+                rec.timestamp = o->timestamp;
+                rec.symbol_id = o->symbol_id;
+                rec.p = price;
+                
+                ofs.write(reinterpret_cast<const char*>(&rec), sizeof(rec));
+                o = o->next;
+            }
+        }
+    }
+}
+
+void OrderBook::load_snapshot(const std::string& filepath)
+{
+    std::ifstream ifs(filepath, std::ios::binary);
+    if (!ifs) return;
+
+    OrderSnapshot rec;
+    while (ifs.read(reinterpret_cast<char*>(&rec), sizeof(rec))) {
+        Order* o = new Order{
+            rec.combined_order_id,
+            rec.qty_original,
+            rec.qty_remaining,
+            rec.type,
+            nullptr, nullptr, nullptr,
+            rec.timestamp,
+            rec.symbol_id
+        };
+
+        const size_t price_idx = (rec.type == OrderType_Market) ? 
+            (rec.side == Side_Buy ? max_price_levels_ - 1 : 0) : price_to_index(rec.p);
+
+        PriceLevel *pl = GetOrCreatePriceLevel(price_idx, rec.side);
+        insertOrderToLevel(pl, o, rec.side);
+        active_orders_[o->order_id] = o;
+    }
+}
+
+void OrderBook::restore_from_response(const OrderResponseT* resp)
+{
+    OrderRequestT req;
+    req.client_id = resp->client_id;
+    req.order_id = resp->order_id;
+    req.exec_id = resp->exec_id;
+    req.symbol_id = resp->symbol_id;
+    req.side = resp->side;
+    req.p = resp->p;
+    req.q = resp->q;
+    req.timestamp = 0; // Snapshot/journal replay does not strict need the old request timestamp
+
+    if (resp->exec_type == ExecType_New) {
+        req.action = OrderAction_New;
+        req.type = (resp->p == 0) ? OrderType_Market : OrderType_Limit;
+    } 
+    else if (resp->exec_type == ExecType_Cancelled) {
+        req.action = OrderAction_Cancel;
+    } 
+    else if (resp->exec_type == ExecType_Replaced) {
+        req.action = OrderAction_Modify;
+    } 
+    else {
+        // Ignore ExecType_Fill, ExecType_PartialFill, ExecType_Rejected, etc.
+        // The determinism of processRequest() will recreate these automatically.
+        return; 
+    }
+
+    recover_mode_ = true;
+    processRequest(&req);
+    recover_mode_ = false;
 }
