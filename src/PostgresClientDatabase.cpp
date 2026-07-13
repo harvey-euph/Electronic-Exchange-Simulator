@@ -20,7 +20,7 @@ PostgresClientDatabase::PostgresClientDatabase(const std::string& conn_str)
 PostgresClientDatabase::~PostgresClientDatabase() = default;
 
 void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     uint64_t exec_id = resp.exec_id;
     uint64_t o_seq_num = msg_seq_num;
     
@@ -43,7 +43,7 @@ void PostgresClientDatabase::appendResponseLog(uint32_t client_id, const OrderRe
 }
 
 std::vector<std::vector<uint8_t>> PostgresClientDatabase::popPendingResponses(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     std::vector<std::vector<uint8_t>> result;
     pqxx::work w(*conn_);
@@ -62,7 +62,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::popPendingResponses(ui
 }
 
 uint64_t PostgresClientDatabase::getClientISeqNum(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     pqxx::result r = w.exec("SELECT i_seq_num FROM clients WHERE client_id = $1", pqxx::params{client_id});
@@ -75,7 +75,7 @@ uint64_t PostgresClientDatabase::getClientISeqNum(uint32_t client_id) {
 }
 
 void PostgresClientDatabase::setClientISeqNum(uint32_t client_id, uint64_t seq_num) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     w.exec("INSERT INTO clients (client_id, username, i_seq_num) VALUES ($1, $2, $3) ON CONFLICT (client_id) DO UPDATE SET i_seq_num = EXCLUDED.i_seq_num", pqxx::params{client_id, "client_" + std::to_string(client_id), seq_num});
@@ -83,7 +83,7 @@ void PostgresClientDatabase::setClientISeqNum(uint32_t client_id, uint64_t seq_n
 }
 
 uint64_t PostgresClientDatabase::getClientOSeqNum(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     pqxx::result r = w.exec("SELECT o_seq_num FROM clients WHERE client_id = $1", pqxx::params{client_id});
@@ -96,7 +96,7 @@ uint64_t PostgresClientDatabase::getClientOSeqNum(uint32_t client_id) {
 }
 
 uint64_t PostgresClientDatabase::incrementAndGetClientOSeqNum(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     pqxx::result r = w.exec("INSERT INTO clients (client_id, username, o_seq_num) VALUES ($1, $2, 1) ON CONFLICT (client_id) DO UPDATE SET o_seq_num = clients.o_seq_num + 1 RETURNING o_seq_num", pqxx::params{client_id, "client_" + std::to_string(client_id)});
@@ -105,7 +105,7 @@ uint64_t PostgresClientDatabase::incrementAndGetClientOSeqNum(uint32_t client_id
 }
 
 void PostgresClientDatabase::setClientOSeqNum(uint32_t client_id, uint64_t seq_num) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     w.exec("INSERT INTO clients (client_id, username, o_seq_num) VALUES ($1, $2, $3) ON CONFLICT (client_id) DO UPDATE SET o_seq_num = EXCLUDED.o_seq_num", pqxx::params{client_id, "client_" + std::to_string(client_id), seq_num});
@@ -113,7 +113,7 @@ void PostgresClientDatabase::setClientOSeqNum(uint32_t client_id, uint64_t seq_n
 }
 
 std::vector<std::vector<uint8_t>> PostgresClientDatabase::getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     std::vector<std::vector<uint8_t>> result;
     pqxx::work w(*conn_);
@@ -129,7 +129,7 @@ std::vector<std::vector<uint8_t>> PostgresClientDatabase::getResponsesSince(uint
 }
 
 void PostgresClientDatabase::acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     w.exec("DELETE FROM pending_responses WHERE client_id = $1 AND o_seq_num <= $2", pqxx::params{client_id, ack_seq_num});
@@ -137,7 +137,7 @@ void PostgresClientDatabase::acknowledgeResponses(uint32_t client_id, uint64_t a
 }
 
 int64_t PostgresClientDatabase::getPosition(uint32_t client_id, uint32_t symbol_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     pqxx::result r = w.exec(
@@ -151,7 +151,7 @@ int64_t PostgresClientDatabase::getPosition(uint32_t client_id, uint32_t symbol_
 }
 
 std::map<uint32_t, int64_t> PostgresClientDatabase::getAllPositions(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     pqxx::result r = w.exec(
@@ -172,7 +172,7 @@ std::map<uint32_t, int64_t> PostgresClientDatabase::getAllPositions(uint32_t cli
 }
 
 void PostgresClientDatabase::updatePosition(const OrderResponseT* resp) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     
     uint32_t client_id = resp->client_id;
@@ -219,24 +219,30 @@ void PostgresClientDatabase::updatePosition(const OrderResponseT* resp) {
     w.commit();
 }
 
-void PostgresClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) {
-    (void)resp;
-    (void)msg_seq_num;
+void PostgresClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent, uint64_t log_offset) {
     (void)not_sent;
-    // uint32_t client_id = resp->client_id;
-    // if ((EXEC_MASK_TRADE >> resp->exec_type) & 1) {
-    //     updatePosition(resp);
-    // }
-    // if ((EXEC_MASK_ALIVE >> resp->exec_type) & 1) {
-    //     addOrUpdateOpenOrder(resp);
-    //     } else if ((EXEC_MASK_TERM >> resp->exec_type) & 1) {
-    //     removeOpenOrder(client_id, resp->order_id);
-    // }
-    // appendResponseLog(client_id, *resp, msg_seq_num);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    reconnect_if_needed();
+    
+    try {
+        pqxx::work w(*conn_);
+        uint32_t client_id = resp->client_id;
+        
+        // Inline calls that reuse 'w' would go here if we implemented _updatePosition etc.
+        // For now, since PG is just a stub in the old code, we'll just save the offset atomically.
+        w.exec_params("INSERT INTO system_state (key, value) VALUES ('log_offset', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", std::to_string(log_offset));
+        w.commit();
+    } catch (const std::exception& e) {
+        LOG_ERROR("[PostgresClientDatabase] update_on_execution error: %s", e.what());
+    }
+}
+
+void PostgresClientDatabase::dump_state([[maybe_unused]] const std::string& dir) {
+    // Stub
 }
 
 void PostgresClientDatabase::addOrUpdateOpenOrder(const OrderResponseT* resp) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
 
     uint32_t client_id = resp->client_id;
@@ -262,15 +268,19 @@ void PostgresClientDatabase::addOrUpdateOpenOrder(const OrderResponseT* resp) {
         "(order_id, client_id, symbol_id, side, price_mantissa, qty, visible_qty, timestamp) "
         "VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) ON CONFLICT (order_id) DO UPDATE SET "
         "price_mantissa = EXCLUDED.price_mantissa, "
-        "qty = EXCLUDED.qty, visible_qty = EXCLUDED.visible_qty, updated_at = NOW()",
-        pqxx::params{order_id, client_id, symbol_id, side, price, qty, qty}
+        "qty = CASE WHEN $8 = 1 THEN open_orders.qty - EXCLUDED.qty ELSE EXCLUDED.qty END, "
+        "visible_qty = CASE WHEN $9 = 1 THEN open_orders.visible_qty - EXCLUDED.visible_qty ELSE EXCLUDED.visible_qty END, "
+        "updated_at = NOW()",
+        pqxx::params{order_id, client_id, symbol_id, side, price, qty, qty,
+                     resp->exec_type == ExecType_PartialFill ? 1 : 0,
+                     resp->exec_type == ExecType_PartialFill ? 1 : 0}
     );
     w.commit();
 }
 
 void PostgresClientDatabase::removeOpenOrder(uint32_t client_id, uint64_t order_id) {
     (void)client_id;
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     uint64_t combined_order_id = (static_cast<uint64_t>(client_id) << 32) | order_id;
@@ -279,7 +289,7 @@ void PostgresClientDatabase::removeOpenOrder(uint32_t client_id, uint64_t order_
 }
 
 std::vector<OrderResponseT> PostgresClientDatabase::getOpenOrders(uint32_t client_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     reconnect_if_needed();
     pqxx::work w(*conn_);
     pqxx::result r = w.exec(
@@ -321,3 +331,30 @@ void PostgresClientDatabase::reconnect_if_needed() {
 }
 
 } // namespace Exchange
+
+uint64_t PostgresClientDatabase::getLastLogOffset() {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    reconnect_if_needed();
+    try {
+        pqxx::work w(*conn_);
+        pqxx::result r = w.exec("SELECT value FROM system_state WHERE key = 'log_offset'");
+        if (!r.empty()) {
+            return std::stoull(r[0][0].as<std::string>());
+        }
+    } catch (const std::exception& e) {
+        LOG_ERROR("[PostgresClientDatabase] Error getting offset: %s", e.what());
+    }
+    return 0;
+}
+
+void PostgresClientDatabase::setLastLogOffset(uint64_t offset) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    reconnect_if_needed();
+    try {
+        pqxx::work w(*conn_);
+        w.exec_params("INSERT INTO system_state (key, value) VALUES ('log_offset', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", std::to_string(offset));
+        w.commit();
+    } catch (const std::exception& e) {
+        LOG_ERROR("[PostgresClientDatabase] Error setting offset: %s", e.what());
+    }
+}

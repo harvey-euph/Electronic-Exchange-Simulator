@@ -42,7 +42,7 @@ struct L3Book {
 
     virtual void on_level_updated(Side /*side*/, int64_t /*price*/, uint64_t /*total_qty*/) {}
 
-    void update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty);
+    void update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty, uint64_t q_rem);
     void remove_from_queues(uint64_t order_id);
     void display(int depth_limit = 10);
     void dump_raw(const char* filepath);

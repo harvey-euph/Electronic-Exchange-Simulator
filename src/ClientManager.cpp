@@ -236,7 +236,7 @@ void ClientManager::process_client_request(CMClientPtr client, const void* data,
             uint32_t client_id = open_req->client_id();
 
             auto open_orders = db_->getOpenOrders(client_id);
-            LOG_INFO("[ClientManager] Sending %zu open orders on request.", open_orders.size());
+            LOG_INFO("[ClientManager] Sending %zu open orders on request to client %d.", open_orders.size(), client->client_id());
             for (auto& order_resp_t : open_orders) {
                 client->send(&order_resp_t);
             }

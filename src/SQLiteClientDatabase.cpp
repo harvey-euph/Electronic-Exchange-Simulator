@@ -3,6 +3,8 @@
 #include "define.hpp"
 #include <sqlite3.h>
 #include <iostream>
+#include <fstream>
+#include <vector>
 
 namespace Exchange {
 
@@ -19,7 +21,7 @@ SQLiteClientDatabase::SQLiteClientDatabase(const std::string& db_path)
     // Enable foreign keys, WAL mode for better concurrency
     execute_sql("PRAGMA foreign_keys = ON;");
     execute_sql("PRAGMA journal_mode = WAL;");
-    execute_sql("PRAGMA synchronous = NORMAL;");
+    execute_sql("PRAGMA synchronous = OFF;");
 
     init_tables();
 }
@@ -41,6 +43,12 @@ bool SQLiteClientDatabase::execute_sql(const std::string& sql) {
 }
 
 void SQLiteClientDatabase::init_tables() {
+    execute_sql(R"(
+        CREATE TABLE IF NOT EXISTS system_state (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+    )");
     execute_sql(R"(
         CREATE TABLE IF NOT EXISTS clients (
             client_id INTEGER PRIMARY KEY,
@@ -78,8 +86,8 @@ void SQLiteClientDatabase::init_tables() {
             symbol_id INTEGER,
             side INTEGER,
             price_mantissa INTEGER,
-            qty INTEGER,
-            visible_qty INTEGER,
+            q INTEGER,
+            q_rem INTEGER,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(client_id) REFERENCES clients(client_id)
         );
@@ -380,7 +388,7 @@ void SQLiteClientDatabase::updatePosition(const OrderResponseT* resp) {
     execute_sql("COMMIT;");
 }
 
-void SQLiteClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, [[maybe_unused]] bool not_sent) {
+void SQLiteClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, [[maybe_unused]] bool not_sent, uint64_t log_offset) {
     uint32_t client_id = resp->client_id;
     if (check_exec(resp->exec_type, EXEC_TRADE)) {
         updatePosition(resp);
@@ -391,6 +399,7 @@ void SQLiteClientDatabase::update_on_execution(const OrderResponseT* resp, uint6
         removeOpenOrder(client_id, resp->order_id);
     }
     appendResponseLog(client_id, *resp, msg_seq_num);
+    setLastLogOffset(log_offset);
 }
 
 void SQLiteClientDatabase::addOrUpdateOpenOrder(const OrderResponseT* resp) {
@@ -415,20 +424,30 @@ void SQLiteClientDatabase::addOrUpdateOpenOrder(const OrderResponseT* resp) {
     }
     
     sqlite3_stmt* stmt;
-    const char* sql = "INSERT INTO open_orders (order_id, client_id, symbol_id, side, price_mantissa, qty, visible_qty, updated_at) "
+    const char* sql = "INSERT INTO open_orders (order_id, client_id, symbol_id, side, price_mantissa, q, q_rem, updated_at) "
                       "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
                       "ON CONFLICT(order_id) DO UPDATE SET "
-                      "price_mantissa = excluded.price_mantissa, qty = excluded.qty, visible_qty = excluded.visible_qty, updated_at = CURRENT_TIMESTAMP;";
+                      "price_mantissa = excluded.price_mantissa, "
+                      "q = CASE WHEN ? = 1 THEN excluded.q ELSE open_orders.q END, "
+                      "q_rem = excluded.q_rem, "
+                      "updated_at = CURRENT_TIMESTAMP;";
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int64(stmt, 1, order_id);
         sqlite3_bind_int(stmt, 2, client_id);
         sqlite3_bind_int(stmt, 3, symbol_id);
         sqlite3_bind_int(stmt, 4, side);
         sqlite3_bind_int64(stmt, 5, price);
-        sqlite3_bind_int64(stmt, 6, qty);
-        sqlite3_bind_int64(stmt, 7, qty);
-        sqlite3_step(stmt);
+        sqlite3_bind_int64(stmt, 6, resp->q);
+        sqlite3_bind_int64(stmt, 7, resp->q_rem);
+        bool is_state_update = (resp->exec_type == ExecType_New || resp->exec_type == ExecType_Replaced);
+        sqlite3_bind_int(stmt, 8, is_state_update ? 1 : 0);
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE) {
+            LOG_ERROR("[SQLiteClientDatabase] addOrUpdateOpenOrder error: %s", sqlite3_errmsg(db_));
+        }
         sqlite3_finalize(stmt);
+    } else {
+        LOG_ERROR("[SQLiteClientDatabase] addOrUpdateOpenOrder prepare error: %s", sqlite3_errmsg(db_));
     }
     
     execute_sql("COMMIT;");
@@ -452,7 +471,7 @@ std::vector<OrderResponseT> SQLiteClientDatabase::getOpenOrders(uint32_t client_
     std::vector<OrderResponseT> result;
     
     sqlite3_stmt* stmt;
-    const char* sql = "SELECT order_id, symbol_id, side, price_mantissa, qty FROM open_orders WHERE client_id = ?;";
+    const char* sql = "SELECT order_id, symbol_id, side, price_mantissa, q, q_rem FROM open_orders WHERE client_id = ?;";
     if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         sqlite3_bind_int(stmt, 1, client_id);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -460,7 +479,8 @@ std::vector<OrderResponseT> SQLiteClientDatabase::getOpenOrders(uint32_t client_
             uint32_t symbol_id = sqlite3_column_int(stmt, 1);
             int16_t side = sqlite3_column_int(stmt, 2);
             int64_t price = sqlite3_column_int64(stmt, 3);
-            uint64_t qty = sqlite3_column_int64(stmt, 4);
+            uint64_t q = sqlite3_column_int64(stmt, 4);
+            uint64_t q_rem = sqlite3_column_int64(stmt, 5);
 
             OrderResponseT resp;
             resp.exec_type = ExecType_OrderStatus;
@@ -470,7 +490,8 @@ std::vector<OrderResponseT> SQLiteClientDatabase::getOpenOrders(uint32_t client_
             resp.symbol_id = symbol_id;
             resp.side = static_cast<Side>(side);
             resp.p = price;
-            resp.q = qty;
+            resp.q = q;
+            resp.q_rem = q_rem;
             resp.reject_code = RejectCode_None;
 
             result.push_back(resp);
@@ -479,6 +500,79 @@ std::vector<OrderResponseT> SQLiteClientDatabase::getOpenOrders(uint32_t client_
     }
     
     return result;
+}
+
+
+uint64_t SQLiteClientDatabase::getLastLogOffset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    uint64_t offset = 0;
+    sqlite3_stmt* stmt;
+    const char* sql = "SELECT value FROM system_state WHERE key = 'log_offset';";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            offset = std::stoull(reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0)));
+        }
+        sqlite3_finalize(stmt);
+    }
+    return offset;
+}
+
+void SQLiteClientDatabase::setLastLogOffset(uint64_t offset) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    sqlite3_stmt* stmt;
+    const char* sql = "INSERT INTO system_state (key, value) VALUES ('log_offset', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value;";
+    if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        std::string val = std::to_string(offset);
+        sqlite3_bind_text(stmt, 1, val.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+void SQLiteClientDatabase::dump_state(const std::string& dir) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    
+    std::string pos_file = dir + "/positions.csv";
+    std::string oo_file = dir + "/open-orders.csv";
+    
+    {
+        std::ofstream pos_out(pos_file);
+        sqlite3_stmt* stmt;
+        const char* sql = "SELECT client_id, symbol_id, position FROM positions ORDER BY client_id ASC, symbol_id ASC;";
+        if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                uint32_t cid = sqlite3_column_int(stmt, 0);
+                uint32_t sid = sqlite3_column_int(stmt, 1);
+                int64_t pos = sqlite3_column_int64(stmt, 2);
+                if (sid != 0 && pos != 0) {
+                    pos_out << cid << "," << sid << "," << pos << "\n";
+                }
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
+    
+    {
+        std::ofstream oo_out(oo_file);
+        sqlite3_stmt* stmt;
+        const char* sql = "SELECT order_id, client_id, symbol_id, side, price_mantissa, q, q_rem FROM open_orders ORDER BY client_id ASC, order_id ASC;";
+        if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                uint64_t full_oid = sqlite3_column_int64(stmt, 0);
+                uint32_t cid = sqlite3_column_int(stmt, 1);
+                uint32_t sid = sqlite3_column_int(stmt, 2);
+                int16_t side = sqlite3_column_int(stmt, 3);
+                int64_t price = sqlite3_column_int64(stmt, 4);
+                int64_t q = sqlite3_column_int64(stmt, 5);
+                int64_t q_rem = sqlite3_column_int64(stmt, 6);
+                
+                uint32_t oid = full_oid & 0xFFFFFFFF;
+                std::string side_str = (side == 0) ? "Buy" : "Sell"; // Side_Buy = 0, Side_Sell = 1
+                oo_out << cid << "," << oid << "," << sid << "," << side_str << "," << price << "," << q << "," << q_rem << "\n";
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
 }
 
 } // namespace Exchange

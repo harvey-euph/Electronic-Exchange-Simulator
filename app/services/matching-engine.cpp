@@ -69,6 +69,11 @@ int main(int argc, char* argv[])
 
     engine.run();
 
+    if (const char* dump_file = std::getenv("ME_DUMP_FILE")) {
+        LOG_INFO("[OrderCore] Dumping book to %s", dump_file);
+        engine.gdb_dump_book(1, dump_file);
+    }
+
     LOG_INFO("[OrderCore] Shutting down...");
     return 0;
 }

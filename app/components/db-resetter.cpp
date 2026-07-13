@@ -36,14 +36,13 @@ int main() {
     }
     sqlite3_busy_timeout(db, 5000);
     
-    // SQLite requires manual deletion for each table, and optionally resetting sequence
     const char* sql = 
         "BEGIN EXCLUSIVE TRANSACTION;"
-        "DELETE FROM pending_responses;"
-        "DELETE FROM open_orders;"
-        "DELETE FROM positions;"
-        "DELETE FROM clients;"
-        "DELETE FROM sqlite_sequence WHERE name IN ('pending_responses', 'clients');"
+        "DROP TABLE IF EXISTS pending_responses;"
+        "DROP TABLE IF EXISTS open_orders;"
+        "DROP TABLE IF EXISTS positions;"
+        "DROP TABLE IF EXISTS clients;"
+        "DROP TABLE IF EXISTS system_state;"
         "COMMIT;";
         
     char* err_msg = nullptr;

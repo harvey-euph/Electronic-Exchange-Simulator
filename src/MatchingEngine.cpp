@@ -121,4 +121,11 @@ void MatchingEngine::restore(const std::string& journal_dir)
     LOG_INFO("[MatchingEngine] Recovery complete. Replayed %lu executions.", replay_count);
 }
 
+void MatchingEngine::gdb_dump_book(uint32_t symbol_id, const char* filepath) const {
+    auto it = books_.find(symbol_id);
+    if (it != books_.end()) {
+        it->second->dump_raw(filepath);
+    }
+}
+
 } // namespace Exchange

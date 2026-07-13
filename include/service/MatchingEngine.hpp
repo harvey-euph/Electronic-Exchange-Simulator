@@ -17,8 +17,11 @@ public:
     int poll_server();
     
     void take_snapshot(uint32_t file_index);
+    void gdb_dump_book(uint32_t symbol_id, const char* filepath) const;
 
 private:
+    void take_snapshot(const std::string& filepath) const;
+    void load_snapshot(const std::string& filepath);
     void restore(const std::string& journal_dir);
     void load_snapshot(uint32_t file_index);
     SHMRingBuffer* request_ring_;

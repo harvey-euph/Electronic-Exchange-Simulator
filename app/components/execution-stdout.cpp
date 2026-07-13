@@ -35,6 +35,7 @@ int main() {
 
                 std::string p_str = std::to_string(resp->p);
                 std::string q_str = std::to_string(resp->q);
+                std::string q_rem_str = std::to_string(resp->q_rem);
                 
                 if (p_str.length() > max_p_len) max_p_len = p_str.length();
                 if (q_str.length() > max_q_len) max_q_len = q_str.length();
@@ -42,9 +43,10 @@ int main() {
                 // Build aligned strings manually by padding left with spaces
                 std::string p_aligned = std::string(max_p_len - p_str.length(), ' ') + p_str;
                 std::string q_aligned = std::string(max_q_len - q_str.length(), ' ') + q_str;
+                std::string q_rem_aligned = (max_q_len > q_rem_str.length()) ? std::string(max_q_len - q_rem_str.length(), ' ') + q_rem_str : q_rem_str;
 
                 std::cout << "[ExecutionStdout] [" << exec_str << "] [" << side_str << "] @ "
-                          << p_aligned << " x " << q_aligned 
+                          << p_aligned << " x " << q_aligned << " (" << q_rem_aligned << ")"
                           << " | order_id: " << resp->order_id
                         //   << ", exec_id: " << resp->exec_id
                           << ", client_id: " << resp->client_id

@@ -116,7 +116,14 @@ public:
 
     void addOrUpdateOpenOrder(const OrderResponseT* resp) override {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
-        open_orders_[resp->client_id][resp->order_id] = *resp;
+        if (resp->exec_type == ExecType_PartialFill) {
+            auto it = open_orders_[resp->client_id].find(resp->order_id);
+            if (it != open_orders_[resp->client_id].end()) {
+                it->second.q -= resp->q;
+            }
+        } else {
+            open_orders_[resp->client_id][resp->order_id] = *resp;
+        }
     }
 
     void removeOpenOrder(uint32_t client_id, uint64_t order_id) override {
@@ -127,7 +134,7 @@ public:
         }
     }
 
-    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, [[maybe_unused]] bool not_sent) override {
+    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, [[maybe_unused]] bool not_sent, uint64_t log_offset) override {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         uint32_t client_id = resp->client_id;
         if (check_exec(resp->exec_type, EXEC_TRADE)) {
@@ -139,6 +146,7 @@ public:
             removeOpenOrder(client_id, resp->order_id);
         }
         appendResponseLog(client_id, *resp, msg_seq_num);
+        setLastLogOffset(log_offset);
     }
 
     std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) override {
@@ -153,6 +161,29 @@ public:
             }
         }
         return result;
+    }
+
+    void dump_state(const std::string& dir) override {
+        std::lock_guard<std::recursive_mutex> lock(mutex_);
+        std::string pos_file = dir + "/positions.csv";
+        std::string oo_file = dir + "/open-orders.csv";
+        
+        std::ofstream pos_out(pos_file);
+        for (auto const& [client_id, pos_map] : positions_) {
+            for (auto const& [symbol_id, qty] : pos_map) {
+                if (symbol_id != 0) {
+                    pos_out << client_id << "," << symbol_id << "," << qty << "\n";
+                }
+            }
+        }
+        
+        std::ofstream oo_out(oo_file);
+        for (auto const& [client_id, orders] : open_orders_) {
+            for (auto const& [order_id, resp] : orders) {
+                oo_out << client_id << "," << resp.order_id << "," << resp.symbol_id << "," 
+                       << EnumNameSide(resp.side) << "," << resp.p << "," << resp.q << "\n";
+            }
+        }
     }
 
 protected:

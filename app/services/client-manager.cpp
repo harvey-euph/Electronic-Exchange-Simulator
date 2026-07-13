@@ -50,5 +50,10 @@ int main()
 
     manager.run();
 
+    if (const char* dump_dir = std::getenv("DB_DUMP_DIR")) {
+        LOG_INFO("[ClientManager] Dumping DB states to %s", dump_dir);
+        db->dump_state(dump_dir);
+    }
+
     return 0;
 }

@@ -239,7 +239,7 @@ bool MarketDataServer::crosses(Side side, int64_t price, const std::shared_ptr<M
     return false;
 }
 
-void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type, uint64_t order_id, Side side, int64_t p, uint64_t q, uint64_t msg_seq_num, uint64_t timestamp)
+void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type, uint64_t order_id, Side side, int64_t p, uint64_t q, uint64_t q_rem, uint64_t msg_seq_num, uint64_t timestamp)
 {
     std::vector<MDClientPtr> target_clients;
     {
@@ -252,7 +252,7 @@ void MarketDataServer::publish_l3_update(uint32_t symbol_id, ExecType exec_type,
 
     flatbuffers::FlatBufferBuilder fbb(512);
     std::vector<flatbuffers::Offset<L3Update>> updates;
-    updates.push_back(CreateL3Update(fbb, exec_type, order_id, side, p, q));
+    updates.push_back(CreateL3Update(fbb, exec_type, order_id, side, p, q, q_rem));
     auto updates_vec = fbb.CreateVector(updates);
     auto l3_batch = CreateL3Batch(fbb, symbol_id, msg_seq_num, timestamp, updates_vec);
     auto md_update = CreateMarketDataUpdate(fbb, MarketDataUpdateData_L3Batch, l3_batch.Union());
@@ -306,6 +306,7 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
         } else if (check_exec(resp->exec_type, EXEC_ANN | EXEC_PAR) && resp->order_id == pending.order_id && resp->client_id == pending.client_id) {
             if (resp->exec_type == ExecType_PartialFill) {
                 pending.q -= resp->q;
+                pending.q_rem -= resp->q;
             } else {
                 pending.order_id = 0;
             }
@@ -315,6 +316,7 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
         if (resp->exec_type == ExecType_Replaced) {
             OrderResponseT fake_cancel = *resp;
             fake_cancel.exec_type = ExecType_Cancelled;
+            fake_cancel.q_rem = 0;
             __update(book, &fake_cancel, timestamp);
         }
         pending = *resp;
@@ -333,9 +335,9 @@ void MarketDataServer::process_market_update(const OrderResponseT* resp)
 void MarketDataServer::__update(std::shared_ptr<MDOrderBook> book, const OrderResponseT* resp, uint64_t timestamp)
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(resp->client_id) << 32) | resp->order_id;
-    book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q);
+    book->update(resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, resp->q_rem);
     uint64_t md_seq_num = ++book->md_seq_num;
-    publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, md_seq_num, timestamp);
+    publish_l3_update(resp->symbol_id, resp->exec_type, combined_order_id, resp->side, resp->p, resp->q, resp->q_rem, md_seq_num, timestamp);
 }
 
 void MarketDataServer::check_l2_publish_timers() {
@@ -396,7 +398,7 @@ void MarketDataServer::restore(const std::string& journal_dir)
                     if (ifs) {
                         OrderSnapshot rec;
                         while (ifs.read(reinterpret_cast<char*>(&rec), sizeof(rec))) {
-                            book->update(ExecType_New, rec.combined_order_id, rec.side, rec.p, rec.qty_remaining);
+                            book->update(ExecType_New, rec.combined_order_id, rec.side, rec.p, rec.qty_original, rec.qty_remaining);
                         }
                     }
                 }

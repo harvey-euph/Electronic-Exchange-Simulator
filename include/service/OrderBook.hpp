@@ -66,6 +66,7 @@ public:
     void take_snapshot(const std::string& filepath) const;
     void load_snapshot(const std::string& filepath);
     void restore_from_response(const OrderResponseT* resp);
+    void dump_raw(const char* filepath) const;
 
 private:
     const uint32_t symbol_id_;
@@ -97,7 +98,7 @@ private:
     PriceLevel* GetOrCreatePriceLevel(size_t price_index, Side side);
     void removePriceLevel(PriceLevel* pl, Side side);
     void sendResponse(ExecType exec_type, uint64_t combined_order_id,
-                      uint64_t exec_id, Side side, int64_t p, uint64_t q,
+                      uint64_t exec_id, Side side, int64_t p, uint64_t q, uint64_t q_rem,
                       RejectCode reject_code = RejectCode_None);
 
     void handleNewOrder(const OrderRequestT* req, bool report_ack = true);

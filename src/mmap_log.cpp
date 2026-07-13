@@ -245,4 +245,8 @@ bool MmapReader::seek(uint64_t offset) {
     return true;
 }
 
+uint64_t MmapReader::get_offset() const {
+    return (static_cast<uint64_t>(current_file_index_) << 32) | current_offset_;
+}
+
 } // namespace mmaplog

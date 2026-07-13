@@ -3,7 +3,7 @@
 
 namespace Exchange {
 
-void L3Book::update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty) {
+void L3Book::update(ExecType type, uint64_t order_id, Side side, int64_t price, uint64_t qty, uint64_t q_rem) {
     std::lock_guard<std::mutex> lock(mutex);
     
     if (side == Side_None) {
@@ -12,81 +12,56 @@ void L3Book::update(ExecType type, uint64_t order_id, Side side, int64_t price, 
         asks.clear();
         return;
     }
+
+    if (type == ExecType_Rejected) return;
+
+    if (type == ExecType_New) {
+        auto& level = (side == Side_Buy) ? bids[price] : asks[price];
+        level.queue.push_back(order_id);
+        level.total_qty += q_rem;
+        orders[order_id] = {order_id, side, price, qty, q_rem, std::prev(level.queue.end())};
+        on_level_updated(side, price, level.total_qty);
+        return;
+    }
+
+    auto it = orders.find(order_id);
+    if (it == orders.end()) return;
+
+    auto& order = it->second;
+    int64_t diff = static_cast<int64_t>(q_rem) - static_cast<int64_t>(order.qty_rem);
     
-    switch (type) {
-        case ExecType_New: {
+    // Modify case: if price changes or qty increases, re-queue
+    bool requeue = (type == ExecType_Replaced) && (price != order.price || diff > 0);
+
+    if (requeue) {
+        remove_from_queues(order_id);
+        if (q_rem > 0) {
             auto& level = (side == Side_Buy) ? bids[price] : asks[price];
             level.queue.push_back(order_id);
-            level.total_qty += qty;
-            orders[order_id] = {order_id, side, price, qty, qty, std::prev(level.queue.end())};
-            
+            level.total_qty += q_rem;
+            it->second = {order_id, side, price, qty, q_rem, std::prev(level.queue.end())};
             on_level_updated(side, price, level.total_qty);
-            break;
+        } else {
+            orders.erase(it);
         }
-        case ExecType_Fill:
-        case ExecType_Cancelled: {
-            remove_from_queues(order_id);
-            orders.erase(order_id);
-            break;
-        }
-        case ExecType_PartialFill: {
-            auto it = orders.find(order_id);
-            if (it != orders.end()) {
-                uint64_t new_total = 0;
-                if (it->second.side == Side_Buy) {
-                    auto level_it = bids.find(it->second.price);
-                    if (level_it != bids.end()) {
-                        level_it->second.total_qty -= qty;
-                        new_total = level_it->second.total_qty;
-                    }
-                } else {
-                    auto level_it = asks.find(it->second.price);
-                    if (level_it != asks.end()) {
-                        level_it->second.total_qty -= qty;
-                        new_total = level_it->second.total_qty;
-                    }
-                }
-                it->second.qty_rem -= qty;
-                on_level_updated(it->second.side, it->second.price, new_total);
-            }
-            break;
-        }
-        case ExecType_Replaced: {
-            auto it = orders.find(order_id);
-            if (it != orders.end()) {
-                int64_t qty_diff = static_cast<int64_t>(qty) - static_cast<int64_t>(it->second.qty_req);
-                uint64_t new_rem = it->second.qty_rem + qty_diff;
+        return;
+    }
 
-                if (it->second.price != price || it->second.side != side || qty > it->second.qty_req) {
-                    remove_from_queues(order_id);
-                    if (new_rem > 0) {
-                        auto& level = (side == Side_Buy) ? bids[price] : asks[price];
-                        level.queue.push_back(order_id);
-                        level.total_qty += new_rem;
-                        it->second = {order_id, side, price, qty, new_rem, std::prev(level.queue.end())};
-                        
-                        on_level_updated(side, price, level.total_qty);
-                    } else {
-                        orders.erase(it);
-                    }
-                } else {
-                    auto& level = (side == Side_Buy) ? bids[price] : asks[price];
-                    level.total_qty = level.total_qty + qty_diff;
-                    it->second.qty_req = qty;
-                    it->second.qty_rem = new_rem;
-                    
-                    on_level_updated(side, price, level.total_qty);
-                    
-                    if (new_rem == 0) {
-                        remove_from_queues(order_id);
-                        orders.erase(it);
-                    }
-                }
-            }
-            break;
+    // In-place update
+    auto& level = (order.side == Side_Buy) ? bids[order.price] : asks[order.price];
+    level.total_qty += diff;
+    order.qty_rem = q_rem;
+    if (type == ExecType_Replaced) order.qty_req = qty;
+
+    on_level_updated(order.side, order.price, level.total_qty);
+
+    if (q_rem == 0) {
+        level.queue.erase(order.queue_pos);
+        if (level.queue.empty()) {
+            if (order.side == Side_Buy) bids.erase(order.price);
+            else asks.erase(order.price);
         }
-        default:
-            break;
+        orders.erase(it);
     }
 }
 

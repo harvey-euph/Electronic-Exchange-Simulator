@@ -36,9 +36,12 @@ public:
     void removeOpenOrder(uint32_t client_id, uint64_t order_id) override;
     std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) override;
 
-    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) override;
+    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent, uint64_t log_offset) override;
+    uint64_t getLastLogOffset() override;
+    void setLastLogOffset(uint64_t offset) override;
+    void dump_state(const std::string& dir) override;
 
-private:
+protected:
     void init_tables();
     bool execute_sql(const std::string& sql);
 

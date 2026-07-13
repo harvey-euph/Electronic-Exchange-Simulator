@@ -49,20 +49,29 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
 
-    if (active_orders_.count(combined_order_id)) {
-        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_DuplicateOrderID);
+    if (active_orders_.contains(combined_order_id)) {
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_DuplicateOrderID);
+        return;
+    }
+
+    if (req->p <= 0 && req->type == OrderType_Limit) {
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_PriceInvalid);
+        return;
+    }
+    if (req->q <= 0) {
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_InvalidQuantity);
         return;
     }
 
     Order* taker = createOrder(req);
 
-    const size_t price_idx = (req->type == OrderType_Market)? 
-        (req->side == Side_Buy ? max_price_levels_ - 1 : 0) : price_to_index(req->p);
-
     if (report_ack) {
-        sendResponse(ExecType_New, combined_order_id, req->exec_id, req->side, req->p, req->q);
+        sendResponse(ExecType_New, combined_order_id, req->exec_id, req->side, req->p, req->q, req->q);
     }
 
+    const size_t price_idx = (req->type == OrderType_Market) ? 
+        (req->side == Side_Buy ? max_price_levels_ - 1 : 0) : price_to_index(req->p);
+        
     match(taker, req->side, price_idx);
 }
 
@@ -93,10 +102,10 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
                 const Side maker_side = static_cast<Side>(1^side_int);
                 sendResponse(
                     taker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                    taker->order_id, exec_id, taker_side, p, qty_fill);
+                    taker->order_id, exec_id, taker_side, p, qty_fill, taker->qty_remaining);
                 sendResponse(
                     maker->qty_remaining == 0 ? ExecType_Fill : ExecType_PartialFill,
-                    maker->order_id, exec_id, maker_side, p, qty_fill);
+                    maker->order_id, exec_id, maker_side, p, qty_fill, maker->qty_remaining);
             }
 
             if (maker->qty_remaining) continue;
@@ -133,7 +142,7 @@ void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelle
     uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
     auto it = active_orders_.find(combined_order_id);
     if (it == active_orders_.end()) {
-        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_OrderNotFound);
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_OrderNotFound);
         return;
     }
 
@@ -151,7 +160,7 @@ void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelle
         removePriceLevel(pl, req->side);
 
     if (report_cancelled) {
-        sendResponse(ExecType_Cancelled, o->order_id, req->exec_id, req->side, p, req->q);
+        sendResponse(ExecType_Cancelled, o->order_id, req->exec_id, req->side, p, o->qty_original, 0);
     }
     delete o;
 }
@@ -161,34 +170,41 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
     uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
     auto it = active_orders_.find(combined_order_id);
     if (it == active_orders_.end()) {
-        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_OrderNotFound);
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_OrderNotFound);
         return;
     }
 
     Order *o = it->second;
+    
+    if (req->p && price_invalid(req->p)) {
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, o->qty_remaining, RejectCode_PriceInvalid);
+        return;
+    }
+
     PriceLevel *pl = o->price_level;
     PriceLevel *target = req->p ? &price_array_[price_to_index(req->p)] : pl;
     const uint64_t new_qty = req->q ? req->q : o->qty_original;
     const uint64_t executed_qty = o->qty_original - o->qty_remaining;
 
     if (new_qty < executed_qty) {
-        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_InvalidModify);
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, o->qty_remaining, RejectCode_InvalidModify);
         return;
     }
 
     int64_t qty_diff = static_cast<int64_t>(new_qty) - static_cast<int64_t>(o->qty_original);
     
+    const uint64_t new_qty_remaining = new_qty - executed_qty;
+
     // Check if nothing changes
     if (pl == target && qty_diff == 0) {
-        sendResponse(ExecType_Replaced, combined_order_id, req->exec_id, req->side, pl_to_price(target), new_qty);
+        sendResponse(ExecType_Replaced, combined_order_id, req->exec_id, req->side, pl_to_price(target), new_qty, new_qty_remaining);
         return;
     }
 
-    const uint64_t new_qty_remaining = new_qty - executed_qty;
     bool needs_requeue = (pl != target || qty_diff > 0);
 
     // Send Replaced response first
-    sendResponse(ExecType_Replaced, combined_order_id, req->exec_id, req->side, pl_to_price(target), new_qty);
+    sendResponse(ExecType_Replaced, combined_order_id, req->exec_id, req->side, pl_to_price(target), new_qty, new_qty_remaining);
 
     if (!new_qty_remaining || needs_requeue) {
         removeOrderFromLevel(o);
@@ -203,7 +219,7 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
 
     // If it fills immediately after replaced
     if (!new_qty_remaining) {
-        sendResponse(ExecType_Fill, combined_order_id, req->exec_id, req->side, pl_to_price(target), 0);
+        sendResponse(ExecType_Fill, combined_order_id, req->exec_id, req->side, pl_to_price(target), 0, 0);
         active_orders_.erase(o->order_id);
         delete o;
         return;
@@ -229,17 +245,12 @@ void OrderBook::processRequest(const OrderRequestT* req)
         handleCancelOrder(req);
         return;
     case OrderAction_Modify:
-        if (req->p && price_invalid(req->p)) {
-            uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
-            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_PriceInvalid);
-            return;
-        }
         handleModifyOrder(req);
         return;
     case OrderAction_New:
         if (req->type != OrderType_Market && price_invalid(req->p)) {
             uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
-            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_PriceInvalid);
+            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_PriceInvalid);
             return;
         }
         handleNewOrder(req);
@@ -247,7 +258,7 @@ void OrderBook::processRequest(const OrderRequestT* req)
     default:
         {
             uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
-            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, RejectCode_InvalidAction);
+            sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_InvalidAction);
         }
         return;
     }
@@ -368,7 +379,7 @@ PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
 }
 
 void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
-                             uint64_t exec_id, Side side, int64_t p, uint64_t q,
+                             uint64_t exec_id, Side side, int64_t p, uint64_t q, uint64_t q_rem,
                              RejectCode reject_code)
 {
     if (recover_mode_ || !response_ring_) return;
@@ -386,6 +397,7 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
         .side = side,
         .p = p,
         .q = q,
+        .q_rem = q_rem,
         .reject_code = reject_code
     };
     
@@ -468,6 +480,11 @@ void OrderBook::restore_from_response(const OrderResponseT* resp)
     } 
     else if (resp->exec_type == ExecType_Replaced) {
         req.action = OrderAction_Modify;
+        uint64_t combined_order_id = (static_cast<uint64_t>(req.client_id) << 32) | req.order_id;
+        auto it = active_orders_.find(combined_order_id);
+        if (it != active_orders_.end()) {
+            req.q = resp->q;
+        }
     } 
     else {
         // Ignore ExecType_Fill, ExecType_PartialFill, ExecType_Rejected, etc.
@@ -478,4 +495,16 @@ void OrderBook::restore_from_response(const OrderResponseT* resp)
     recover_mode_ = true;
     processRequest(&req);
     recover_mode_ = false;
+}
+
+void Exchange::OrderBook::dump_raw(const char* filepath) const {
+    std::ofstream ofs(filepath);
+    // Asks (side 1) from highest to lowest
+    for (auto it = active_levels_[Side_Sell].rbegin(); it != active_levels_[Side_Sell].rend(); ++it) {
+        ofs << "A," << pl_to_price(it->second) << "," << it->second->total_qty << "\n";
+    }
+    // Bids (side 0) from highest to lowest
+    for (auto it = active_levels_[Side_Buy].rbegin(); it != active_levels_[Side_Buy].rend(); ++it) {
+        ofs << "B," << pl_to_price(it->second) << "," << it->second->total_qty << "\n";
+    }
 }

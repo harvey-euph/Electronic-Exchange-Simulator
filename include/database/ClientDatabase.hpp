@@ -40,6 +40,10 @@ public:
                 Exchange::set_thread_affinity(db_core, "ClientDatabase");
             }
             mmaplog::MmapReader response_ring(EXECUTION_JOURNAL_DIR);
+            uint64_t saved_offset = this->getLastLogOffset();
+            if (saved_offset != 0) {
+                response_ring.seek(saved_offset);
+            }
             while (polling_.load(std::memory_order_relaxed)) {
                 const void* data = nullptr;
                 uint32_t len = 0;
@@ -48,7 +52,7 @@ public:
                         auto resp = reinterpret_cast<const OrderResponseT*>(data);
                         uint32_t client_id = resp->client_id;
                         uint64_t msg_seq = this->incrementAndGetClientOSeqNum(client_id);
-                        this->update_on_execution(resp, msg_seq, true);
+                        this->update_on_execution(resp, msg_seq, true, response_ring.get_offset());
                     }
                 } else {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -67,6 +71,16 @@ public:
 private:
     std::atomic<bool> polling_{false};
     std::thread poll_thread_;
+    std::atomic<uint64_t> last_log_offset_{0};
+
+public:
+    virtual uint64_t getLastLogOffset() {
+        return last_log_offset_.load(std::memory_order_relaxed);
+    }
+
+    virtual void setLastLogOffset(uint64_t offset) {
+        last_log_offset_.store(offset, std::memory_order_relaxed);
+    }
 
 public:
 
@@ -94,7 +108,10 @@ public:
     virtual std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) = 0;
 
     // Execution processing
-    virtual void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent) = 0;
+    virtual void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent, uint64_t log_offset) = 0;
+
+    // Testing / Debugging
+    virtual void dump_state(const std::string& dir) = 0;
 };
 
 } // namespace Exchange

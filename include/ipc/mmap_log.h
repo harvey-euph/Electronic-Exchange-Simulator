@@ -59,6 +59,9 @@ public:
     // Seek to a global offset (e.g. for reconnecting clients).
     bool seek(uint64_t offset);
 
+    // Get the current global offset (useful for saving progress).
+    uint64_t get_offset() const;
+
 private:
     void open_file(uint32_t file_index);
 

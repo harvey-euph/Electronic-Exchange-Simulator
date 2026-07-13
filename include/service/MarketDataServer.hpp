@@ -55,7 +55,7 @@ private:
 
     bool crosses(Side side, int64_t price, const std::shared_ptr<MDOrderBook>& book) const;
     void __update(std::shared_ptr<MDOrderBook> book, const OrderResponseT* resp, uint64_t timestamp);
-    void publish_l3_update(uint32_t symbol_id, ExecType exec_type, uint64_t order_id, Side side, int64_t p, uint64_t q, uint64_t msg_seq_num, uint64_t timestamp);
+    void publish_l3_update(uint32_t symbol_id, ExecType exec_type, uint64_t order_id, Side side, int64_t p, uint64_t q, uint64_t q_rem, uint64_t msg_seq_num, uint64_t timestamp);
     void publish_l2_update(uint32_t symbol_id, const std::vector<L2UpdateT>& updates, uint64_t msg_seq_num, uint64_t timestamp);
 
     void check_l2_publish_timers();
