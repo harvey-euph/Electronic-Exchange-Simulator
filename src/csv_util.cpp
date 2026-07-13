@@ -145,10 +145,8 @@ bool CSVDataReader::loadFromCSV(const std::string& csv_filename) {
             uint64_t visible_qty  = (fields.size() > 8) ? safe_stoull(fields[8]) : 0;
             uint64_t timestamp    = safe_stoull(fields[9]);
 
-            if (action == OrderAction_Cancel) {
-                price = 0;
-                quantity = 0;
-            }
+            // Preserve price and quantity exactly as they appear in the CSV, even for Cancel orders.
+            // This is necessary because reference-matcher.py and tests expect the exact fields to be echoed back on reject.
 
             auto req_offset = CreateOrderRequest(
                 *builder,
