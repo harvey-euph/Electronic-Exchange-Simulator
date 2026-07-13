@@ -221,7 +221,11 @@ if [ $FAILED_TESTS -gt 0 ]; then
         echo -e "${BRED}[  FAILED  ]${NC} $failed_test"
     done
     echo ""
-    echo -e " ${FAILED_TESTS} FAILED TEST"
+    if [ $FAILED_TESTS -eq 1 ]; then
+        echo -e "${BRED} 1 FAILED TEST${NC}"
+    else
+        echo -e "${BRED} ${FAILED_TESTS} FAILED TESTS${NC}"
+    fi
     exit 1
 else
     exit 0
