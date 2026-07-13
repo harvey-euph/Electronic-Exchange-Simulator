@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS open_orders (
     symbol_id INTEGER REFERENCES symbols(symbol_id),
     side SMALLINT NOT NULL,                -- 0: Buy, 1: Sell
     price_mantissa BIGINT NOT NULL,
-    qty BIGINT NOT NULL,
-    visible_qty BIGINT NOT NULL DEFAULT 0,
+    q BIGINT NOT NULL,
+    q_rem BIGINT NOT NULL,
     timestamp TIMESTAMP NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

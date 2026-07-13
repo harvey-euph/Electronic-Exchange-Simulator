@@ -1,0 +1,68 @@
+# 部署與維運指南 (Operations & Deployment Guide)
+
+本文件專為系統管理員、SRE (Site Reliability Engineer) 與 DevOps 工程師編寫，說明如何部署、啟動及監控交易所的核心服務，以及資料庫的設計理念。
+
+---
+
+## 1. 系統環境與建置 (Environment & Build)
+
+### 建議作業系統與硬體
+- **OS**: Linux (推薦 Ubuntu 22.04+ 或是 RHEL 9+)
+- **CPU**: 支援高時脈的處理器 (e.g., Intel Xeon / AMD EPYC)。若要達到最佳延遲，請關閉 C-states 並預留 (Pin) 特定核心給 Matching Engine。
+- **Memory**: 至少 16GB。因為依賴大量的 Shared Memory Ring Buffer，建議配置充足的 RAM。
+- **Storage**: 高速 NVMe SSD 用於 Execution Journal 落盤。
+
+### 建置步驟
+系統使用 CMake 構建。
+```bash
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
+```
+
+---
+
+## 2. 服務啟動順序 (Startup Sequence)
+
+交易所的微服務透過 Shared Memory 通訊，因此存在啟動相依性：
+
+1. **Market Data Server (`market-data-server`)**
+   - 負責建立 L3 Book，並隨時準備對外廣播。
+2. **Matching Engine (`matching-engine`)**
+   - 必須確保 Response Ring 已經準備好寫入。啟動時，它會自動掃描 Journal 目錄進行 Snapshot 與 Journal Replay 重建內部狀態。
+3. **Client Manager (`client-manager`)**
+   - 最後啟動。它啟動後，才開始在 WebSocket 接受外部 Client 連線，並將請求放入 Request Ring。
+
+> **關閉順序 (Shutdown)**：請依照 `Client Manager` -> `Matching Engine` -> `Market Data Server` 的順序優雅關閉，確保所有正在排隊的委託都被處理完畢。
+
+---
+
+## 3. 資料庫與持久化 (Database Schema)
+
+Client Manager 使用 SQL 資料庫 (支援 SQLite/PostgreSQL) 來保存與客戶端帳戶相關的狀態。核心撮合狀態 (Order Book) **不依賴**關聯式資料庫，而是依賴二進位的 Snapshot 與 Journal。
+
+### 核心資料表 (Core Tables)
+
+- **`symbols` (商品清單)**：
+  存放所有可交易的貨幣對與價格精度 (`p_exp`)。
+- **`clients` (客戶端資訊)**：
+  記錄登入帳號、認證資訊，以及用來維護通訊冪等性的 `i_seq_num` (Inbound Sequence) 與 `o_seq_num` (Outbound Sequence)。
+- **`positions` (資產與部位)**：
+  記錄每個客戶擁有的貨幣資產數量。`symbol_id = 0` 通常保留為法幣/報價幣 (e.g., USD)。
+- **`open_orders` (當前有效委託)**：
+  這張表僅用來回答客戶端的「當下掛單查詢」請求。
+  - 其中的 `qty` 欄位代表 **`rem_qty` (剩餘未成交數量)**。
+  - 當收到 Matching Engine 傳來的 `ExecType_PartialFill` 或是 `ExecType_Replaced` 時，此欄位會直接被覆寫更新。
+- **`pending_responses` (遺漏回報暫存)**：
+  配合 `Global SeqNum` 與 `Outbound SeqNum`，將客戶端可能因為斷線而漏掉的 Execution Report (二進位 Flatbuffer `serialized_data`) 暫存下來，以便重連時進行補發。
+
+---
+
+## 4. 日誌與監控 (Logging & Monitoring)
+
+- **Execution Journal**：
+  這是系統最重要的資產，位於 `journals/` 目錄。
+  檔案命名規則為 `journal-<index>.dat` 與 `snapshot-<symbol_id>-<index>.dat`。
+  **維運守則**：當確認系統已成功產生 `snapshot-N` 且運作穩定時，可以安全地將 `< N` 的舊 journal 搬移到冷儲存 (Cold Storage) 進行歸檔。
+- **System Logs**：
+  各微服務使用標準輸出 (stdout) 或寫入 log 檔，請使用系統級工具 (如 `journald` 或 `filebeat`) 進行採集，並設定 Alert 監控 `[ERROR]` 與 `[FATAL]` 級別的輸出。
