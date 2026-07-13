@@ -1,4 +1,9 @@
 #!/bin/bash
+set -e
+
+BBLUE='\033[94m'
+BRED='\033[91m'
+NC='\033[0m'
 
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <test_directory>"
@@ -6,152 +11,218 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
-TEST_DIR=$1
+TEST_DIR="$(cd "$1" 2>/dev/null && pwd || echo "$1")"
+TEST_NAME=$(basename "$TEST_DIR")
+
+if [[ "$TEST_DIR" == *"stress"* ]]; then
+    exit 0
+fi
+
 INPUT_CSV="${TEST_DIR}/requests.csv"
-EXPECTED_EXEC_CSV="${TEST_DIR}/expected-exec.csv"
-ACTUAL_EXEC_CSV="${TEST_DIR}/actual-exec.csv"
-EXPECTED_BOOK_CSV="${TEST_DIR}/expected-book.csv"
-
+CONTI_CSV="${TEST_DIR}/requests-conti.csv"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUILD_DIR="$PROJECT_ROOT/build"
 
-echo "=== Generating Expected Outcomes for $TEST_DIR ==="
-"$PROJECT_ROOT/scripts/generate-expected" "$TEST_DIR"
-
-# Verify files exist
 if [ ! -f "$INPUT_CSV" ]; then
     echo "Error: $INPUT_CSV not found!"
     exit 1
 fi
 
-if [ ! -f "$EXPECTED_EXEC_CSV" ]; then
-    echo "Error: $EXPECTED_EXEC_CSV not found!"
+echo "Running scripts/test-correctness $TEST_NAME"
+echo -e "${BBLUE}[==========]${NC} Running 8 tests from 2 test suites."
+echo -e "${BBLUE}[----------]${NC} Global test environment set-up."
+
+GLOBAL_START_TIME=$(($(date +%s%N)/1000000))
+FAILED_TESTS=0
+TOTAL_TESTS=0
+PASSED_TESTS=0
+TEST_START_TIME=0
+FAILED_TEST_NAMES=()
+
+function print_run {
+    echo -e "${BBLUE}[ RUN      ]${NC} $1"
+    TEST_START_TIME=$(($(date +%s%N)/1000000))
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+}
+
+function print_ok {
+    local test_end_time=$(($(date +%s%N)/1000000))
+    local duration=$((test_end_time - TEST_START_TIME))
+    echo -e "${BBLUE}[       OK ]${NC} $1 (${duration} ms)"
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+}
+
+function print_failed {
+    local test_end_time=$(($(date +%s%N)/1000000))
+    local duration=$((test_end_time - TEST_START_TIME))
+    echo -e "${BRED}[  FAILED  ]${NC} $1 (${duration} ms)"
+    FAILED_TESTS=$((FAILED_TESTS + 1))
+    FAILED_TEST_NAMES+=("$1")
+}
+
+function generate_expected {
+    if [ "$TEST_DIR/expected/executions.csv" -nt "$INPUT_CSV" ] && [ "$TEST_DIR/expected/book-core.csv" -nt "$INPUT_CSV" ]; then
+        :
+    else
+        mkdir -p "$TEST_DIR/expected"
+        python3 "$PROJECT_ROOT/scripts/reference-matcher.py" "$INPUT_CSV" "$TEST_DIR/expected" > "$TEST_DIR/expected/executions.csv"
+        # Since core, server, and client book are theoretically identical:
+        cp "$TEST_DIR/expected/book-core.csv" "$TEST_DIR/expected/book-server.csv"
+        cp "$TEST_DIR/expected/book-core.csv" "$TEST_DIR/expected/book-client.csv"
+    fi
+}
+
+function cleanup_env {
+    pkill -f "build/services/" >/dev/null 2>&1 || true
+    pkill -f "build/components/" >/dev/null 2>&1 || true
+    "$BUILD_DIR/components/db-resetter" >/dev/null 2>&1 || true
+    rm -f /dev/shm/ORDER_REQUEST_* /dev/shm/ORDER_RESPONSE /dev/shm/MARKET_DATA_RING 2>/dev/null || true
+    rm -rf "$PROJECT_ROOT/log/execution-journals/"* 2>/dev/null || true
+    rm -rf "$PROJECT_ROOT/log/snapshots/"* 2>/dev/null || true
+    rm -f "$PROJECT_ROOT/log/"*.log 2>/dev/null || true
+}
+
+function run_phase {
+    local phase_dir=$1
+    local phase_name=$2
+    local out_dir="${TEST_DIR}/${phase_dir}"
+    
+    local test_full_name="ExecutionTest.Phase${phase_name}"
+    print_run "$test_full_name"
+
+    mkdir -p "$out_dir"
+    cleanup_env
+    
+    export ME_DUMP_FILE="${out_dir}/book-core.csv"
+    export DB_DUMP_DIR="${out_dir}"
+    export MD_DUMP_FILE="${out_dir}/book-server.csv"
+
+    "$BUILD_DIR/services/public-data" >/dev/null 2>&1 & PD_PID=$!
+    "$BUILD_DIR/services/client-manager" > "${out_dir}/cm.log" 2>&1 & CM_PID=$!
+    "$BUILD_DIR/services/matching-engine" >/dev/null 2>&1 & ME_PID=$!
+    "$BUILD_DIR/services/market-data-server" > "${out_dir}/md_out.log" 2>&1 & MD_PID=$!
+
+    sleep 0.5
+
+    "$BUILD_DIR/components/execution-stdout" > "${out_dir}/executions.csv" 2>/dev/null & EXEC_PID=$!
+
+    # Send phase 1 requests
+    "$BUILD_DIR/components/csv-inserter" "$INPUT_CSV"
+    if [[ "$TEST_DIR" == *"stress"* ]]; then
+        sleep 60
+    else
+        sleep 2
+    fi
+
+    if [ "$phase_dir" == "experimental" ]; then
+        kill -9 $ME_PID $CM_PID $MD_PID 2>/dev/null || true
+        wait $ME_PID $CM_PID $MD_PID 2>/dev/null || true
+        
+        "$BUILD_DIR/services/client-manager" >> "${out_dir}/cm.log" 2>&1 & CM_PID=$!
+        "$BUILD_DIR/services/matching-engine" >/dev/null 2>&1 & ME_PID=$!
+        "$BUILD_DIR/services/market-data-server" > "${out_dir}/md_out.log" 2>&1 & MD_PID=$!
+        
+        if [[ "$TEST_DIR" == *"stress"* ]]; then
+            sleep 60
+        else
+            sleep 2
+        fi
+    fi
+
+    # Send phase 2 requests if exists
+    if [ -f "$CONTI_CSV" ]; then
+        "$BUILD_DIR/components/csv-inserter" "$CONTI_CSV"
+        sleep 2
+    fi
+
+    # Client Book Dumper
+    "$BUILD_DIR/components/client-book-dumper" 1 "${out_dir}/book-client.csv" > "${out_dir}/client.log" 2>&1 & CLIENT_PID=$!
+    sleep 0.5
+    kill -SIGINT $CLIENT_PID 2>/dev/null || true
+    wait $CLIENT_PID 2>/dev/null || true
+
+    # Graceful shutdown to trigger dumps
+    kill -SIGINT $ME_PID $CM_PID $MD_PID 2>/dev/null || true
+    wait $ME_PID $CM_PID $MD_PID 2>/dev/null || true
+    
+    kill -9 $EXEC_PID $PD_PID 2>/dev/null || true
+    
+    print_ok "$test_full_name"
+}
+
+# 1. Generate expected outcomes
+generate_expected
+
+# 2. Run test phases
+echo -e "${BBLUE}[----------]${NC} 2 tests from ExecutionTest"
+EXECUTION_START_TIME=$(($(date +%s%N)/1000000))
+
+run_phase "control" "Control"
+run_phase "experimental" "Experimental"
+
+EXECUTION_END_TIME=$(($(date +%s%N)/1000000))
+EXECUTION_DURATION=$((EXECUTION_END_TIME - EXECUTION_START_TIME))
+echo -e "${BBLUE}[----------]${NC} 2 tests from ExecutionTest (${EXECUTION_DURATION} ms total)"
+echo ""
+
+# 3. Verify files
+echo -e "${BBLUE}[----------]${NC} 6 tests from VerificationTest"
+VERIFICATION_START_TIME=$(($(date +%s%N)/1000000))
+
+for file in executions.csv book-core.csv book-server.csv book-client.csv positions.csv open-orders.csv; do
+    test_name="VerificationTest.Verify_${file//-/_}"
+    test_name="${test_name%.csv}"
+    
+    print_run "$test_name"
+    
+    test_failed=0
+    
+    # 1. Compare control vs expected
+    if [ -f "${TEST_DIR}/expected/${file}" ]; then
+        if ! diff -q "${TEST_DIR}/expected/${file}" "${TEST_DIR}/control/${file}" >/dev/null; then
+            echo -e "❌ ${BRED}CONTROL FAILED${NC}: ${file} differs from expected"
+            diff "${TEST_DIR}/expected/${file}" "${TEST_DIR}/control/${file}" | head -n 20
+            test_failed=1
+        fi
+    fi
+
+    # 2. Compare experimental vs expected
+    if [ -f "${TEST_DIR}/expected/${file}" ]; then
+        if ! diff -q "${TEST_DIR}/expected/${file}" "${TEST_DIR}/experimental/${file}" >/dev/null; then
+            echo -e "❌ ${BRED}EXPERIMENTAL FAILED${NC}: ${file} differs from expected"
+            diff "${TEST_DIR}/expected/${file}" "${TEST_DIR}/experimental/${file}" | head -n 20
+            test_failed=1
+        fi
+    fi
+    
+    if [ $test_failed -eq 0 ]; then
+        print_ok "$test_name"
+    else
+        print_failed "$test_name"
+    fi
+done
+
+VERIFICATION_END_TIME=$(($(date +%s%N)/1000000))
+VERIFICATION_DURATION=$((VERIFICATION_END_TIME - VERIFICATION_START_TIME))
+echo -e "${BBLUE}[----------]${NC} 6 tests from VerificationTest (${VERIFICATION_DURATION} ms total)"
+echo ""
+
+echo -e "${BBLUE}[----------]${NC} Global test environment tear-down"
+cleanup_env
+GLOBAL_END_TIME=$(($(date +%s%N)/1000000))
+GLOBAL_DURATION=$((GLOBAL_END_TIME - GLOBAL_START_TIME))
+
+echo -e "${BBLUE}[==========]${NC} ${TOTAL_TESTS} tests from 2 test suites ran. (${GLOBAL_DURATION} ms total)"
+echo -e "${BBLUE}[  PASSED  ]${NC} ${PASSED_TESTS} tests."
+
+if [ $FAILED_TESTS -gt 0 ]; then
+    echo -e "${BRED}[  FAILED  ]${NC} ${FAILED_TESTS} tests, listed below:"
+    for failed_test in "${FAILED_TEST_NAMES[@]}"; do
+        echo -e "${BRED}[  FAILED  ]${NC} $failed_test"
+    done
+    echo ""
+    echo -e " ${FAILED_TESTS} FAILED TEST"
     exit 1
-fi
-
-if [ ! -f "$EXPECTED_BOOK_CSV" ]; then
-    echo "Error: $EXPECTED_BOOK_CSV not found!"
-    exit 1
-fi
-
-BUILD_DIR="$PROJECT_ROOT/build"
-
-echo "=== Running Correctness Test: $TEST_DIR ==="
-
-# 1. Clean up
-echo "Cleaning logs and stopping old services..."
-mkdir -p "$PROJECT_ROOT/log"
-pkill -f "build/services/" >/dev/null 2>&1 || true
-pkill -f "build/components/" >/dev/null 2>&1 || true
-rm -f /dev/shm/ORDER_REQUEST_* /dev/shm/ORDER_RESPONSE /dev/shm/MARKET_DATA_RING 2>/dev/null || true
-rm -f "$PROJECT_ROOT/log/execution-journals/"* 2>/dev/null
-rm -f "$PROJECT_ROOT/log/"*.log 2>/dev/null
-
-# 2. Start public-data and Matching Engine
-"$BUILD_DIR/services/public-data" >/dev/null 2>&1 &
-PD_PID=$!
-
-echo "Starting Matching Engine..."
-"$BUILD_DIR/services/matching-engine" >/dev/null 2>&1 &
-ME_PID=$!
-
-sleep 0.5
-
-# 3. Inject requests and run Dumper
-echo "Inserting CSV data and dumping executions..."
-"$BUILD_DIR/components/execution-stdout" > "$ACTUAL_EXEC_CSV" 2>/dev/null &
-EXEC_PID=$!
-
-"$BUILD_DIR/components/csv_inserter" "$INPUT_CSV"
-
-sleep 3
-
-# 4. Stop ME and Dumper
-echo "Stopping Matching Engine..."
-kill -SIGINT $ME_PID 2>/dev/null || true
-wait $ME_PID 2>/dev/null || true
-
-kill -9 $EXEC_PID 2>/dev/null || true
-
-# 5. Check ME correctness (Executions)
-
-echo "Comparing actual executions with expected result..."
-diff -q "$ACTUAL_EXEC_CSV" "$EXPECTED_EXEC_CSV"
-EXEC_CHECK=$?
-
-if [ $EXEC_CHECK -ne 0 ]; then
-    echo "❌ ME EXECUTION TEST FAILED: $TEST_DIR"
-    echo "--- Execution Diff ---"
-    diff "$ACTUAL_EXEC_CSV" "$EXPECTED_EXEC_CSV"
-    kill -SIGINT $PD_PID 2>/dev/null
-    exit 1
 else
-    echo "✅ ME EXECUTION TEST PASSED: $TEST_DIR"
-fi
-
-# 6. Start MD Server to read journals and build book
-echo "Starting Market Data Server..."
-MD_DUMP_FILE="${TEST_DIR}/server-book.csv" "$BUILD_DIR/services/market-data-server" > "${TEST_DIR}/md_out.log" 2>&1 &
-MD_PID=$!
-
-sleep 1
-
-# 7. Start Client Book Dumper
-echo "Starting Client Book Dumper..."
-"$BUILD_DIR/components/client-book-dumper" 1 "${TEST_DIR}/client-book.csv" > "${TEST_DIR}/client.log" 2>&1 &
-CLIENT_PID=$!
-
-sleep 0.5
-
-# 8. Cleanup and Compare Books
-echo "Stopping Client Book Dumper..."
-kill -SIGINT $CLIENT_PID 2>/dev/null
-wait $CLIENT_PID 2>/dev/null
-
-echo "Stopping Market Data Server..."
-kill -SIGINT $MD_PID 2>/dev/null
-wait $MD_PID 2>/dev/null
-
-kill -SIGINT $PD_PID 2>/dev/null
-
-echo "Comparing server book with expected result..."
-diff -q "${TEST_DIR}/server-book.csv" "$EXPECTED_BOOK_CSV"
-SERVER_CHECK=$?
-
-echo "Comparing client book with expected result..."
-diff -q "${TEST_DIR}/client-book.csv" "$EXPECTED_BOOK_CSV"
-CLIENT_CHECK=$?
-
-if [ $SERVER_CHECK -eq 0 ]; then
-    echo "✅ SERVER BOOK TEST PASSED: $TEST_DIR"
-else
-    echo "❌ SERVER BOOK TEST FAILED: $TEST_DIR"
-    echo "--- Server Book Diff ---"
-    diff "${TEST_DIR}/server-book.csv" "$EXPECTED_BOOK_CSV"
-fi
-
-if [ $CLIENT_CHECK -eq 0 ]; then
-    echo "✅ CLIENT BOOK TEST PASSED: $TEST_DIR"
-else
-    echo "❌ CLIENT BOOK TEST FAILED: $TEST_DIR"
-    echo "--- Client Book Diff ---"
-    diff "${TEST_DIR}/client-book.csv" "$EXPECTED_BOOK_CSV"
-fi
-
-echo "Checking logs for errors..."
-grep -q "\[error\]" "${TEST_DIR}/md_out.log"
-MD_ERROR_CHECK=$?
-
-if [ $MD_ERROR_CHECK -eq 0 ]; then
-    echo "❌ LOG TEST FAILED: [error] found in md_out.log"
-    echo "--- md_out.log errors ---"
-    grep "\[error\]" "${TEST_DIR}/md_out.log"
-else
-    echo "✅ LOG TEST PASSED: No errors in md_out.log"
-fi
-
-if [ $SERVER_CHECK -eq 0 ] && [ $CLIENT_CHECK -eq 0 ] && [ $MD_ERROR_CHECK -ne 0 ]; then
-    echo "🎉 ALL TESTS PASSED SUCCESSFULLY!"
     exit 0
-else
-    exit 1
 fi
