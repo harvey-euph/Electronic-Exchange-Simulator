@@ -4,7 +4,6 @@
 
 #if defined(USE_PGSQL)
 #include <pqxx/pqxx>
-#include "database/PostgresClientDatabase.hpp"
 #elif defined(USE_SQLITE)
 #include <sqlite3.h>
 #endif

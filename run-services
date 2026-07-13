@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Enforce running with sudo/root privileges upfront
 if [ "$EUID" -ne 0 ]; then
-    echo "Error: This script must be run as root/sudo." >&2
-    exit 1
+    echo "Warning: Running without sudo/root. System tuning and real-time scheduling (chrt) will be skipped." >&2
+    HAS_ROOT=0
+else
+    HAS_ROOT=1
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -16,16 +17,26 @@ mkdir -p "$LOG_DIR"
 
 JOURNAL_DIR="$PROJECT_ROOT/log/execution-journals"
 mkdir -p "$JOURNAL_DIR"
-apply_system_tuning
+if [ "$HAS_ROOT" -eq 1 ]; then
+    apply_system_tuning
+fi
 
 # Check if any service is running (processes are active)
 if pgrep -f "build/services/" >/dev/null; then
     echo "One or more core services are already running. Stopping services and cleaning up shared memory..."
-    sudo "$PROJECT_ROOT/kill-all"
+    if [ "$HAS_ROOT" -eq 1 ]; then
+        sudo "$PROJECT_ROOT/kill-all"
+    else
+        "$PROJECT_ROOT/kill-all"
+    fi
 fi
 
-# We don't need sudo askpass since EUID=0 is enforced.
+# We don't need sudo askpass here
 SUDO_CMD=""
+CHRT_CMD=""
+if [ "$HAS_ROOT" -eq 1 ]; then
+    CHRT_CMD="chrt -f 99"
+fi
 
 # Explicitly list the services to start
 SERVICES=(
@@ -43,7 +54,7 @@ for name in "${SERVICES[@]}"; do
         echo "Error: Executable $exe not found. Please compile first."
         exit 1
     fi
-    run_cmd="chrt -f 99 $exe"
+    run_cmd="$CHRT_CMD $exe"
     nohup bash -c "while true; do $run_cmd >/dev/null 2>&1; sleep 2; done" "exchange_core_service_$name" >/dev/null 2>&1 &
 done
 
@@ -56,9 +67,11 @@ fi
 
 CORES=(0)
 for core in "${CORES[@]}"; do
-    run_cmd="chrt -f 99 $ME_EXE $core"
+    run_cmd="$CHRT_CMD $ME_EXE $core"
     nohup bash -c "while true; do $run_cmd >/dev/null 2>&1; sleep 2; done" "exchange_core_service_matching-engine_${core}" >/dev/null 2>&1 &
 done
 
-$SUDO_CMD systemctl start nginx
+if [ "$HAS_ROOT" -eq 1 ]; then
+    $SUDO_CMD systemctl start nginx 2>/dev/null || true
+fi
 echo "Services successfully started in the background."

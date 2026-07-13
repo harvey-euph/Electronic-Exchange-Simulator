@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Enforce running with sudo/root privileges upfront
 if [ "$EUID" -ne 0 ]; then
-    echo "Error: This script must be run as root/sudo." >&2
-    exit 1
+    echo "Warning: Running without sudo/root. eBPF cleanup, nginx stop, and system tuning restore will be skipped." >&2
+    HAS_ROOT=0
+else
+    HAS_ROOT=1
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -11,9 +12,12 @@ source "$PROJECT_ROOT/scripts/system-tuning.sh"
 
 # Check if askpass script exists to run sudo without prompting
 ASKPASS_PATH="/dev/shm/exchange_askpass_${USER}.sh"
-SUDO_CMD="sudo"
-if [ -f "$ASKPASS_PATH" ]; then
-    SUDO_CMD="SUDO_ASKPASS='$ASKPASS_PATH' sudo -A"
+SUDO_CMD=""
+if [ "$HAS_ROOT" -eq 1 ]; then
+    SUDO_CMD="sudo"
+    if [ -f "$ASKPASS_PATH" ]; then
+        SUDO_CMD="SUDO_ASKPASS='$ASKPASS_PATH' sudo -A"
+    fi
 fi
 
 echo "=== Stopping Exchange Client Agents ==="
@@ -21,14 +25,17 @@ pkill -f "exchange_agent_service"
 pkill -f "build/client-agents/"
 
 echo "=== Stopping Exchange Core Services ==="
-$SUDO_CMD pkill -f "exchange_core_service"
-$SUDO_CMD pkill -f "build/services/"
-$SUDO_CMD systemctl stop nginx 2>/dev/null || true
+$SUDO_CMD pkill -f "exchange_core_service" || true
+$SUDO_CMD pkill -f "build/services/" || true
 
-echo "=== Stopping eBPF Tracers ==="
-$SUDO_CMD pkill -x "total-lat" || true
-$SUDO_CMD pkill -x "lat-tracer" || true
-$SUDO_CMD pkill -x "ebpf-msg-flow" || true
+if [ "$HAS_ROOT" -eq 1 ]; then
+    $SUDO_CMD systemctl stop nginx 2>/dev/null || true
+
+    echo "=== Stopping eBPF Tracers ==="
+    $SUDO_CMD pkill -x "total-lat" || true
+    $SUDO_CMD pkill -x "lat-tracer" || true
+    $SUDO_CMD pkill -x "ebpf-msg-flow" || true
+fi
 
 echo "=== Cleaning up shared memory files ==="
 $SUDO_CMD rm -f /dev/shm/ORDER_REQUEST_* \
@@ -39,6 +46,8 @@ $SUDO_CMD rm -f /dev/shm/ORDER_REQUEST_* \
 # Clean up askpass file
 rm -f "$ASKPASS_PATH"
 
-restore_system_tuning
+if [ "$HAS_ROOT" -eq 1 ]; then
+    restore_system_tuning
+fi
 
 echo "=== All processes stopped ==="

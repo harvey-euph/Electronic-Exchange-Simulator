@@ -22,54 +22,79 @@ public:
 
     void on_order_response(const OrderResponse* response) override {
         logOrderResponse(response, "[CSVSender]");
+        
+        if (response->exec_id() == expected_exec_id_ || response->order_id() == expected_order_id_) {
+            if (!next_sent_) {
+                next_sent_ = true;
+                send_next_order();
+            }
+        }
     }
 
     void on_position_response(const PositionResponse* response) override {
         logPositionResponse(response, "[CSVSender]");
     }
 
-    void on_timer() override {
-        if (!is_ready()) {
-            static bool waiting_logged = false;
-            if (!waiting_logged) {
-                std::cout << "[CSVSender] Waiting for server ready signal..." << std::endl;
-                waiting_logged = true;
-            }
-            return;
-        }
+    void on_timer() override {}
 
+    int run_sync() {
+        fetch_symbols_info();
+        if (start() != 0) return 1;
+        
+        wait_until_ready();
+        std::cout << "[CSVSender] Server ready signal received." << std::endl;
+        
         const auto& requests = reader_.getRequests();
+        if (requests.empty()) {
+            return 0;
+        }
+        
+        current_idx_ = -1;
+        next_sent_ = true;
+        send_next_order();
+        
+        while (running_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return 0;
+    }
+
+private:
+    void send_next_order() {
+        const auto& requests = reader_.getRequests();
+        current_idx_++;
         if (current_idx_ < requests.size()) {
             OrderRequestT req;
             requests[current_idx_]->UnPackTo(&req);
             
-            send_order_request(req);
-            std::cout << "[CSVSender] Sent order (" << current_idx_ + 1 << "/" << requests.size() << "): action=" << EnumNameOrderAction(req.action)
-                      << ", symbol=" << req.symbol_id << ", side=" << EnumNameSide(req.side)
-                      << ", p=" << req.p << ", q=" << req.q << std::endl;
+            expected_exec_id_ = req.exec_id;
+            expected_order_id_ = req.order_id;
+            next_sent_ = false;
             
-            current_idx_++;
+            // Bypass send_order_request to preserve client_id, order_id, exec_id, timestamp
+            uint64_t msg_seq_num = ++o_seq_num_;
+            flatbuffers::FlatBufferBuilder fbb(256);
+            auto order_offset = OrderRequest::Pack(fbb, &req);
+            auto client_req = CreateClientRequest(fbb, ClientRequestData_OrderRequest, order_offset.Union(), msg_seq_num);
+            fbb.Finish(client_req);
+            mgmt_client_->send(fbb.GetBufferPointer(), fbb.GetSize());
+            if (current_idx_ % 100 == 0 || current_idx_ == requests.size() - 1) {
+                std::cout << "[CSVSender] Sent order (" << current_idx_ + 1 << "/" << requests.size() << "): action=" << EnumNameOrderAction(req.action)
+                          << ", symbol=" << req.symbol_id << ", side=" << EnumNameSide(req.side)
+                          << ", p=" << req.p << ", q=" << req.q << std::endl;
+            }
         } else {
-            if (!finished_) {
-                std::cout << "[CSVSender] Finished sending orders. Waiting for remaining responses..." << std::endl;
-                finished_ = true;
-                finish_start_time_ = std::chrono::steady_clock::now();
-            }
-
-            auto now = std::chrono::steady_clock::now();
-            if (std::chrono::duration_cast<std::chrono::seconds>(now - finish_start_time_).count() >= 5) {
-                std::cout << "[CSVSender] Stopping." << std::endl;
-                stop();
-            }
+            std::cout << "[CSVSender] All orders sent and responded. Terminating..." << std::endl;
+            running_ = false;
         }
     }
 
-private:
     std::string csv_path_;
     CSVDataReader reader_;
-    size_t current_idx_ = 0;
-    bool finished_ = false;
-    std::chrono::steady_clock::time_point finish_start_time_;
+    int current_idx_ = -1;
+    bool next_sent_ = false;
+    uint64_t expected_exec_id_ = 0;
+    uint64_t expected_order_id_ = 0;
 };
 
 } // namespace Exchange
@@ -81,12 +106,11 @@ int main(int argc, char** argv) {
     }
 
     Exchange::AlgoTradingConfig config;
-    config.use_http = true;
     config.timer_interval_ms = 50;
     
     try {
         Exchange::CSVSender client(config, csv_path);
-        return client.run();
+        return client.run_sync();
     } catch (const std::exception& e) {
         std::cerr << "[CSVSender] Fatal Error: " << e.what() << std::endl;
         return EXIT_FAILURE;

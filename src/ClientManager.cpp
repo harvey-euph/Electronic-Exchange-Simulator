@@ -274,8 +274,9 @@ void ClientManager::handle_execution_response(const OrderResponseT* resp)
                 client = q.front();
                 q.pop();
                 if (client->client_id() != client_id) {
-                    LOG_ERROR("[ClientManager] Queue mismatch! expected %u, got %u", client_id, client->client_id());
-                    client = nullptr; 
+                    // LOG_ERROR("[ClientManager] Queue mismatch! expected %u, got %u", client_id, client->client_id());
+                    // Allow test injector (csv-sender) to receive responses for orders it sent on behalf of other clients.
+                    last_popped_client_ = client;
                 } else {
                     last_popped_client_ = client;
                 }

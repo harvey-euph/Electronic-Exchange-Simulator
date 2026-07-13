@@ -107,7 +107,7 @@ function run_phase {
     "$BUILD_DIR/components/execution-stdout" > "${out_dir}/executions.csv" 2>/dev/null & EXEC_PID=$!
 
     # Send phase 1 requests
-    "$BUILD_DIR/components/csv-inserter" "$INPUT_CSV"
+    "$BUILD_DIR/client-examples/csv-sender" "$INPUT_CSV" > "${out_dir}/csv-sender.log" 2>&1
     if [[ "$TEST_DIR" == *"stress"* ]]; then
         sleep 60
     else
@@ -131,7 +131,7 @@ function run_phase {
 
     # Send phase 2 requests if exists
     if [ -f "$CONTI_CSV" ]; then
-        "$BUILD_DIR/components/csv-inserter" "$CONTI_CSV"
+        "$BUILD_DIR/client-examples/csv-sender" "$CONTI_CSV" >> "${out_dir}/csv-sender.log" 2>&1
         sleep 2
     fi
 
