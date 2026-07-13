@@ -11,7 +11,7 @@ public:
     CSVClientDatabase(const std::string& csv_file_path);
     ~CSVClientDatabase() override;
 
-    void updatePosition(const OrderResponseT* resp) override;
+    void update_on_execution(const OrderResponseT* resp, uint64_t log_offset) override;
 
 private:
     std::string csv_file_path_;

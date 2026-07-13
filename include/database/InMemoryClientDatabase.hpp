@@ -39,49 +39,26 @@ public:
         return ++o_seq_nums_[client_id];
     }
 
-    void appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) override {
+    std::vector<OrderResponseT> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) override {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
-        uint64_t o_seq = msg_seq_num;
-        flatbuffers::FlatBufferBuilder fbb(256);
-        auto resp_offset = OrderResponse::Pack(fbb, &resp);
-        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), msg_seq_num);
-        fbb.Finish(client_resp);
-        response_log_[client_id][o_seq] = std::vector<uint8_t>(fbb.GetBufferPointer(), fbb.GetBufferPointer() + fbb.GetSize());
-    }
-
-    std::vector<std::vector<uint8_t>> popPendingResponses([[maybe_unused]] uint32_t client_id) override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        // Obsolete, use getResponsesSince
-        return {};
-    }
-
-    std::vector<std::vector<uint8_t>> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        std::vector<std::vector<uint8_t>> result;
-        auto it = response_log_.find(client_id);
-        if (it != response_log_.end()) {
-            for (auto const& [seq, resp_bytes] : it->second) {
+        std::vector<OrderResponseT> result;
+        auto it = log_offsets_.find(client_id);
+        if (it != log_offsets_.end()) {
+            mmaplog::MmapReader reader(EXECUTION_JOURNAL_DIR);
+            for (auto const& [seq, offset] : it->second) {
                 if (seq > ack_seq_num) {
-                    result.push_back(resp_bytes);
+                    if (reader.seek(offset)) {
+                        const void* data = nullptr;
+                        uint32_t len = 0;
+                        if (reader.read_next(data, len)) {
+                            auto resp = reinterpret_cast<const OrderResponseT*>(data);
+                            result.push_back(*resp);
+                        }
+                    }
                 }
             }
         }
         return result;
-    }
-
-    void acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        auto it = response_log_.find(client_id);
-        if (it != response_log_.end()) {
-            auto& log = it->second;
-            for (auto it2 = log.begin(); it2 != log.end(); ) {
-                if (it2->first <= ack_seq_num) {
-                    it2 = log.erase(it2);
-                } else {
-                    ++it2;
-                }
-            }
-        }
     }
 
     int64_t getPosition(uint32_t client_id, uint32_t symbol_id) override {
@@ -95,57 +72,46 @@ public:
         return get_or_create_client_positions(client_id);
     }
 
-    void updatePosition(const OrderResponseT* resp) override {
+    void update_on_execution(const OrderResponseT* resp, uint64_t log_offset) override {
         std::lock_guard<std::recursive_mutex> lock(mutex_);
         uint32_t client_id = resp->client_id;
         uint32_t symbol_id = resp->symbol_id;
-        int64_t cost = static_cast<int64_t>(resp->p * resp->q);
-        int64_t asset_delta = 0;
-        int64_t cash_delta = 0;
-        if (resp->side == Side_Buy) {
-            asset_delta = static_cast<int64_t>(resp->q);
-            cash_delta = -cost;
-        } else {
-            asset_delta = -static_cast<int64_t>(resp->q);
-            cash_delta = cost;
-        }
-        auto& client_pos = get_or_create_client_positions(client_id);
-        client_pos[symbol_id] += asset_delta;
-        client_pos[0] += cash_delta;
-    }
+        
+        uint64_t msg_seq_num = ++o_seq_nums_[client_id];
 
-    void addOrUpdateOpenOrder(const OrderResponseT* resp) override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        if (resp->exec_type == ExecType_PartialFill) {
-            auto it = open_orders_[resp->client_id].find(resp->order_id);
-            if (it != open_orders_[resp->client_id].end()) {
-                it->second.q -= resp->q;
-            }
-        } else {
-            open_orders_[resp->client_id][resp->order_id] = *resp;
-        }
-    }
-
-    void removeOpenOrder(uint32_t client_id, uint64_t order_id) override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        auto it = open_orders_.find(client_id);
-        if (it != open_orders_.end()) {
-            it->second.erase(order_id);
-        }
-    }
-
-    void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, [[maybe_unused]] bool not_sent, uint64_t log_offset) override {
-        std::lock_guard<std::recursive_mutex> lock(mutex_);
-        uint32_t client_id = resp->client_id;
         if (check_exec(resp->exec_type, EXEC_TRADE)) {
-            updatePosition(resp);
+            int64_t cost = static_cast<int64_t>(resp->p * resp->q);
+            int64_t asset_delta = 0;
+            int64_t cash_delta = 0;
+            if (resp->side == Side_Buy) {
+                asset_delta = static_cast<int64_t>(resp->q);
+                cash_delta = -cost;
+            } else {
+                asset_delta = -static_cast<int64_t>(resp->q);
+                cash_delta = cost;
+            }
+            auto& client_pos = get_or_create_client_positions(client_id);
+            client_pos[symbol_id] += asset_delta;
+            client_pos[0] += cash_delta;
         }
+        
         if (check_exec(resp->exec_type, EXEC_ALIVE)) {
-            addOrUpdateOpenOrder(resp);
+            if (resp->exec_type == ExecType_PartialFill) {
+                auto it = open_orders_[client_id].find(resp->order_id);
+                if (it != open_orders_[client_id].end()) {
+                    it->second.q_rem = resp->q_rem;
+                }
+            } else {
+                open_orders_[client_id][resp->order_id] = *resp;
+            }
         } else if (check_exec(resp->exec_type, EXEC_ANN)) {
-            removeOpenOrder(client_id, resp->order_id);
+            auto it = open_orders_.find(client_id);
+            if (it != open_orders_.end()) {
+                it->second.erase(resp->order_id);
+            }
         }
-        appendResponseLog(client_id, *resp, msg_seq_num);
+        
+        log_offsets_[client_id][msg_seq_num] = log_offset;
         setLastLogOffset(log_offset);
     }
 
@@ -181,7 +147,7 @@ public:
         for (auto const& [client_id, orders] : open_orders_) {
             for (auto const& [order_id, resp] : orders) {
                 oo_out << client_id << "," << resp.order_id << "," << resp.symbol_id << "," 
-                       << EnumNameSide(resp.side) << "," << resp.p << "," << resp.q << "\n";
+                       << EnumNameSide(resp.side) << "," << resp.p << "," << resp.q << "," << resp.q_rem << "\n";
             }
         }
     }
@@ -201,7 +167,7 @@ protected:
 
     std::map<uint32_t, uint64_t> i_seq_nums_;
     std::map<uint32_t, uint64_t> o_seq_nums_;
-    std::map<uint32_t, std::map<uint64_t, std::vector<uint8_t>>> response_log_;
+    std::map<uint32_t, std::map<uint64_t, uint64_t>> log_offsets_;
     std::map<uint32_t, std::map<uint32_t, int64_t>> positions_;
     std::map<uint32_t, std::map<uint64_t, OrderResponseT>> open_orders_;
 };

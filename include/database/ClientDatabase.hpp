@@ -50,9 +50,7 @@ public:
                 if (response_ring.read_next(data, len)) {
                     if (len >= sizeof(OrderResponseT)) {
                         auto resp = reinterpret_cast<const OrderResponseT*>(data);
-                        uint32_t client_id = resp->client_id;
-                        uint64_t msg_seq = this->incrementAndGetClientOSeqNum(client_id);
-                        this->update_on_execution(resp, msg_seq, true, response_ring.get_offset());
+                        this->update_on_execution(resp, response_ring.get_offset());
                     }
                 } else {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -92,23 +90,17 @@ public:
     virtual uint64_t incrementAndGetClientOSeqNum(uint32_t client_id) = 0;
 
     // Unsent OrderResponse lists
-    virtual void appendResponseLog(uint32_t client_id, const OrderResponseT& resp, uint64_t msg_seq_num) = 0;
-    virtual std::vector<std::vector<uint8_t>> popPendingResponses(uint32_t client_id) = 0;
-    virtual std::vector<std::vector<uint8_t>> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) = 0;
-    virtual void acknowledgeResponses(uint32_t client_id, uint64_t ack_seq_num) = 0;
+    virtual std::vector<OrderResponseT> getResponsesSince(uint32_t client_id, uint64_t ack_seq_num) = 0;
 
     // Positions
     virtual int64_t getPosition(uint32_t client_id, uint32_t symbol_id) = 0;
     virtual std::map<uint32_t, int64_t> getAllPositions(uint32_t client_id) = 0;
-    virtual void updatePosition(const OrderResponseT* resp) = 0;
 
     // Open Orders
-    virtual void addOrUpdateOpenOrder(const OrderResponseT* resp) = 0;
-    virtual void removeOpenOrder(uint32_t client_id, uint64_t order_id) = 0;
     virtual std::vector<OrderResponseT> getOpenOrders(uint32_t client_id) = 0;
 
     // Execution processing
-    virtual void update_on_execution(const OrderResponseT* resp, uint64_t msg_seq_num, bool not_sent, uint64_t log_offset) = 0;
+    virtual void update_on_execution(const OrderResponseT* resp, uint64_t log_offset) = 0;
 
     // Testing / Debugging
     virtual void dump_state(const std::string& dir) = 0;

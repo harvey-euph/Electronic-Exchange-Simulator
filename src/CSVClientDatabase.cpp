@@ -36,9 +36,11 @@ CSVClientDatabase::~CSVClientDatabase() {
     saveToCSV();
 }
 
-void CSVClientDatabase::updatePosition(const OrderResponseT* resp) {
-    InMemoryClientDatabase::updatePosition(resp);
-    saveToCSV();
+void CSVClientDatabase::update_on_execution(const OrderResponseT* resp, uint64_t log_offset) {
+    InMemoryClientDatabase::update_on_execution(resp, log_offset);
+    if (check_exec(resp->exec_type, EXEC_TRADE)) {
+        saveToCSV();
+    }
 }
 
 void CSVClientDatabase::saveToCSV() {

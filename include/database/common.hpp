@@ -6,7 +6,6 @@
 #if defined(USE_PGSQL)
 #include "database/PostgresClientDatabase.hpp"
 #include "database/PostgresSymbolDatabase.hpp"
-#include "database/DbUtil.hpp"
 #elif defined(USE_CSV)
 #include "database/CSVClientDatabase.hpp"
 #include "database/CSVSymbolDatabase.hpp"
@@ -14,7 +13,6 @@
 #include "database/SQLiteClientDatabase.hpp"
 #include "database/SQLiteSymbolDatabase.hpp"
 #endif
-
 
 #include <memory>
 

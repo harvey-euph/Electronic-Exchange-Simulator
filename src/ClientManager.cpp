@@ -103,9 +103,15 @@ void ClientManager::handle_client_logon(CMClientPtr new_client, const AdminReque
     // Send missed executions (OrderResponse)
     auto missed_responses = db_->getResponsesSince(client_id, client_ack_seq_num);
     LOG_INFO("[ClientManager] Sending %ld missed responses.", missed_responses.size());
-    for (auto& resp_bytes : missed_responses) {
-        new_client->send(resp_bytes.data(), resp_bytes.size());
-        logOrderResponse(flatbuffers::GetRoot<ClientResponse>(resp_bytes.data())->data_as_OrderResponse(), "[ClientManager] Resending Missed:");
+    uint64_t resend_seq = client_ack_seq_num;
+    for (auto& resp : missed_responses) {
+        resend_seq++;
+        flatbuffers::FlatBufferBuilder fbb;
+        auto resp_offset = OrderResponse::Pack(fbb, &resp);
+        auto client_resp = CreateClientResponse(fbb, ClientResponseData_OrderResponse, resp_offset.Union(), resend_seq);
+        fbb.Finish(client_resp);
+        new_client->send(fbb.GetBufferPointer(), fbb.GetSize());
+        logOrderResponse(&resp, "[ClientManager] Resending Missed:");
     }
 
     // Set ready for this client session
