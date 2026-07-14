@@ -155,11 +155,7 @@ COPY data/ data/
 RUN mkdir -p log/execution-journals
 
 # ---- Configure nginx ----
-# Bake the frontend dist path into the nginx config
-RUN sed 's|__FRONTEND_DIST_PATH__|/opt/exchange/web/dist|g' \
-      nginx/exchange.conf > /etc/nginx/sites-available/exchange \
-    && rm -f /etc/nginx/sites-enabled/default \
-    && ln -sf /etc/nginx/sites-available/exchange /etc/nginx/sites-enabled/exchange
+# We now do this dynamically in docker-entrypoint.sh based on SSL cert presence
 
 # ---- Ports ----
 # 80    — Nginx (HTTP frontend + WS proxy)

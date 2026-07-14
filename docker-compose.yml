@@ -41,6 +41,10 @@ services:
 
       # Persist database files
       - exchange-data:/opt/exchange/data
+      
+      # SSL Certificates (provisioned by Certbot on host)
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /opt/certbot/www:/var/www/certbot
 
     # Required for:
     #   - chrt (RT scheduling) via CAP_SYS_NICE
@@ -57,6 +61,7 @@ services:
     environment:
       # Set to "1" to skip system tuning (useful if host already tuned)
       - SKIP_TUNING=0
+      - DOMAIN_NAME=harvey-exchange.duckdns.org
 
     # Health check: rigorously verify ALL core services are running
     healthcheck:
