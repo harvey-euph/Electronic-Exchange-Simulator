@@ -1,0 +1,72 @@
+# =============================================================================
+# Exchange — Docker Compose
+#
+# Runs all exchange services in a single container.
+#
+# Why a single container (not one-per-service)?
+#   The services communicate via /dev/shm shared memory ring buffers and
+#   mmap'd execution journals on the local filesystem. Splitting them into
+#   separate containers would require --ipc=host on every container anyway,
+#   defeating the isolation purpose. A single container keeps it simple.
+#
+# Usage:
+#   docker compose up --build        # Build and start
+#   docker compose up -d             # Start in background
+#   docker compose down              # Stop and remove
+#   docker compose logs -f           # Follow logs
+# =============================================================================
+
+services:
+  exchange:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: exchange
+
+    # ------------------------------------------------------------------
+    # Shared Memory: The matching engine and client manager communicate
+    # via /dev/shm ring buffers. Default Docker shm is 64MB — far too
+    # small. We size it to 1GB.
+    # ------------------------------------------------------------------
+    shm_size: "1g"
+
+    # Use host network for zero NAT network overhead (critical for low latency tests)
+    # Note: 'ports' mapping is ignored and unnecessary when using network_mode: host
+    network_mode: "host"
+
+    volumes:
+      # Persist execution journals and logs across container restarts
+      - exchange-journals:/opt/exchange/log/execution-journals
+      - exchange-logs:/opt/exchange/log
+
+      # Persist database files
+      - exchange-data:/opt/exchange/data
+
+    # Required for:
+    #   - chrt (RT scheduling) via CAP_SYS_NICE
+    #   - CPU governor tuning (won't work in container, but won't crash)
+    cap_add:
+      - SYS_NICE
+
+    # Restart on crash, but not on intentional stop
+    restart: unless-stopped
+
+    # Optional: pin to specific CPUs (uncomment and adjust for your host)
+    # cpuset: "0-3"
+
+    environment:
+      # Set to "1" to skip system tuning (useful if host already tuned)
+      - SKIP_TUNING=0
+
+    # Health check: verify client-manager is running
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "build/services/client-manager"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  exchange-journals:
+  exchange-logs:
+  exchange-data:

@@ -60,7 +60,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Client[Client API/APP] <-->|1. WS Request<br/>6. WS Response| CM[client_manager]
+    Client[Client API/APP] <-->|6. WS Response<br/>1. WS Request| CM[client_manager]
     Client -->|1. HTTP /v1/symbol| PD[public_data]
     
     subgraph Core[Per-Core Partition x N]

@@ -112,7 +112,12 @@ def main():
             
             combined = (client_id, order_id)
 
+            MAX_QTY = 1000000000
+
             if action == 'New':
+                if qty > MAX_QTY:
+                    send_resp('REJ', order_id, client_id, side, price, qty, 0)
+                    continue
                 if price <= 0:
                     send_resp('REJ', order_id, client_id, side, price, qty, 0)
                     continue
@@ -144,6 +149,11 @@ def main():
                 remove_order(client_id, order_id)
                 
             elif action == 'Modify':
+                if qty > MAX_QTY:
+                    o = active_orders.get(combined)
+                    send_resp('REJ', order_id, client_id, side, price, qty, o['qty_remaining'] if o else 0)
+                    continue
+                
                 if combined not in active_orders:
                     send_resp('REJ', order_id, client_id, side, price, qty, 0)
                     continue

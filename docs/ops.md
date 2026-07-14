@@ -7,17 +7,30 @@
 ## 1. 系統環境與建置 (Environment & Build)
 
 ### 建議作業系統與硬體
-- **OS**: Linux (推薦 Ubuntu 22.04+ 或是 RHEL 9+)
+- **OS**: Linux (推薦 Ubuntu 26.04)
 - **CPU**: 支援高時脈的處理器 (e.g., Intel Xeon / AMD EPYC)。若要達到最佳延遲，請關閉 C-states 並預留 (Pin) 特定核心給 Matching Engine。
-- **Memory**: 至少 16GB。因為依賴大量的 Shared Memory Ring Buffer，建議配置充足的 RAM。
+- **Memory**: 至少 16GB。因為依賴大量的 Shared Memory Ring Buffer，建議配置充足的 RAM (至少需要 1GB 供 `/dev/shm` 使用)。
 - **Storage**: 高速 NVMe SSD 用於 Execution Journal 落盤。
 
-### 建置步驟
-系統使用 CMake 構建。
+### 部署方式 1：使用 Docker (推薦)
+系統已全面支援 Docker 容器化部署，所有相依套件與編譯過程皆在容器內完成。
 ```bash
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make -j$(nproc)
+# 啟動並在背景執行 (首次執行會自動進行映像檔編譯)
+docker compose up --build -d
+```
+詳細容器操作請參考 [docker.md](docker.md)。
+
+### 部署方式 2：Bare-metal 實機編譯 (適用於開發或追求極致延遲)
+若需直接在主機上編譯與執行，請先安裝依賴套件：
+```bash
+./scripts/install-requirements
+```
+系統使用 GNU Make 構建：
+```bash
+# 生成 FlatBuffers 並編譯所有微服務與前端
+make -j$(nproc) all
+# 啟動服務
+sudo ./run-services
 ```
 
 ---

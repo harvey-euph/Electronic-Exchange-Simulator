@@ -58,7 +58,8 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
         sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_PriceInvalid);
         return;
     }
-    if (req->q <= 0) {
+    constexpr uint64_t GLOBAL_MAX_QTY = 1'000'000'000ULL;
+    if (req->q <= 0 || req->q > GLOBAL_MAX_QTY) {
         sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_InvalidQuantity);
         return;
     }
@@ -175,6 +176,12 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
     }
 
     Order *o = it->second;
+    
+    constexpr uint64_t GLOBAL_MAX_QTY = 1'000'000'000ULL;
+    if (req->q > GLOBAL_MAX_QTY) {
+        sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, o->qty_remaining, RejectCode_InvalidQuantity);
+        return;
+    }
     
     if (req->p && price_invalid(req->p)) {
         sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, o->qty_remaining, RejectCode_PriceInvalid);

@@ -5,31 +5,26 @@ set -euo pipefail
 echo "Updating package lists..."
 sudo apt-get update
 
-echo "Installing required packages..."
-sudo apt-get install -y \
+echo "Installing host-level dependencies (Docker & eBPF tools)..."
+sudo apt-get install -y --no-install-recommends \
   build-essential \
+  make \
   git \
   clang \
-  software-properties-common \
-  pkg-config \
-  libssl-dev \
-  zlib1g-dev \
-  libboost-all-dev \
-  libpq-dev \
-  libpqxx-dev \
-  libsqlite3-dev \
-  flatbuffers-compiler \
-  libflatbuffers-dev \
-  libgtest-dev \
-  googletest \
-  libgmock-dev \
   libbpf-dev \
   bpftool \
   systemtap-sdt-dev \
-  libspdlog-dev \
-  libfmt-dev \
-  nodejs \
-  npm \
-  gdb
+  docker.io \
+  docker-compose-v2
 
-echo "System dependencies installed successfully."
+echo "Configuring Docker permissions..."
+# Add the current non-root user to the docker group so they can run docker without sudo
+if ! getent group docker > /dev/null 2>&1; then
+    sudo groupadd docker
+fi
+sudo usermod -aG docker "$USER"
+
+echo "Host setup complete!"
+echo "NOTE: C++, Database, and Node.js dependencies are no longer installed on the host."
+echo "They are strictly contained within the Dockerfile."
+echo "NOTE: You may need to log out and log back in for Docker group permissions to take effect."

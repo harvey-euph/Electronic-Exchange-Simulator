@@ -1,0 +1,40 @@
+# Build artifacts (rebuilt inside container)
+build/
+web/dist/
+web/node_modules/
+web/.build_done
+
+# Generated headers (rebuilt inside container)
+include/fbs/
+web/src/fbs/
+
+# Development / IDE
+.venv/
+test_venv/
+.vscode/
+.agents/
+.codex/
+.git/
+.github/
+
+# Runtime data (mounted as volumes, not baked in)
+data/*.db*
+log/
+records/
+
+# eBPF (kernel-dependent, not containerized)
+performance/ebpf/*.skel.h
+performance/ebpf/*.bpf.o
+performance/ebpf/vmlinux.h
+performance/ebpf/lat-tracer
+performance/ebpf/total-lat
+performance/ebpf/ebpf-msg-flow
+
+# Misc
+*.pyc
+__pycache__/
+*.tmp
+cachegrind.out*
+.env
+python/
+todos/
