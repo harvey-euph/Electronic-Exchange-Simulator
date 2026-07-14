@@ -8,7 +8,7 @@
 
 ### 端點與協定
 - **Client Manager 端點**：負責接受下單 (New, Modify, Cancel) 與私有帳戶回報 (Execution Reports)。
-- **通訊格式**：目前支援 JSON 與二進位 Flatbuffer。
+- **通訊格式**：完全使用二進位 Flatbuffer，不支援 JSON。
 - **序列號 (Sequence Number)**：
   - 客戶端與伺服器之間維護嚴格的 `MsgSeqNum` 與 `AckSeqNum`。
   - **登入 (Login)** 時，客戶端必須夾帶預期的 SeqNum。如果發生斷線，客戶端重連時提供正確的 `AckSeqNum`，伺服器會自動把遺漏的 Execution Reports 補齊並重傳。如果客戶端的 SeqNum 發生不可修復的落後，伺服器會拒絕連線。
@@ -42,31 +42,48 @@
 
 ## 3. 回報格式與生命週期 (Response & ExecType Semantics)
 
-伺服器會將 Matching Engine 的撮合結果透過 `OrderResponseT` 推播給您。為追求極致的傳輸效能，我們將 `Price (p)` 與 `Quantity (q)` 在不同的 `ExecType` (執行狀態) 下賦予了不同的語意。
+伺服器會將 Matching Engine 的撮合結果推播給您。為追求極致的傳輸效能與語意清晰度，我們將 `Price (p)`、`Quantity (q)` 與 `Remaining Quantity (q_rem)` 在不同的 `ExecType` (執行狀態) 下賦予了精確的定義。
+
+```mermaid
+stateDiagram-v2
+    [*] --> New
+    
+    New --> PartialFill : Match (qty < total)
+    New --> Fill : Match (qty == total)
+    New --> Replaced : Modify Request
+    New --> Cancelled : Cancel Request
+    
+    PartialFill --> PartialFill : Match (qty < remaining)
+    PartialFill --> Fill : Match (qty == remaining)
+    PartialFill --> Replaced : Modify Request
+    PartialFill --> Cancelled : Cancel Request
+    
+    Replaced --> PartialFill : Match (qty < remaining)
+    Replaced --> Fill : Match (qty == remaining)
+    Replaced --> Replaced : Modify Request
+    Replaced --> Cancelled : Cancel Request
+    
+    Fill --> [*]
+    Cancelled --> [*]
+    Rejected --> [*] : Invalid Request
+```
+
 
 請**嚴格參考以下核心語意表**來實作您的本地記帳邏輯：
 
-| ExecType (執行狀態) | `p` (Price) 的語意 | `q` (Quantity) 的語意 | 說明 (與 FIX Protocol 的對應) |
-| :--- | :--- | :--- | :--- |
-| **`New`** (新增成功) | **掛單價格**<br>*(Market order 則為 0)* | **委託總量**<br>(`qty_original`) | 確認收單，此時 `q` 同時等於 `OrderQty` 與 `LeavesQty`。 |
-| **`Replaced`** (修改成功) | **修改後的新價格**<br>*(Target Price)* | **修改後的新剩餘量**<br>(`new_qty_remaining`) | **狀態覆蓋**。MD 與 DB 會直接將剩餘數量 (LeavesQty) 覆蓋為此數值。 |
-| **`PartialFill`** (部分成交) | **本次成交價格**<br>*(Match Price)* | **本次成交數量**<br>(`match_qty`) | **交易事件**。代表在此價格下搓合了多少數量 (LastPx / LastQty)。 |
-| **`Fill`** (完全成交) | **本次成交價格**<br>*(Match Price)* | **本次成交數量**<br>(`match_qty`) | 同上。這筆單完成搓合，剩餘數量歸零。 |
-| **`Cancelled`** (取消成功) | **取消前的掛單價格** | **固定為 `0`** | 狀態覆蓋。直接告知該訂單已不存在。 |
-| **`Rejected`** (拒絕請求) | **被拒絕的請求價格** | **被拒絕的請求數量** | 將 Client 原本送來的不合法參數原封不動退回，並附帶 Reject Code 供 Client 檢查。 |
+| ExecType (執行狀態) | `p` (Price) | `q` (Quantity) | `q_rem` (Remaining Quantity) | 說明 (與 FIX Protocol 的對應) |
+| :--- | :--- | :--- | :--- | :--- |
+| **`New`** (新增成功) | **掛單價格**<br>*(Market order 則為 0)* | **委託總量** | **委託總量** | 確認收單，此時 `q_rem` 等於委託總量 (`LeavesQty`)。 |
+| **`Replaced`** (修改成功) | **修改後的新價格** | **修改後的目標總量** | **修改後的新剩餘量** | **狀態覆蓋**。MD 與 DB 會直接將剩餘數量覆蓋為 `q_rem`。 |
+| **`PartialFill`** (部分成交) | **本次成交價格** | **本次成交數量** | **成交後的剩餘數量** | **交易事件**。代表在此價格下搓合了多少數量 (`LastQty`)，以及剩下多少 (`q_rem`)。 |
+| **`Fill`** (完全成交) | **本次成交價格** | **本次成交數量** | **`0`** | 同上。這筆單完成搓合，剩餘數量歸零。 |
+| **`Cancelled`** (取消成功) | **取消前的掛單價格** | **原委託數量或 `0`** | **`0`** | 狀態覆蓋。直接告知該訂單已不存在 (`q_rem = 0`)。 |
+| **`Rejected`** (拒絕請求) | **被拒絕的請求價格** | **被拒絕的請求數量** | **`0`** | 將 Client 原本送來的不合法參數原封不動退回，並附帶 Reject Code 供 Client 檢查。 |
 
-### 設計亮點 (State Updates vs Transaction Events)
-我們將回報巧妙分為兩大類：
-1. **狀態更新類 (`New`, `Replaced`, `Cancelled`)**：
-   - 此類回報的 `q` 永遠代表**實際剩餘總量 (LeavesQty)**。客戶端收到後應直接覆蓋本地狀態。
-2. **交易事件類 (`PartialFill`, `Fill`)**：
-   - 此類回報的 `q` 永遠代表**單筆成交量 (LastQty)**。這確保了演算法交易者絕對可以精確計算均價與成交總額。
+### 設計亮點 (Explicit Remaining Quantity)
+過去為了節省頻寬，`q` 在不同狀態下會切換語意（有時代表成交量，有時代表剩餘量）。
+現在新增了獨立的 `q_rem` 欄位，這讓語意變得極度清晰且不會混淆：
+1. **`q` (Quantity)**：代表本次事件的「**變動量**」或「**目標量**」。在成交事件 (`PartialFill`, `Fill`) 中，它永遠是**單筆成交量 (LastQty)**，讓演算法交易員能直接用來精確計算均價與成交總額。
+2. **`q_rem` (Remaining Quantity)**：代表事件發生後的「**實際剩餘總量 (LeavesQty)**」。只要收到任何回報，直接將本地 Open Orders 的剩餘數量覆蓋為此欄位的值即可，無需自行加減推算。
 
 ---
-
-## 4. 本地狀態維護建議 (Best Practices)
-
-1. **維護本地 Order Book**：
-   為了掌握市場全貌，建議同時連線至 **Market Data Server** 訂閱 `L2 Snapshot` 與 `Delta Updates`。當收到 L2 更新時，可直接替換/增減對應價位的總量。
-2. **斷線重連機制**：
-   如果斷線時間過長，或是 Sequence Number 落後太多被拒絕連線，建議您先發送 REST API 獲取 `Open Orders` 狀態進行本地對齊，再發起 WebSocket 建立新的 Session。

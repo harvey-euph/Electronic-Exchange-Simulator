@@ -17,14 +17,14 @@
 | **Cancel (取消委託)** | 176.2 | 308.3 | 470.7 | 776.8 |
 | **整體平均 (ALL)** | 132.5 | 212.5 | 434.5 | 896.3 |
 
-> **說明**：這是從 Client 端送出 TCP 封包，到收到 TCP Response 封包的完整來回時間 (Round-Trip Time)，包含所有的網路堆疊處理、JSON/Flatbuffer 解析、撮合計算與資料庫持久化準備。
+> **說明**：這是從 Client 端送出 TCP 封包，到收到 TCP Response 封包的完整來回時間 (Round-Trip Time)，包含所有的網路堆疊處理、JSON/內部格式 解析、撮合計算與資料庫持久化準備。
 
 ### 內部微服務延遲 (Internal Microservices)
 *(單位：微秒 μs)*
 | 元件 | P50 | P90 | P99 | 瓶頸點分析 |
 | :--- | :--- | :--- | :--- | :--- |
 | **Matching Engine (ME)** | 7.03 | 10.09 | 16.48 | 純粹的 L3 Order Book 搓合與記憶體操作。效能極佳，是系統中最快的環節。 |
-| **Client Manager (CM)** | 23.6 | 29.5 | 108.7 | 包含 WebSocket frame 拆裝、權限檢查、Flatbuffer 組裝與非同步 SQLite 寫入準備。 |
+| **Client Manager (CM)** | 23.6 | 29.5 | 108.7 | 包含 WebSocket frame 拆裝、權限檢查、內部格式組裝與非同步 SQLite 寫入準備。 |
 | **Kernel 網路堆疊** | 9.64 | 13.62 | 25.81 | TCP 收發與 Socket buffer 拷貝時間。 |
 
 ---
@@ -38,7 +38,7 @@
 
 1. **Kernel Kprobes (動態探針)**：
    - 攔截 `tcp_recvmsg` 與 `tcp_sendmsg`，取得封包進出 Kernel 的絕對時間點 ($T_0$, $T_8$)。
-   - BPF 程式會在 Kernel 內直接解析 WebSocket 標頭與 Flatbuffer payload，抓出 `exec_id` 作為追蹤 Key。
+   - BPF 程式會在 Kernel 內直接解析 WebSocket 標頭與內部二進位 payload，抓出 `exec_id` 作為追蹤 Key。
 2. **USDT (User Statically-Defined Tracing) (靜態探針)**：
    - 在 `client-manager` 與 `matching-engine` 的 C++ 程式碼中埋入無成本的 DTRACE 探針。
    - 追蹤節點包含：`req_entry`, `req_enqueue`, `ob_req_entry`, `ob_resp_enqueue`, `exec_resp_entry` 等。
@@ -48,18 +48,3 @@
 - 資料收集完成後，透過 Ring Buffer 傳遞到 Userspace 的分析腳本，產出各個 Pipeline Stage (0 -> 8) 的 P50/P90/P99 統計分佈表。
 
 ---
-
-## 3. 系統調優指南 (Tuning Guidelines)
-
-為了達到上述的基準測試效能，部署環境必須進行以下 OS 層級的優化：
-
-1. **CPU Pinning & Isolation**：
-   - 使用 `taskset` 或 `isolcpus` 確保 ME 與 CM 運行在完全獨立的實體 CPU 核心上，避免 Context Switch。
-2. **NUMA 節點親和性**：
-   - 確保 Shared Memory Ring Buffer 分配在與運行程式相同的 NUMA 節點上。
-3. **網路調優**：
-   - 關閉 TCP Nagle's algorithm (`TCP_NODELAY`)。
-   - 針對 NIC 啟用 busy-polling (`SO_BUSY_POLL`)。
-4. **SQLite 優化**：
-   - 使用 Write-Ahead Logging (WAL) 模式。
-   - 將 `synchronous` 設為 `OFF` 或 `NORMAL`，並依賴 Execution Journal 的 Snapshot Replay 來確保崩潰復原，而非依賴 DB 同步寫入。

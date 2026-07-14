@@ -38,11 +38,9 @@ CREATE TABLE IF NOT EXISTS open_orders (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE SEQUENCE IF NOT EXISTS global_seq_num_seq;
-
 CREATE TABLE IF NOT EXISTS pending_responses (
     o_seq_num BIGINT NOT NULL,
-    g_seq_num BIGINT NOT NULL DEFAULT nextval('global_seq_num_seq'),
+    journal_offset BIGINT NOT NULL,
     client_id INTEGER REFERENCES clients(client_id) ON DELETE CASCADE,
     exec_id BIGINT NOT NULL,
     serialized_data BYTEA NOT NULL,

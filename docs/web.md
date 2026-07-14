@@ -8,11 +8,39 @@
 
 我們的前端架構採用 **RESTful API** 與 **WebSocket** 混合設計，確保資料的精確性與即時性：
 
+```mermaid
+graph TD
+    UI[React/TypeScript UI]
+    
+    subgraph Browser
+        UI
+        State[Local State / Redux]
+        Buffer[Event Buffer / Throttler]
+    end
+    
+    UI -->|Render| State
+    Buffer -->|Batch Update| State
+    
+    subgraph Backend
+        REST[REST API]
+        WSPub[WebSocket - Public]
+        WSPriv[WebSocket - Private]
+    end
+    
+    UI -->|1. HTTP GET| REST
+    REST -.->|Symbol Info| UI
+    
+    WSPub -.->|L2/L3 Delta Updates| Buffer
+    WSPriv -.->|Execution Reports & Positions| Buffer
+    UI -->|2. WebSocket New/Cancel/Modify/Query| WSPriv
+```
+
+
 - **RESTful API (查詢型操作)**：
-  - 用途：獲取快照與歷史資料，例如初次載入時獲取使用者部位 (Positions)、當前未平倉委託 (Active/Open Orders)、歷史成交紀錄 (Trade History) 等。
-  - 特性：拉取式 (Pull)，適合不需即時推播且具備分頁/過濾需求的資料。
-- **WebSocket (即時串流)**：
-  - 用途：訂閱公開市場行情 (Market Data)、即時報價 (Ticker)、以及接收自己帳戶的私有成交推播 (Private Executions)。
+  - 用途：僅用於查詢 `Symbol Info` 基礎資訊 (例如精度、最小跳動點)。
+  - 特性：拉取式 (Pull)。
+- **WebSocket (即時串流與查詢)**：
+  - 用途：處理**所有**的核心交易操作，包含下單/撤單、即時市場報價 (Market Data)、私有成交推播 (Execution Reports)，以及查詢使用者部位 (Positions) 與未平倉委託 (Open Orders)。
   - 特性：推播式 (Push)，確保延遲最小化。
 
 ---
@@ -56,8 +84,8 @@
 
 ### 4.1 Order Book 的渲染優化
 Order Book 的資料可能每秒更新數十次，若不加以控制會導致嚴重的效能問題：
-- **節流 (Throttling / Debouncing)**：
-  - 將收到的 Delta 更新先放入 Buffer，利用 `requestAnimationFrame` 或是每 100ms 進行一次批量更新 (Batch Render)。
+- **伺服器端節流 (Server-Side Throttling)**：
+  - Market Data Server 在後端已實作每 100ms 進行一次批量更新 (Batch Update) 的推播機制，確保網路頻寬不會被瞬間的暴量訂單塞爆。前端只需專心處理收到的 L2Batch。
 - **虛擬列表 (Virtual DOM 優化)**：
   - 如果使用 React/Vue，務必對每一行報價設定唯一的 `key` (如價格)，並且確保只有數量改變的該行觸發 Re-render。避免整個元件樹重繪。
 
