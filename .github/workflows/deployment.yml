@@ -45,18 +45,18 @@ jobs:
             
             # 1. Update and restart Exchange using Docker Compose
             # (If compilation fails inside Docker, the old container is kept running. If it succeeds, it replaces the old one smoothly.)
-            docker compose up --build -d
+            sudo docker compose up --build -d
             
             # 2. Wait for health check to pass (up to 60 seconds)
             echo "Waiting for exchange container to become healthy..."
             for i in {1..30}; do
-              STATUS=$(docker inspect --format='{{.State.Health.Status}}' exchange 2>/dev/null || echo "missing")
+              STATUS=$(sudo docker inspect --format='{{.State.Health.Status}}' exchange 2>/dev/null || echo "missing")
               if [ "$STATUS" == "healthy" ]; then
                 echo "Deployment successful: container is healthy!"
                 break
               elif [ "$STATUS" == "unhealthy" ]; then
                 echo "Deployment failed: container is unhealthy!"
-                docker compose logs --tail 100
+                sudo docker compose logs --tail 100
                 exit 1
               fi
               echo "Status: $STATUS... waiting 2s"
@@ -65,12 +65,12 @@ jobs:
             
             if [ "$STATUS" != "healthy" ]; then
                 echo "Deployment timed out waiting for health check."
-                docker compose logs --tail 100
+                sudo docker compose logs --tail 100
                 exit 1
             fi
             
             # 3. Restart Market Makers inside the new container
-            docker exec exchange ./run-mm-native
+            sudo docker exec exchange ./run-mm-native
             
             # 4. Build and restart eBPF tracing tools natively on host 
             # (eBPF cannot be compiled inside Docker because it needs host kernel headers)
