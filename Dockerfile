@@ -91,8 +91,8 @@ COPY web/public/ web/public/
 #
 # The Makefile's 'all' target includes eBPF, so we build each sub-target
 # explicitly instead.
-RUN make fbs \
-    && make \
+RUN make -j2 fbs \
+    && make -j2 \
         $(ls app/services/*.cpp     | sed 's|app/services/\(.*\)\.cpp|build/services/\1|') \
         $(ls app/client-agents/*.cpp | sed 's|app/client-agents/\(.*\)\.cpp|build/client-agents/\1|') \
         # $(ls app/components/*.cpp   2>/dev/null | sed 's|app/components/\(.*\)\.cpp|build/components/\1|') \

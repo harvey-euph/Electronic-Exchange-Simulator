@@ -28,7 +28,7 @@ docker compose up --build -d
 系統使用 GNU Make 構建：
 ```bash
 # 生成 FlatBuffers 並編譯所有微服務與前端
-make -j$(nproc) all
+make -j2 all
 # 啟動服務
 sudo ./run-services
 ```

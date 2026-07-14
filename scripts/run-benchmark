@@ -34,7 +34,7 @@ run_make() {
 # Compile if needed
 if [[ "${SKIP_BUILD:-}" != "true" ]]; then
     echo "Building project..."
-    run_make -j$(nproc)
+    run_make -j2
 else
     echo "Skipping project build (SKIP_BUILD=true)..."
 fi

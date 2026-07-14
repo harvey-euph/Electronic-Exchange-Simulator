@@ -20,7 +20,7 @@ jobs:
 
       - name: Compile and Run Tests inside Docker
         run: |
-          docker run --rm exchange-builder bash -c "make -j\$(nproc) \$(ls tests/*.cpp | sed 's|tests/\(.*\)\.cpp|build/tests/\1|') && for test_bin in build/tests/*; do if [ -f \"\$test_bin\" ] && [ -x \"\$test_bin\" ]; then echo \"Running \$test_bin\"; \"\$test_bin\" || exit 1; fi; done"
+          docker run --rm exchange-builder bash -c "make -j2 \$(ls tests/*.cpp | sed 's|tests/\(.*\)\.cpp|build/tests/\1|') && for test_bin in build/tests/*; do if [ -f \"\$test_bin\" ] && [ -x \"\$test_bin\" ]; then echo \"Running \$test_bin\"; \"\$test_bin\" || exit 1; fi; done"
 
   deploy:
     name: Deploy to GCP VM
@@ -35,6 +35,8 @@ jobs:
           username: ${{ secrets.GCP_VM_USER }}
           key: ${{ secrets.GCP_SSH_PRIVATE_KEY }}
           port: 22
+          command_timeout: 30m
+
           script: |
             cd /home/${{ secrets.GCP_VM_USER }}/exchange
             git fetch origin main
