@@ -15,8 +15,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Builder Image
-        run: docker build --target builder -t exchange-builder .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Builder Image with Cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: builder
+          load: true
+          tags: exchange-builder:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Compile and Run Tests inside Docker
         run: |

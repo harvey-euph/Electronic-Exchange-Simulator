@@ -36,29 +36,20 @@ A **high-performance C++ matching engine & exchange ecosystem** deployed on GCP,
 - **Network Performance**: Added `network_mode: "host"` to completely eliminate NAT routing delays for latency-sensitive trading.
 - **CI/CD Pipeline Hardening**: Testing is now 100% isolated inside Docker (eliminating host dependency issues). Deployments use `docker compose up --build -d` with a health-check gate to prevent bad code from bringing down the live server (Zero-downtime on failure).
 
+- **TLS/HTTPS Automation**: Successfully configured Nginx with a dynamic fallback mechanism, Let's Encrypt webroot verification, and secure `wss://` WebSockets for zero-trust client communication.
+- **CI Build Optimization**: Integrated Docker Buildx and GitHub Actions native caching (`type=gha`) to persist unchanged layers, massively speeding up PR validation and deployments.
+
 ---
 
 ## Next Steps — Ranked by Impact
 
-With Docker and automated safe deployments in place, our foundation is extremely solid. Here are the remaining tasks:
-
-### 🔴 High Impact
-
-#### 1. **TLS/HTTPS for Nginx** (Recommended Next Step)
-Your `nginx/exchange.conf` listens on port 80 only. WebSocket connections carrying live trading data in cleartext is a security risk. 
-**What we should do:**
-- Configure Let's Encrypt / Certbot for auto-renewing SSL certificates.
-- Force HTTP → HTTPS redirect.
-- Upgrade Nginx config to support secure `wss://` WebSockets.
+With Docker and automated safe deployments in place, our foundation is extremely solid. The critical security and operational holes are plugged. Here are the remaining tasks:
 
 ### 🟡 Medium Impact
 
-#### 2. **GitHub Actions Docker Layer Caching**
-While CI/CD is robust, the C++ compilation step builds from scratch on every push. We can configure Docker Buildx caching in GitHub Actions to make deployments blazingly fast.
-
-#### 3. **Centralized Log Management**
+#### 1. **Centralized Log Management**
 Services now log to Docker's standard output, which is great. But we should set up log rotation (so they don't fill the disk over months of running) and perhaps structure them into JSON.
 
-#### 4. **Performance Regression CI**
+#### 2. **Performance Regression CI**
 - Automate benchmark runs on every PR by fixing and un-disabling `benchmark.yml.disabled`.
 - Compare latency automatically before merging PRs.
