@@ -60,7 +60,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-    Client[Client API/APP] -->|1. WS OrderRequest| CM[client_manager]
+    Client[Client API/APP] <-->|1. WS Request<br/>6. WS Response| CM[client_manager]
     Client -->|1. HTTP /v1/symbol| PD[public_data]
     
     subgraph Core[Per-Core Partition x N]
@@ -72,7 +72,6 @@ graph TD
     OC -->|4. ExecutionReport| MMAP_LOG[execution-journals MmapLog]
     
     MMAP_LOG -->|5. Read| CM
-    CM -->|6. WS ClientResponse| Client
     
     MMAP_LOG -->|5. Background Polling| DB[Client Database]
     CM <-->|Query Client Data| DB
@@ -92,7 +91,7 @@ sequenceDiagram
     Client->>Pub: Connect (WS Handshake)
     activate Pub
     
-    Client->>Pub: Subscribe / Request SNAPSHOT
+    Client->>Pub: Subscribe + Request SNAPSHOT
     
     Pub->>Client: Send Empty Frame (Side = None)
     Note over Client: MUST clear local L2/L3 data store<br/>upon receiving Empty Frame

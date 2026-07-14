@@ -6,23 +6,7 @@
 
 本交易所採用高效能的分散式微服務架構，核心模組透過 Shared Memory Ring Buffer 進行極低延遲的行程間通訊 (IPC)。
 
-```mermaid
-graph TD
-    Client[Client API/APP] <-->|WebSocket| CM[Client Manager]
-    Client <-->|HTTP/REST| CM
-    Client <-->|WebSocket| MD[Market Data Server]
-
-    subgraph "Core Trading Engine"
-        CM -->|1. Write Request| REQ_RING[(Shared Memory: Request Ring)]
-        REQ_RING -->|2. Poll & Read| ME[Matching Engine]
-        ME -->|3. Write Result| RESP_RING[(Memory Mapped File: Execution Journal)]
-    end
-
-    RESP_RING -->|4. Read Result| CM
-    RESP_RING -->|4. Read Result| MD
-    
-    CM <-->|Read/Write State| DB[(SQLite / PostgreSQL Database)]
-```
+> **詳細系統架構與通訊圖，請參考專案根目錄 [README.md](../README.md) 中的 `Order & Market Data flow`。**
 
 
 核心服務包含：
@@ -40,36 +24,7 @@ graph TD
 
 一筆新委託 (New Order) 的生命週期與資料流路徑如下：
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Client
-    participant CM as Client Manager
-    participant REQ as Request Ring (SHM)
-    participant ME as Matching Engine
-    participant RESP as Response Ring (Mmap)
-    participant MD as Market Data Server
-    participant DB as Database
-
-    Client->>CM: WebSocket: New Order (JSON)
-    CM->>CM: Validate & Parse Request
-    CM->>REQ: Write OrderRequestT
-    ME->>REQ: Poll & Read Request
-    ME->>ME: Execute Matching Logic
-    ME->>RESP: Write OrderResponseT (Execution Journal)
-    
-    par CM Processing
-        RESP->>CM: Read OrderResponseT
-        CM->>Client: WebSocket: Execution Report (內部格式)
-    and DB Processing
-        RESP->>DB: Read OrderResponseT (Independent Thread)
-        DB->>DB: Update Open Orders / Positions
-    and MD Processing
-        RESP->>MD: Read OrderResponseT
-        MD->>MD: Update L3 Book
-        MD->>Client: WebSocket: L2/L3 Update
-    end
-```
+> **委託單的完整生命週期與資料流圖，請參考專案根目錄 [README.md](../README.md) 中的 `Order & Market Data flow`。**
 
 
 1. **Client -> CM**：客戶端透過 WebSocket 發送 JSON 格式的下單請求。

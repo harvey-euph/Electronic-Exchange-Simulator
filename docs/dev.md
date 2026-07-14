@@ -48,24 +48,19 @@
 stateDiagram-v2
     [*] --> New
     
-    New --> PartialFill : Match (qty < total)
+    New --> PartialFill_Replaced : Match (qty < total) / Modify Request
     New --> Fill : Match (qty == total)
-    New --> Replaced : Modify Request
     New --> Cancelled : Cancel Request
     
-    PartialFill --> PartialFill : Match (qty < remaining)
-    PartialFill --> Fill : Match (qty == remaining)
-    PartialFill --> Replaced : Modify Request
-    PartialFill --> Cancelled : Cancel Request
-    
-    Replaced --> PartialFill : Match (qty < remaining)
-    Replaced --> Fill : Match (qty == remaining)
-    Replaced --> Replaced : Modify Request
-    Replaced --> Cancelled : Cancel Request
+    PartialFill_Replaced --> PartialFill_Replaced : Match (qty < remaining) / Modify Request
+    PartialFill_Replaced --> Fill : Match (qty == remaining)
+    PartialFill_Replaced --> Cancelled : Cancel Request
     
     Fill --> [*]
     Cancelled --> [*]
     Rejected --> [*] : Invalid Request
+    
+    state "PartialFill / Replaced" as PartialFill_Replaced
 ```
 
 
