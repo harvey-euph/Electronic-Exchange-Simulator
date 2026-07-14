@@ -20,7 +20,7 @@ jobs:
 
       - name: Compile and Run Tests inside Docker
         run: |
-          docker run --rm exchange-builder bash -c "make -j\$(nproc) \$(ls tests/*.cpp | sed 's|tests/\(.*\)\.cpp|build/tests/\1|') && for test_bin in build/tests/*; do [ -x \"\$test_bin\" ] && echo \"Running \$test_bin\" && \"\$test_bin\" || exit \$?; done"
+          docker run --rm exchange-builder bash -c "make -j\$(nproc) \$(ls tests/*.cpp | sed 's|tests/\(.*\)\.cpp|build/tests/\1|') && for test_bin in build/tests/*; do if [ -f \"\$test_bin\" ] && [ -x \"\$test_bin\" ]; then echo \"Running \$test_bin\"; \"\$test_bin\" || exit 1; fi; done"
 
   deploy:
     name: Deploy to GCP VM

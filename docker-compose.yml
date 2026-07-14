@@ -58,9 +58,9 @@ services:
       # Set to "1" to skip system tuning (useful if host already tuned)
       - SKIP_TUNING=0
 
-    # Health check: verify client-manager is running
+    # Health check: rigorously verify ALL core services are running
     healthcheck:
-      test: ["CMD", "pgrep", "-f", "build/services/client-manager"]
+      test: ["CMD-SHELL", "pgrep -f 'build/services/client-manager' > /dev/null && pgrep -f 'build/services/market-data-server' > /dev/null && pgrep -f 'build/services/public-data' > /dev/null && pgrep -f 'build/services/matching-engine' > /dev/null || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
