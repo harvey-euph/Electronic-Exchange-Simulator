@@ -133,9 +133,9 @@ WORKDIR /opt/exchange
 # ---- Copy compiled binaries from builder ----
 COPY --from=builder /build/build/services/ build/services/
 COPY --from=builder /build/build/client-agents/ build/client-agents/
-COPY --from=builder /build/build/components/ build/components/
-COPY --from=builder /build/build/client-perf/ build/client-perf/
-COPY --from=builder /build/build/performance/ build/performance/
+# COPY --from=builder /build/build/components/ build/components/
+# COPY --from=builder /build/build/client-perf/ build/client-perf/
+# COPY --from=builder /build/build/performance/ build/performance/
 
 # ---- Copy frontend dist ----
 COPY --from=builder /build/web/dist/ web/dist/
