@@ -2,7 +2,7 @@
 set -e
 
 DOMAIN=${1:-harvey-exchange.duckdns.org}
-EMAIL=${2:-admin@$DOMAIN}
+EMAIL=${2:-harvey.euph@gmail.com}
 
 echo "============================================================"
 echo " Setting up Let's Encrypt SSL Certificate for $DOMAIN"
