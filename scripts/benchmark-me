@@ -5,7 +5,7 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-ORDER_COUNT=${1:-10000}
+ORDER_COUNT=${1:-500000}
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/system-tuning.sh"
@@ -16,6 +16,7 @@ if pgrep -f "build/services/" >/dev/null || pgrep -f "build/client-perf/throughp
 fi
 
 LOG_DIR="$PROJECT_ROOT/log"
+rm -rf "$LOG_DIR"
 mkdir -p "$LOG_DIR"
 JOURNAL_DIR="$PROJECT_ROOT/log/execution-journals"
 mkdir -p "$JOURNAL_DIR"
@@ -28,8 +29,7 @@ echo "Starting matching-engine..."
 chrt -f 99 "$PROJECT_ROOT/build/services/matching-engine" >/dev/null 2>&1 &
 ME_PID=$!
 
-# Wait briefly to let matching-engine initialize SHM
-sleep 1
+sleep 0.5
 
 echo "Running throughput-test with $ORDER_COUNT orders..."
 chrt -f 99 "$PROJECT_ROOT/build/client-perf/throughput-test" "$ORDER_COUNT"

@@ -40,14 +40,14 @@ int main(int argc, char* argv[]) {
 
     auto run_phase = [&](Phase phase, int target_orders, const std::string& phase_name) {
         int orders_sent = 0;
-        std::unordered_set<uint64_t> pending_exec_ids;
+        int pending_acks = 0;
         
         auto t_start = std::chrono::steady_clock::now();
         bool first_sent = false;
 
         std::cout << "Starting " << phase_name << " phase (" << target_orders << " orders)..." << std::endl;
 
-        while (orders_sent < target_orders || !pending_exec_ids.empty()) {
+        while (orders_sent < target_orders || pending_acks > 0) {
             // Send orders
             if (orders_sent < target_orders) {
                 if (request_ring.get_occupancy_ratio() > 0.9) {
@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
                             }
                         }
                         
-                        pending_exec_ids.insert(req->exec_id);
+                        pending_acks++;
                         
                         request_ring.commit(*token);
                         orders_sent++;
@@ -115,15 +115,15 @@ int main(int argc, char* argv[]) {
                 }
             }
             
-            // Receive responses
+            // Receive responses (Drain all available)
             const void* data = nullptr;
             uint32_t len = 0;
-            if (response_ring.read_next(data, len)) {
+            while (response_ring.read_next(data, len)) {
                 if (len == sizeof(OrderResponseT)) {
                     const OrderResponseT* resp = static_cast<const OrderResponseT*>(data);
                     auto exec = resp->exec_type;
                     if (exec == ExecType_New || exec == ExecType_Replaced || exec == ExecType_Cancelled || exec == ExecType_Rejected) {
-                        pending_exec_ids.erase(resp->exec_id);
+                        pending_acks--;
                     }
                 }
             }
