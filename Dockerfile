@@ -144,7 +144,8 @@ COPY --from=builder /build/web/dist/ web/dist/
 COPY run-services run-services
 COPY run-mm-native run-mm-native
 COPY kill-all kill-all
-COPY scripts/system-tuning.sh scripts/system-tuning.sh
+COPY scripts/system-tuning-on scripts/system-tuning-on
+COPY scripts/system-tuning-off scripts/system-tuning-off
 COPY scripts/test-correctness scripts/test-correctness
 COPY nginx/ nginx/
 

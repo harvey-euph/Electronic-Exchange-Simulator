@@ -8,7 +8,6 @@ fi
 ORDER_COUNT=${1:-500000}
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-source "$PROJECT_ROOT/scripts/system-tuning.sh"
 
 if pgrep -f "build/services/" >/dev/null || pgrep -f "build/client-perf/throughput-test" >/dev/null; then
     echo "Stopping existing services..."
@@ -23,8 +22,6 @@ mkdir -p "$JOURNAL_DIR"
 rm -f "$JOURNAL_DIR"/*
 rm -f /dev/shm/ORDER_REQUEST_* /dev/shm/ORDER_RESPONSE 2>/dev/null
 
-apply_system_tuning
-
 echo "Starting matching-engine..."
 chrt -f 99 "$PROJECT_ROOT/build/services/matching-engine" >/dev/null 2>&1 &
 ME_PID=$!
@@ -37,7 +34,5 @@ chrt -f 99 "$PROJECT_ROOT/build/client-perf/throughput-test" "$ORDER_COUNT"
 echo "Stopping matching-engine..."
 kill $ME_PID
 wait $ME_PID 2>/dev/null
-
-restore_system_tuning
 
 echo "Done."

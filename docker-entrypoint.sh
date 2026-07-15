@@ -5,8 +5,7 @@ echo "=== Exchange Container Starting ==="
 
 # Apply system tuning if running as root (privileged container)
 if [ "$EUID" -eq 0 ] && [ "${SKIP_TUNING:-0}" != "1" ]; then
-    source /opt/exchange/scripts/system-tuning.sh
-    apply_system_tuning 2>/dev/null || echo "Warning: Some system tuning could not be applied (expected in containers)"
+    /opt/exchange/scripts/system-tuning-on 2>/dev/null || echo "Warning: Some system tuning could not be applied (expected in containers)"
 fi
 
 # Configure Nginx dynamically based on SSL cert presence

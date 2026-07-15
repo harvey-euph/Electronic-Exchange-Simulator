@@ -8,7 +8,6 @@ else
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
-source "$PROJECT_ROOT/scripts/system-tuning.sh"
 BUILD_SERVICE_DIR="$PROJECT_ROOT/build/services"
 LOG_DIR="$PROJECT_ROOT/log"
 SESSION="exchange"
@@ -18,7 +17,7 @@ mkdir -p "$LOG_DIR"
 JOURNAL_DIR="$PROJECT_ROOT/log/execution-journals"
 mkdir -p "$JOURNAL_DIR"
 if [ "$HAS_ROOT" -eq 1 ]; then
-    apply_system_tuning
+    "$PROJECT_ROOT/scripts/system-tuning-on"
 fi
 
 # Check if any service is running (processes are active)

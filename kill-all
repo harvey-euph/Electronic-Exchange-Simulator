@@ -8,8 +8,6 @@ else
 fi
 
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
-source "$PROJECT_ROOT/scripts/system-tuning.sh"
-
 # Check if askpass script exists to run sudo without prompting
 ASKPASS_PATH="/dev/shm/exchange_askpass_${USER}.sh"
 SUDO_CMD=""
@@ -47,7 +45,7 @@ $SUDO_CMD rm -f /dev/shm/ORDER_REQUEST_* \
 rm -f "$ASKPASS_PATH"
 
 if [ "$HAS_ROOT" -eq 1 ]; then
-    restore_system_tuning
+    "$PROJECT_ROOT/scripts/system-tuning-off"
 fi
 
 echo "=== All processes stopped ==="
