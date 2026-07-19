@@ -35,7 +35,9 @@ event_names = {
     14: "sched_out (context switched out)",
     15: "sched_in (context switched in)",
     16: "page_fault",
-    19: "pmu_stats",
+    17: "createOrder",
+    18: "hard_irq",
+    19: "softirq",
 }
 
 print(f"Loading trace events from {args.db}...")
@@ -61,12 +63,6 @@ for exec_id, group in df.groupby('exec_id'):
         etype = row['event_type']
         if etype not in event_names:
             continue
-            
-        if etype == 19:
-            pmu_stats['L1'].append(row['pmu_l1'])
-            pmu_stats['LLC'].append(row['pmu_llc'])
-            pmu_stats['Branch'].append(row['pmu_branch'])
-            continue
 
         if etype == 0 and row['is_start'] == 1:
             req_start_ts = row['ts']
@@ -82,6 +78,13 @@ for exec_id, group in df.groupby('exec_id'):
             if len(stacks[etype]) > 0:
                 start_ts = stacks[etype].pop()
                 latencies[etype].append(row['ts'] - start_ts)
+                
+    if len(group) >= 2:
+        first_row = group.iloc[0]
+        last_row = group.iloc[-1]
+        pmu_stats['L1'].append(max(0, last_row['pmu_l1'] - first_row['pmu_l1']))
+        pmu_stats['LLC'].append(max(0, last_row['pmu_llc'] - first_row['pmu_llc']))
+        pmu_stats['Branch'].append(max(0, last_row['pmu_branch'] - first_row['pmu_branch']))
 
 print("\n")
 print(f"{'Component':<35} | {'Samples':<10} | {'p90 (ns)':<12} | {'p99 (ns)':<12} | {'p99.9 (ns)':<12}")

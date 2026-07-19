@@ -67,7 +67,9 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
         return;
     }
 
+    DTRACE_PROBE(matching_engine, ob_create_order_start);
     Order* taker = createOrder(req);
+    DTRACE_PROBE(matching_engine, ob_create_order_end);
 
     if (report_ack) {
         sendResponse(ExecType_New, combined_order_id, req->exec_id, req->side, req->p, req->q, req->q);

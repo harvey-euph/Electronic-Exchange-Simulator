@@ -146,6 +146,8 @@ int main(int argc, char **argv) {
     ATTACH_USDT(trace_map_erase_end, trace_map_erase_end, "exchange", "ob_map_erase_end");
     ATTACH_USDT(trace_cancel_start, trace_cancel_start, "exchange", "ob_cancel_start");
     ATTACH_USDT(trace_cancel_end, trace_cancel_end, "exchange", "ob_cancel_end");
+    ATTACH_USDT(trace_create_order_start, trace_create_order_start, "matching_engine", "ob_create_order_start");
+    ATTACH_USDT(trace_create_order_end, trace_create_order_end, "matching_engine", "ob_create_order_end");
     ATTACH_USDT(trace_modify_start, trace_modify_start, "exchange", "ob_modify_start");
     ATTACH_USDT(trace_modify_end, trace_modify_end, "exchange", "ob_modify_end");
     ATTACH_USDT(trace_new_start, trace_new_start, "exchange", "ob_new_start");
@@ -165,6 +167,16 @@ int main(int argc, char **argv) {
     
     skel->links.trace_page_fault_exit = bpf_program__attach(skel->progs.trace_page_fault_exit);
     if (!skel->links.trace_page_fault_exit) std::cerr << "Failed to attach trace_page_fault_exit\n";
+
+    skel->links.trace_irq_entry = bpf_program__attach(skel->progs.trace_irq_entry);
+    if (!skel->links.trace_irq_entry) std::cerr << "Failed to attach trace_irq_entry\n";
+    skel->links.trace_irq_exit = bpf_program__attach(skel->progs.trace_irq_exit);
+    if (!skel->links.trace_irq_exit) std::cerr << "Failed to attach trace_irq_exit\n";
+
+    skel->links.trace_softirq_entry = bpf_program__attach(skel->progs.trace_softirq_entry);
+    if (!skel->links.trace_softirq_entry) std::cerr << "Failed to attach trace_softirq_entry\n";
+    skel->links.trace_softirq_exit = bpf_program__attach(skel->progs.trace_softirq_exit);
+    if (!skel->links.trace_softirq_exit) std::cerr << "Failed to attach trace_softirq_exit\n";
 
     struct ring_buffer *rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
     if (!rb) return 1;

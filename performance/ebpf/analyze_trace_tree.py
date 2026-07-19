@@ -34,7 +34,10 @@ event_names = {
     14: "sched_out (context switched out)",
     15: "sched_in (context switched in)",
     16: "page_fault",
-    19: "pmu_stats",
+    17: "createOrder",
+    18: "hard_irq",
+    19: "softirq",
+    20: "pmu_stats",
 }
 
 cursor = conn.cursor()
@@ -82,10 +85,12 @@ while True:
     
     print(f"--- Trace Tree Viewer ---")
     print(f"Run {idx + 1} of {total} (exec_id: {exec_id})")
-    print("-" * 50)
+    print("   Total time (+  Diff time) (  L1,  LLC, Branch) Misses")
+    print("-" * 80)
     
     first_ts = run_events[0][3]
     last_event_ts = first_ts
+    last_pmu = None
     stack = []
     last_resp_ts = None
     
@@ -95,11 +100,22 @@ while True:
         if etype not in event_names:
             continue
             
+        diff_l1 = 0
+        diff_llc = 0
+        diff_branch = 0
+        
+        if last_pmu is not None:
+            diff_l1 = max(0, pmu_l1 - last_pmu[0])
+            diff_llc = max(0, pmu_llc - last_pmu[1])
+            diff_branch = max(0, pmu_branch - last_pmu[2])
+            
+        last_pmu = (pmu_l1, pmu_llc, pmu_branch)
+            
         delta_us = (ts - first_ts) / 1000.0
         diff_us = (ts - last_event_ts) / 1000.0
         last_event_ts = ts
         
-        prefix = f"{delta_us:10.3f} us (+{diff_us:8.3f} us)"
+        prefix = f"{delta_us:10.3f} us (+{diff_us:8.3f} us) ({diff_l1:4d}, {diff_llc:4d}, {diff_branch:4d})"
         
         name = event_names[etype]
         if map_name:
@@ -129,26 +145,23 @@ while True:
                 print(f"{prefix} {indent}=== {name} ===")
             continue
             
-        if etype == 19:
-            indent = "  " * len(stack)
-            print(f"{prefix} {indent}[PMU HW Counters] L1 Miss: {pmu_l1}, LLC Miss: {pmu_llc}, Branch Miss: {pmu_branch}")
-            continue
-            
+        color_start = "\033[91m" if etype in (16, 18, 19) else ""
+        color_end = "\033[0m" if etype in (16, 18, 19) else ""
+        
         if is_start == 1:
             indent = "  " * len(stack)
-            print(f"{prefix} {indent}-> {name} started")
+            print(f"{color_start}{prefix} {indent}-> {name} started{color_end}")
             stack.append((etype, ts))
         else:
             if len(stack) > 0 and stack[-1][0] == etype:
                 _, start_ts = stack.pop()
                 duration_ns = ts - start_ts
                 indent = "  " * len(stack)
-                print(f"{prefix} {indent}<- {name} ended (took {duration_ns} ns)")
+                print(f"{color_start}{prefix} {indent}<- {name} ended (took {duration_ns} ns){color_end}")
             else:
                 indent = "  " * len(stack)
-                print(f"{prefix} {indent}<- {name} ended")
-                
-    print("-" * 50)
+                print(f"{color_start}{prefix} {indent}<- {name} ended{color_end}")
+    print("-" * 80)
     print("Use [n] or [Right Arrow] for Next")
     print("Use [p] or [Left Arrow]  for Previous")
     print("Use [q] to Quit")
