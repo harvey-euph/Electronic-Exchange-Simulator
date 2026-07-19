@@ -49,7 +49,10 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
 
-    if (active_orders_.contains(combined_order_id)) {
+    DTRACE_PROBE1(exchange, ob_map_find_start, "active_orders");
+    bool contains = active_orders_.contains(combined_order_id);
+    DTRACE_PROBE(exchange, ob_map_find_end);
+    if (contains) {
         sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_DuplicateOrderID);
         return;
     }
@@ -78,19 +81,25 @@ void OrderBook::handleNewOrder(const OrderRequestT* req, bool report_ack)
 
 void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
 {
+    DTRACE_PROBE(exchange, ob_match_start);
     const int side_int = static_cast<int>(taker_side);
     PriceLevel **oppo = &best_levels_[1^side_int];
 
     while (*oppo && taker->qty_remaining)
     {
+        DTRACE_PROBE(exchange, ob_match_outer_start);
         const size_t oppo_idx = (*oppo) - price_array_.data();
         const size_t p = pl_to_price(*oppo);
         const bool crossed = (taker_side == Side_Buy) ? (price_idx >= oppo_idx) : (price_idx <= oppo_idx);
-        if (!crossed) break;
+        if (!crossed) {
+            DTRACE_PROBE(exchange, ob_match_outer_end);
+            break;
+        }
 
         Order* maker = (*oppo)->dummy_head.next;
         while (maker != &(*oppo)->dummy_tail && taker->qty_remaining)
         {
+            DTRACE_PROBE(exchange, ob_match_inner_start);
             const uint64_t qty_fill = std::min(maker->qty_remaining, taker->qty_remaining);
 
             maker->qty_remaining -= qty_fill;
@@ -109,14 +118,21 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
                     maker->order_id, exec_id, maker_side, p, qty_fill, maker->qty_remaining);
             }
 
-            if (maker->qty_remaining) continue;
+            if (maker->qty_remaining) {
+                DTRACE_PROBE(exchange, ob_match_inner_end);
+                continue;
+            }
 
+            DTRACE_PROBE1(exchange, ob_map_erase_start, "active_orders");
             active_orders_.erase(maker->order_id);
+            DTRACE_PROBE(exchange, ob_map_erase_end);
             removeOrderFromLevel(maker);
             Order *next = maker->next;
             delete maker;
             maker = next;
+            DTRACE_PROBE(exchange, ob_match_inner_end);
         }
+        DTRACE_PROBE(exchange, ob_match_outer_end);
 
         if (!(*oppo)->order_count)
         {
@@ -127,21 +143,29 @@ void OrderBook::match(Order* taker, Side taker_side, size_t price_idx)
 
     if (!taker->qty_remaining)
     {
+        DTRACE_PROBE1(exchange, ob_map_erase_start, "active_orders");
         active_orders_.erase(taker->order_id);
+        DTRACE_PROBE(exchange, ob_map_erase_end);
         delete taker;
+        DTRACE_PROBE(exchange, ob_match_end);
         return;
     }
 
     PriceLevel *pl = GetOrCreatePriceLevel(price_idx, taker_side);
     insertOrderToLevel(pl, taker, taker_side);
 
+    DTRACE_PROBE1(exchange, ob_map_insert_start, "active_orders");
     active_orders_[taker->order_id] = taker;
+    DTRACE_PROBE(exchange, ob_map_insert_end);
+    DTRACE_PROBE(exchange, ob_match_end);
 }
 
 void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelled)
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+    DTRACE_PROBE1(exchange, ob_map_find_start, "active_orders");
     auto it = active_orders_.find(combined_order_id);
+    DTRACE_PROBE(exchange, ob_map_find_end);
     if (it == active_orders_.end()) {
         sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_OrderNotFound);
         return;
@@ -149,7 +173,9 @@ void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelle
 
     Order *o = it->second;
 
+    DTRACE_PROBE1(exchange, ob_map_erase_start, "active_orders");
     active_orders_.erase(o->order_id);
+    DTRACE_PROBE(exchange, ob_map_erase_end);
     removeOrderFromLevel(o);
 
     PriceLevel *pl = o->price_level;
@@ -169,7 +195,9 @@ void OrderBook::handleCancelOrder(const OrderRequestT* req, bool report_cancelle
 void OrderBook::handleModifyOrder(const OrderRequestT* req)
 {
     uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
+    DTRACE_PROBE1(exchange, ob_map_find_start, "active_orders");
     auto it = active_orders_.find(combined_order_id);
+    DTRACE_PROBE(exchange, ob_map_find_end);
     if (it == active_orders_.end()) {
         sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_OrderNotFound);
         return;
@@ -227,7 +255,9 @@ void OrderBook::handleModifyOrder(const OrderRequestT* req)
     // If it fills immediately after replaced
     if (!new_qty_remaining) {
         sendResponse(ExecType_Fill, combined_order_id, req->exec_id, req->side, pl_to_price(target), 0, 0);
-        active_orders_.erase(o->order_id);
+        DTRACE_PROBE1(exchange, ob_map_erase_start, "active_orders");
+        active_orders_.erase(combined_order_id);
+        DTRACE_PROBE(exchange, ob_map_erase_end);
         delete o;
         return;
     }
@@ -245,30 +275,38 @@ void OrderBook::processRequest(const OrderRequestT* req)
 {
     if (!req) return;
 
-    DTRACE_PROBE1(exchange, ob_req_entry, req->exec_id);
+    DTRACE_PROBE2(exchange, ob_req_entry, req->exec_id, req->action);
 
     switch (req->action) {
     case OrderAction_Cancel:
+        DTRACE_PROBE(exchange, ob_cancel_start);
         handleCancelOrder(req);
-        return;
+        DTRACE_PROBE(exchange, ob_cancel_end);
+        break;
     case OrderAction_Modify:
+        DTRACE_PROBE(exchange, ob_modify_start);
         handleModifyOrder(req);
-        return;
+        DTRACE_PROBE(exchange, ob_modify_end);
+        break;
     case OrderAction_New:
+        DTRACE_PROBE(exchange, ob_new_start);
         if (req->type != OrderType_Market && price_invalid(req->p)) {
             uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
             sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_PriceInvalid);
-            return;
+        } else {
+            handleNewOrder(req);
         }
-        handleNewOrder(req);
-        return;
+        DTRACE_PROBE(exchange, ob_new_end);
+        break;
     default:
         {
             uint64_t combined_order_id = (static_cast<uint64_t>(req->client_id) << 32) | req->order_id;
             sendResponse(ExecType_Rejected, combined_order_id, req->exec_id, req->side, req->p, req->q, 0, RejectCode_InvalidAction);
         }
-        return;
+        break;
     }
+
+    DTRACE_PROBE2(exchange, ob_req_exit, req->exec_id, req->action);
 }
 
 
@@ -313,7 +351,9 @@ void OrderBook::removePriceLevel(PriceLevel *pl, Side side)
         pl->worse->better = pl->better;
     }
 
+    DTRACE_PROBE1(exchange, ob_map_erase_start, "active_levels");
     active_levels_[s].erase(price_idx);
+    DTRACE_PROBE(exchange, ob_map_erase_end);
 }
 
 PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
@@ -329,7 +369,9 @@ PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
 
     auto& active = active_levels_[s];
 
+    DTRACE_PROBE1(exchange, ob_map_find_start, "active_levels");
     auto it = active.lower_bound(price_idx);
+    DTRACE_PROBE(exchange, ob_map_find_end);
 
     PriceLevel* better = nullptr;
     PriceLevel* worse  = nullptr;
@@ -380,7 +422,9 @@ PriceLevel* OrderBook::GetOrCreatePriceLevel(size_t price_idx, Side side)
         worse->better = level;
     }
 
+    DTRACE_PROBE1(exchange, ob_map_insert_start, "active_levels");
     active[price_idx] = level;
+    DTRACE_PROBE(exchange, ob_map_insert_end);
 
     return level;
 }
@@ -392,9 +436,11 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
     if (recover_mode_ || !response_ring_) return;
     
     uint64_t offset;
+    DTRACE_PROBE1(exchange, ob_resp_reserve_start, exec_id);
     void* ptr = response_ring_->reserve(sizeof(OrderResponseT), offset);
     if (!ptr) return;
 
+    DTRACE_PROBE1(exchange, ob_resp_new_start, exec_id);
     new (ptr) OrderResponseT {
         .exec_type = exec_type,
         .order_id = static_cast<uint32_t>(combined_order_id & 0xFFFFFFFF),
@@ -408,8 +454,9 @@ void OrderBook::sendResponse(ExecType exec_type, uint64_t combined_order_id,
         .reject_code = reject_code
     };
     
-    DTRACE_PROBE1(exchange, ob_resp_enqueue, exec_id);
+    DTRACE_PROBE1(exchange, ob_resp_commit_start, exec_id);
     response_ring_->commit(ptr);
+    DTRACE_PROBE1(exchange, ob_resp_enqueue, exec_id);
 }
 
 void OrderBook::take_snapshot(const std::string& filepath) const

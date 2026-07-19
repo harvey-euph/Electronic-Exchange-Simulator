@@ -6,6 +6,8 @@
 
 ## 1. 效能指標 (Key Metrics)
 
+> **深入分析**：在極低延遲系統中，作業系統排程常常成為最大的干擾源。關於如何透過 eBPF 分析 OS Jitter，以及如何在 Server 上透過 `isolcpus` 達成完全隔離的實務做法，請參考 [OS Jitter 與核心搶占分析 (os-jitter.md)](os-jitter.md)。
+
 以下是我們在隔離環境下 (CPU Pinning, 關閉 C-states, 獨佔核心) 測得的核心延遲數據：
 
 ### 端到端延遲 (Client E2E Latency)

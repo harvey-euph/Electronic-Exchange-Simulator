@@ -67,7 +67,12 @@ int main(int argc, char* argv[]) {
                             req->order_id = next_order_id++;
                             req->side = bool_dist(gen) ? Side_Buy : Side_Sell;
                             req->type = OrderType_Limit;
-                            req->p = 5000 + dist_price(gen);
+                            // Ensure no crossing in INSERTING phase to build a deep order book
+                            if (req->side == Side_Buy) {
+                                req->p = 4000 + (gen() % 1000); // 4000 ~ 4999
+                            } else {
+                                req->p = 5000 + (gen() % 1000); // 5000 ~ 5999
+                            }
                             req->q = 10;
                             open_orders.push_back(req->order_id);
                         } else if (phase == CLEANING) {
@@ -76,22 +81,36 @@ int main(int argc, char* argv[]) {
                             open_orders.pop_back();
                         } else {
                             double roll = dist(gen);
-                            if (open_orders.empty() || roll < 0.30) {
-                                // 30% New
+                            if (open_orders.empty() || roll < 0.20) {
+                                // 20% Crossing Limit Order (Aggressive)
                                 req->action = OrderAction_New;
                                 req->order_id = next_order_id++;
                                 req->side = bool_dist(gen) ? Side_Buy : Side_Sell;
                                 req->type = OrderType_Limit;
-                                req->p = 5000 + dist_price(gen);
-                                req->q = 10;
+                                // Aggressive price to cross the spread and sweep levels
+                                if (req->side == Side_Buy) {
+                                    req->p = 5500 + (gen() % 500); // Crosses into asks
+                                } else {
+                                    req->p = 4500 - (gen() % 500); // Crosses into bids
+                                }
+                                req->q = 50; 
                                 open_orders.push_back(req->order_id);
+                            } else if (roll < 0.30) {
+                                // 10% Market Order (Sweeps the book)
+                                req->action = OrderAction_New;
+                                req->order_id = next_order_id++;
+                                req->side = bool_dist(gen) ? Side_Buy : Side_Sell;
+                                req->type = OrderType_Market;
+                                req->p = 0;
+                                req->q = 100; 
+                                // Not saving to open_orders as market orders execute or cancel immediately
                             } else if (roll < 0.70) {
                                 // 40% Modify
                                 req->action = OrderAction_Modify;
                                 req->order_id = open_orders[gen() % open_orders.size()];
                                 req->side = Side_Buy; 
                                 req->type = OrderType_Limit;
-                                req->p = 5000 + dist_price(gen);
+                                req->p = 4500 + (gen() % 1000); // Random new price
                                 req->q = 5;
                             } else {
                                 // 30% Cancel

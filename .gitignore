@@ -12,7 +12,7 @@ tests/*/*.csv
 *.pyc
 !tests/*/requests.csv
 .run_service.pid
-data/*.db*
+*.db*
 # eBPF Generated Files
 vmlinux.h
 *.skel.h
@@ -23,6 +23,7 @@ tests/*/expected/
 tests/*/experimental/
 python/
 performance/ebpf/ebpf-msg-flow
+performance/ebpf/match-tracer
 # Web Frontend Rules
 web/node_modules
 web/dist
