@@ -103,63 +103,53 @@ int trace_req_exit(struct pt_regs *ctx) {
     return 0;
 }
 
-#define TRACE_PROBE(name, id) \
-SEC("usdt") \
-int trace_##name##_start(struct pt_regs *ctx) { record_event(id, 1, NULL); return 0; } \
-SEC("usdt") \
-int trace_##name##_end(struct pt_regs *ctx) { record_event(id, 0, NULL); return 0; }
-
-TRACE_PROBE(match, 1)
-TRACE_PROBE(match_outer, 2)
-TRACE_PROBE(match_inner, 3)
-
-SEC("usdt")
-int trace_map_find_start(struct pt_regs *ctx) {
-    long map_name_ptr = 0;
-    bpf_usdt_arg(ctx, 0, &map_name_ptr);
-    record_event(4, 1, (const char *)map_name_ptr);
+// Generic uprobe/uretprobe
+SEC("uprobe")
+int trace_generic_entry(struct pt_regs *ctx) {
+    uint32_t tid = bpf_get_current_pid_tgid();
+    uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_thread_exec_id, &tid);
+    if (!exec_id_ptr) return 0;
+    
+    uint64_t cookie = bpf_get_attach_cookie(ctx);
+    record_event(cookie, 1, NULL);
     return 0;
 }
-SEC("usdt")
-int trace_map_find_end(struct pt_regs *ctx) { record_event(4, 0, NULL); return 0; }
-SEC("usdt")
-int trace_map_insert_start(struct pt_regs *ctx) {
-    long map_name_ptr = 0;
-    bpf_usdt_arg(ctx, 0, &map_name_ptr);
-    record_event(5, 1, (const char *)map_name_ptr);
+
+SEC("uretprobe")
+int trace_generic_exit(struct pt_regs *ctx) {
+    uint32_t tid = bpf_get_current_pid_tgid();
+    uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_thread_exec_id, &tid);
+    if (!exec_id_ptr) return 0;
+    
+    uint64_t cookie = bpf_get_attach_cookie(ctx);
+    record_event(cookie, 0, NULL);
     return 0;
 }
-SEC("usdt")
-int trace_map_insert_end(struct pt_regs *ctx) { record_event(5, 0, NULL); return 0; }
 
-SEC("usdt")
-int trace_map_erase_start(struct pt_regs *ctx) {
-    long map_name_ptr = 0;
-    bpf_usdt_arg(ctx, 0, &map_name_ptr);
-    record_event(6, 1, (const char *)map_name_ptr);
+// Special entry point for processRequest
+SEC("uprobe/processRequest")
+int BPF_KPROBE(trace_processRequest_start) {
+    void *req = (void *)PT_REGS_PARM2(ctx);
+    uint64_t exec_id = 0;
+    bpf_probe_read_user(&exec_id, sizeof(exec_id), req + 8);
+    
+    uint32_t tid = bpf_get_current_pid_tgid();
+    bpf_map_update_elem(&active_thread_exec_id, &tid, &exec_id, BPF_ANY);
+    
+    uint64_t cookie = bpf_get_attach_cookie(ctx);
+    record_event(cookie, 1, NULL);
     return 0;
 }
-SEC("usdt")
-int trace_map_erase_end(struct pt_regs *ctx) { record_event(6, 0, NULL); return 0; }
-TRACE_PROBE(cancel, 7)
-TRACE_PROBE(modify, 8)
-TRACE_PROBE(new, 9)
 
-SEC("usdt")
-int trace_create_order_start(struct pt_regs *ctx) { record_event(17, 1, NULL); return 0; }
-SEC("usdt")
-int trace_create_order_end(struct pt_regs *ctx) { record_event(17, 0, NULL); return 0; }
-
-SEC("usdt")
-int trace_resp_reserve_start(struct pt_regs *ctx) { record_event(11, 1, NULL); return 0; }
-SEC("usdt")
-int trace_resp_new_start(struct pt_regs *ctx) { record_event(12, 1, NULL); return 0; }
-SEC("usdt")
-int trace_resp_commit_start(struct pt_regs *ctx) { record_event(13, 1, NULL); return 0; }
-
-SEC("usdt")
-int trace_resp_enqueue(struct pt_regs *ctx) {
-    record_event(10, 1, NULL);
+SEC("uretprobe/processRequest")
+int BPF_KRETPROBE(trace_processRequest_end) {
+    uint32_t tid = bpf_get_current_pid_tgid();
+    uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_thread_exec_id, &tid);
+    if (!exec_id_ptr) return 0;
+    
+    uint64_t cookie = bpf_get_attach_cookie(ctx);
+    record_event(cookie, 0, NULL);
+    bpf_map_delete_elem(&active_thread_exec_id, &tid);
     return 0;
 }
 
@@ -267,5 +257,21 @@ int trace_softirq_exit(void *ctx) {
     uint32_t tid = bpf_get_current_pid_tgid();
     uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_thread_exec_id, &tid);
     if (exec_id_ptr) record_event(19, 0, "softirq");
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_enter")
+int trace_sys_enter(struct trace_event_raw_sys_enter *ctx) {
+    uint32_t tid = bpf_get_current_pid_tgid();
+    uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_thread_exec_id, &tid);
+    if (exec_id_ptr) record_event(10000 + ctx->id, 1, "syscall");
+    return 0;
+}
+
+SEC("tracepoint/raw_syscalls/sys_exit")
+int trace_sys_exit(struct trace_event_raw_sys_exit *ctx) {
+    uint32_t tid = bpf_get_current_pid_tgid();
+    uint64_t *exec_id_ptr = bpf_map_lookup_elem(&active_thread_exec_id, &tid);
+    if (exec_id_ptr) record_event(10000 + ctx->id, 0, "syscall");
     return 0;
 }

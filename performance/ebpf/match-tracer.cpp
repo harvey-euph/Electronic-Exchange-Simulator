@@ -35,20 +35,52 @@ struct match_trace_event {
 sqlite3 *db;
 sqlite3_stmt *stmt;
 int batch_count = 0;
+#include <map>
+#include <string>
+#include <cxxabi.h>
+#include <cstring>
+#include <cstdio>
+
 const int BATCH_SIZE = 10000;
+std::map<uint64_t, std::string> cookie_to_name;
+
+std::string demangle(const char* name) {
+    int status = -4;
+    char* res = abi::__cxa_demangle(name, NULL, NULL, &status);
+    std::string ret = (status == 0) ? res : name;
+    free(res);
+    size_t pos = ret.find('(');
+    if (pos != std::string::npos) ret = ret.substr(0, pos);
+    pos = ret.find("Exchange::OrderBook::");
+    if (pos != std::string::npos) ret = ret.substr(pos + 21);
+    return ret;
+}
 
 static int handle_event(void *ctx, void *data, size_t data_sz) {
     auto *ev = static_cast<const match_trace_event *>(data);
     
     sqlite3_bind_int64(stmt, 1, ev->exec_id);
-    sqlite3_bind_int(stmt, 2, ev->event_type);
+    
+    if (ev->event_type >= 1000 && ev->event_type < 10000) {
+        std::string name = cookie_to_name[ev->event_type];
+        if (!name.empty()) {
+            sqlite3_bind_int(stmt, 2, 999);
+            sqlite3_bind_text(stmt, 5, name.c_str(), -1, SQLITE_TRANSIENT);
+        } else {
+            sqlite3_bind_int(stmt, 2, ev->event_type);
+            sqlite3_bind_text(stmt, 5, "MISSING_COOKIE", -1, SQLITE_TRANSIENT);
+        }
+    } else {
+        sqlite3_bind_int(stmt, 2, ev->event_type);
+        if (ev->map_name[0] != '\0') {
+            sqlite3_bind_text(stmt, 5, ev->map_name, -1, SQLITE_TRANSIENT);
+        } else {
+            sqlite3_bind_null(stmt, 5);
+        }
+    }
     sqlite3_bind_int(stmt, 3, ev->is_start);
     sqlite3_bind_int64(stmt, 4, ev->ts);
-    if (ev->map_name[0] != '\0') {
-        sqlite3_bind_text(stmt, 5, ev->map_name, -1, SQLITE_TRANSIENT);
-    } else {
-        sqlite3_bind_null(stmt, 5);
-    }
+    
     sqlite3_bind_int(stmt, 6, ev->pmu_l1);
     sqlite3_bind_int(stmt, 7, ev->pmu_llc);
     sqlite3_bind_int(stmt, 8, ev->pmu_branch);
@@ -79,8 +111,7 @@ int main(int argc, char **argv) {
 
     sqlite3_exec(db, "PRAGMA synchronous = OFF;", 0, 0, 0);
     sqlite3_exec(db, "PRAGMA journal_mode = MEMORY;", 0, 0, 0);
-    sqlite3_exec(db, "DROP TABLE IF EXISTS events;", 0, 0, 0);
-    sqlite3_exec(db, "CREATE TABLE events (exec_id INTEGER, event_type INTEGER, is_start INTEGER, ts INTEGER, map_name TEXT, pmu_l1 INTEGER, pmu_llc INTEGER, pmu_branch INTEGER);", 0, 0, 0);
+    sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS events (exec_id INTEGER, event_type INTEGER, is_start INTEGER, ts INTEGER, map_name TEXT, pmu_l1 INTEGER, pmu_llc INTEGER, pmu_branch INTEGER);", 0, 0, 0);
     sqlite3_exec(db, "BEGIN TRANSACTION;", 0, 0, 0);
 
     const char *sql = "INSERT INTO events (exec_id, event_type, is_start, ts, map_name, pmu_l1, pmu_llc, pmu_branch) VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
@@ -126,36 +157,48 @@ int main(int argc, char **argv) {
     const char *binary_path = "./build/services/matching-engine";
     long pid = -1;
 
-#define ATTACH_USDT(skel_link, skel_prog, provider, probe_name) \
-    skel->links.skel_link = bpf_program__attach_usdt(skel->progs.skel_prog, pid, binary_path, provider, probe_name, NULL); \
-    if (!skel->links.skel_link) std::cerr << "Failed to attach USDT probe " << probe_name << "\n";
-
-    ATTACH_USDT(trace_req_entry, trace_req_entry, "exchange", "ob_req_entry");
-    ATTACH_USDT(trace_req_exit, trace_req_exit, "exchange", "ob_req_exit");
-    ATTACH_USDT(trace_match_start, trace_match_start, "exchange", "ob_match_start");
-    ATTACH_USDT(trace_match_end, trace_match_end, "exchange", "ob_match_end");
-    ATTACH_USDT(trace_match_outer_start, trace_match_outer_start, "exchange", "ob_match_outer_start");
-    ATTACH_USDT(trace_match_outer_end, trace_match_outer_end, "exchange", "ob_match_outer_end");
-    ATTACH_USDT(trace_match_inner_start, trace_match_inner_start, "exchange", "ob_match_inner_start");
-    ATTACH_USDT(trace_match_inner_end, trace_match_inner_end, "exchange", "ob_match_inner_end");
-    ATTACH_USDT(trace_map_find_start, trace_map_find_start, "exchange", "ob_map_find_start");
-    ATTACH_USDT(trace_map_find_end, trace_map_find_end, "exchange", "ob_map_find_end");
-    ATTACH_USDT(trace_map_insert_start, trace_map_insert_start, "exchange", "ob_map_insert_start");
-    ATTACH_USDT(trace_map_insert_end, trace_map_insert_end, "exchange", "ob_map_insert_end");
-    ATTACH_USDT(trace_map_erase_start, trace_map_erase_start, "exchange", "ob_map_erase_start");
-    ATTACH_USDT(trace_map_erase_end, trace_map_erase_end, "exchange", "ob_map_erase_end");
-    ATTACH_USDT(trace_cancel_start, trace_cancel_start, "exchange", "ob_cancel_start");
-    ATTACH_USDT(trace_cancel_end, trace_cancel_end, "exchange", "ob_cancel_end");
-    ATTACH_USDT(trace_create_order_start, trace_create_order_start, "matching_engine", "ob_create_order_start");
-    ATTACH_USDT(trace_create_order_end, trace_create_order_end, "matching_engine", "ob_create_order_end");
-    ATTACH_USDT(trace_modify_start, trace_modify_start, "exchange", "ob_modify_start");
-    ATTACH_USDT(trace_modify_end, trace_modify_end, "exchange", "ob_modify_end");
-    ATTACH_USDT(trace_new_start, trace_new_start, "exchange", "ob_new_start");
-    ATTACH_USDT(trace_new_end, trace_new_end, "exchange", "ob_new_end");
-    ATTACH_USDT(trace_resp_reserve_start, trace_resp_reserve_start, "exchange", "ob_resp_reserve_start");
-    ATTACH_USDT(trace_resp_new_start, trace_resp_new_start, "exchange", "ob_resp_new_start");
-    ATTACH_USDT(trace_resp_commit_start, trace_resp_commit_start, "exchange", "ob_resp_commit_start");
-    ATTACH_USDT(trace_resp_enqueue, trace_resp_enqueue, "exchange", "ob_resp_enqueue");
+    std::vector<struct bpf_link*> generic_links;
+    FILE* fp = popen("nm --defined-only ./build/services/matching-engine | grep _ZN8Exchange9OrderBook | awk '{print $3}'", "r");
+    char line[256];
+    uint64_t cookie = 1000;
+    while (fgets(line, sizeof(line), fp)) {
+        line[strcspn(line, "\n")] = 0;
+        std::string mangled = line;
+        std::string name = demangle(mangled.c_str());
+        
+        cookie_to_name[cookie] = name;
+        
+        LIBBPF_OPTS(bpf_uprobe_opts, opts);
+        opts.func_name = mangled.c_str();
+        opts.retprobe = false;
+        opts.bpf_cookie = cookie;
+        
+        if (name == "processRequest") {
+            skel->links.trace_processRequest_start = bpf_program__attach_uprobe_opts(skel->progs.trace_processRequest_start, pid, binary_path, 0, &opts);
+            opts.retprobe = true;
+            skel->links.trace_processRequest_end = bpf_program__attach_uprobe_opts(skel->progs.trace_processRequest_end, pid, binary_path, 0, &opts);
+        } else {
+            struct bpf_link* l1 = bpf_program__attach_uprobe_opts(skel->progs.trace_generic_entry, pid, binary_path, 0, &opts);
+            if (l1) generic_links.push_back(l1);
+            opts.retprobe = true;
+            struct bpf_link* l2 = bpf_program__attach_uprobe_opts(skel->progs.trace_generic_exit, pid, binary_path, 0, &opts);
+            if (l2) generic_links.push_back(l2);
+        }
+        cookie++;
+    }
+    pclose(fp);
+    
+    // special createOrder probe (since it's not in OrderBook namespace)
+    LIBBPF_OPTS(bpf_uprobe_opts, opts_co);
+    opts_co.func_name = "_Z11createOrderPKN8Exchange13OrderRequestTE";
+    opts_co.bpf_cookie = cookie;
+    cookie_to_name[cookie++] = "createOrder";
+    opts_co.retprobe = false;
+    struct bpf_link* co_start = bpf_program__attach_uprobe_opts(skel->progs.trace_generic_entry, pid, binary_path, 0, &opts_co);
+    if (co_start) generic_links.push_back(co_start);
+    opts_co.retprobe = true;
+    struct bpf_link* co_end = bpf_program__attach_uprobe_opts(skel->progs.trace_generic_exit, pid, binary_path, 0, &opts_co);
+    if (co_end) generic_links.push_back(co_end);
 
     skel->links.trace_sched_switch = bpf_program__attach(skel->progs.trace_sched_switch);
     if (!skel->links.trace_sched_switch) {
@@ -177,6 +220,11 @@ int main(int argc, char **argv) {
     if (!skel->links.trace_softirq_entry) std::cerr << "Failed to attach trace_softirq_entry\n";
     skel->links.trace_softirq_exit = bpf_program__attach(skel->progs.trace_softirq_exit);
     if (!skel->links.trace_softirq_exit) std::cerr << "Failed to attach trace_softirq_exit\n";
+    
+    skel->links.trace_sys_enter = bpf_program__attach(skel->progs.trace_sys_enter);
+    if (!skel->links.trace_sys_enter) std::cerr << "Failed to attach trace_sys_enter\n";
+    skel->links.trace_sys_exit = bpf_program__attach(skel->progs.trace_sys_exit);
+    if (!skel->links.trace_sys_exit) std::cerr << "Failed to attach trace_sys_exit\n";
 
     struct ring_buffer *rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, NULL, NULL);
     if (!rb) return 1;
